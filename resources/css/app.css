@@ -1,0 +1,193 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@source "../views";
+@source "../js";
+@source "../components";
+
+@theme {
+    --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+    /* ====== Canvas & Surfaces ====== */
+    --color-canvas: #f8fafc;
+    --color-surface: #f8f9ff;
+    --color-surface-lowest: #ffffff;
+    --color-surface-container-lowest: #ffffff;
+    --color-surface-container-low: #eff4ff;
+    --color-surface-container: #e5eeff;
+    --color-surface-container-high: #dce9ff;
+    --color-surface-container-highest: #d3e4fe;
+    --color-card: #ffffff;
+
+    /* ====== Structural Lines ====== */
+    --color-border-subtle: #e2e8f0;
+    --color-border-strong: #cbd5e1;
+    --color-border-stronger: #94a3b8;
+
+    /* ====== Text Hierarchy ====== */
+    --color-text-main: #0b1c30;
+    --color-text-strong: #0f172a;
+    --color-text-muted: #475569;
+    --color-text-dim: #64748b;
+    --color-text-subtle: #94a3b8;
+
+    /* ====== Primary / Actions ====== */
+    --color-primary: #2563eb;
+    --color-primary-hover: #1d4ed8;
+    --color-primary-soft: #eff6ff;
+    --color-primary-border: #dbeafe;
+    --color-primary-deep: #004ac6;
+    --color-on-primary: #ffffff;
+
+    /* ====== Ownership Badges ====== */
+    --color-pribadi-text: #1d4ed8;
+    --color-pribadi-bg: #dbeafe;
+    --color-pribadi-border: #bfdbfe;
+
+    --color-titip-text: #c2410c;
+    --color-titip-bg: #ffedd5;
+    --color-titip-border: #fed7aa;
+
+    --color-karantina-text: #6d28d9;
+    --color-karantina-bg: #f3e8ff;
+    --color-karantina-border: #e9d5ff;
+
+    /* ====== Status Feedback ====== */
+    --color-success-text: #15803d;
+    --color-success-bg: #dcfce7;
+    --color-success-border: #bbf7d0;
+
+    --color-error-text: #b91c1c;
+    --color-error-bg: #fee2e2;
+    --color-error-border: #fecaca;
+
+    --color-warning-text: #b45309;
+    --color-warning-bg: #fef3c7;
+    --color-warning-border: #fde68a;
+
+    --color-info-text: #003ea8;
+    --color-info-bg: #dbe1ff;
+    --color-info-border: #b4c5ff;
+
+    /* ====== Type Scale (text-*) ====== */
+    --text-display-total: 36px;
+    --text-display-total--line-height: 44px;
+    --text-display-total--font-weight: 700;
+    --text-display-total--letter-spacing: -0.02em;
+
+    --text-headline-lg: 28px;
+    --text-headline-lg--line-height: 36px;
+    --text-headline-lg--font-weight: 600;
+    --text-headline-lg--letter-spacing: -0.015em;
+
+    --text-headline-md: 20px;
+    --text-headline-md--line-height: 28px;
+    --text-headline-md--font-weight: 600;
+    --text-headline-md--letter-spacing: -0.01em;
+
+    --text-headline-sm: 16px;
+    --text-headline-sm--line-height: 24px;
+    --text-headline-sm--font-weight: 600;
+
+    --text-body-lg: 16px;
+    --text-body-lg--line-height: 26px;
+
+    --text-body-md: 14px;
+    --text-body-md--line-height: 22px;
+
+    --text-body-sm: 13px;
+    --text-body-sm--line-height: 20px;
+
+    --text-label-lg: 14px;
+    --text-label-lg--line-height: 20px;
+    --text-label-lg--font-weight: 600;
+    --text-label-lg--letter-spacing: 0.01em;
+
+    --text-label-md: 12px;
+    --text-label-md--line-height: 16px;
+    --text-label-md--font-weight: 600;
+    --text-label-md--letter-spacing: 0.02em;
+
+    --text-label-sm: 11px;
+    --text-label-sm--line-height: 14px;
+    --text-label-sm--font-weight: 500;
+    --text-label-sm--letter-spacing: 0.025em;
+
+    --text-sku: 13px;
+    --text-sku--line-height: 18px;
+    --text-sku--font-weight: 500;
+    --text-sku--letter-spacing: 0.02em;
+
+    --text-currency-display: 32px;
+    --text-currency-display--line-height: 40px;
+    --text-currency-display--font-weight: 700;
+    --text-currency-display--letter-spacing: -0.02em;
+}
+
+@layer components {
+    [x-cloak] {
+        display: none;
+    }
+
+    .card {
+        @apply bg-surface-lowest border border-border-subtle rounded-xl;
+    }
+
+    .card-pad {
+        @apply p-6;
+    }
+
+    .thead-dense {
+        @apply bg-canvas text-text-dim text-label-sm uppercase tracking-wide;
+    }
+
+    .row-dense {
+        @apply h-12 border-b border-border-subtle/60 last:border-0;
+    }
+
+    .input-base {
+        @apply w-full h-11 rounded-lg border border-border-strong bg-surface-lowest px-3.5 text-body-md text-text-strong placeholder:text-text-subtle focus:ring-[3px] focus:ring-primary/15 focus:border-primary outline-none transition;
+    }
+
+    .btn-primary {
+        @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 font-semibold text-on-primary transition select-none hover:bg-primary-hover active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50;
+    }
+
+    .btn-secondary {
+        @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-border-subtle bg-surface-lowest px-4 font-semibold text-text-strong transition select-none hover:border-border-strong hover:bg-canvas active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50;
+    }
+
+    .btn-destructive {
+        @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-error-border bg-error-bg px-4 font-semibold text-error-text transition select-none hover:bg-error-border/60 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50;
+    }
+
+    .btn-ghost {
+        @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 font-semibold text-text-muted transition select-none hover:bg-canvas hover:text-text-strong active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50;
+    }
+
+    .scan-input {
+        @apply font-mono h-14 text-body-lg w-full rounded-lg border border-border-strong bg-surface-lowest px-4 text-text-strong placeholder:text-text-subtle outline-none transition;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12), 0 0 0 1px #2563eb;
+    }
+    .scan-input:focus {
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25), 0 0 0 1px #2563eb;
+    }
+
+    .sticky-bar {
+        box-shadow: 0 -2px 8px -1px rgba(15, 23, 42, 0.06);
+    }
+
+    .badge-pill {
+        @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-label-md;
+    }
+}
+
+@keyframes pulse-green {
+    0% { background-color: #dcfce7; }
+    100% { background-color: transparent; }
+}
+
+.pulse-green {
+    animation: pulse-green 1s ease-out;
+}

@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="csrf-token" content="U2P4bIyQTyJY70oazwC9bErzPEeiq4dXyWrg3IDR">
+
+        <title>Dashboard</title>
+
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+        <link rel="preload" as="style" href="http://localhost:8000/build/assets/app-DWCzZ6cm.css" /><link rel="modulepreload" as="script" href="http://localhost:8000/build/assets/app-CKCmvFzv.js" /><link rel="stylesheet" href="http://localhost:8000/build/assets/app-DWCzZ6cm.css" /><script type="module" src="http://localhost:8000/build/assets/app-CKCmvFzv.js"></script>            </head>
+    <body class="h-full bg-canvas font-sans text-text-strong antialiased">
+        <div class="min-h-full" x-data="{ sidebarOpen: false }">
+            <!-- Mobile overlay -->
+<div x-show="sidebarOpen" x-cloak @click="sidebarOpen = false"
+     class="fixed inset-0 z-30 bg-text-strong/40 lg:hidden"></div>
+
+<aside x-data="{ isDesktop: window.matchMedia('(min-width: 1024px)').matches }"
+       x-show="isDesktop || sidebarOpen" x-cloak
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="-translate-x-full"
+       x-transition:enter-end="translate-x-0"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="translate-x-0"
+       x-transition:leave-end="-translate-x-full"
+       class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border-subtle bg-surface-lowest lg:translate-x-0 lg:transition-none">
+    <div class="flex h-16 items-center justify-between border-b border-border-subtle px-5">
+        <a href="http://localhost:8000/dashboard" class="flex items-center gap-2.5">
+            <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-on-primary">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 13l4 4L19 7"/>
+                </svg>
+            </span>
+            <span class="text-headline-sm font-semibold text-text-strong">SemiERP<wbr>HotWheels</span>
+        </a>
+        <button type="button" class="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:bg-canvas lg:hidden" @click="sidebarOpen = false" aria-label="Tutup menu">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M6 18L18 6"/></svg>
+        </button>
+    </div>
+
+    <nav class="flex-1 space-y-6 overflow-y-auto px-3 py-5">
+                                    <div>
+                    <a href="http://localhost:8000/dashboard"
+                       class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition bg-primary-soft text-primary">
+                        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1h3a1 1 0 001-1V10"/>
+                        </svg>
+                        Dashboard
+                    </a>
+                </div>
+                                                <div>
+                    <p class="px-3 pb-2 text-label-sm uppercase tracking-wider text-text-subtle">Master Data</p>
+                    <ul class="space-y-0.5">
+                                                    <li>
+                                <a href="http://localhost:8000/master/penitip"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    </svg>
+                                    Data Penitip
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/master/katalog-produk"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10"/>
+                                    </svg>
+                                    Katalog Produk
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/master/lokasi-rak"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                                    </svg>
+                                    Lokasi Rak
+                                                                    </a>
+                            </li>
+                                            </ul>
+                </div>
+                                                <div>
+                    <p class="px-3 pb-2 text-label-sm uppercase tracking-wider text-text-subtle">Inbound</p>
+                    <ul class="space-y-0.5">
+                                                    <li>
+                                <a href="http://localhost:8000/inbound/stock-in-pribadi"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+                                    </svg>
+                                    Stock In Pribadi
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/inbound/consignment-in"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z M12 12v4m0 0l-2-2m2 2l2-2"/>
+                                    </svg>
+                                    Consignment In
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/inbound/cetak-label"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+                                    </svg>
+                                    Cetak / Re-print Label
+                                                                    </a>
+                            </li>
+                                            </ul>
+                </div>
+                                                <div>
+                    <p class="px-3 pb-2 text-label-sm uppercase tracking-wider text-text-subtle">Inventory</p>
+                    <ul class="space-y-0.5">
+                                                    <li>
+                                <a href="http://localhost:8000/inventory/live-stock"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+                                    </svg>
+                                    Live Stock
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/inventory/karantina"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                                    </svg>
+                                    Karantina
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/inventory/stok-opname"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                                    </svg>
+                                    Stok Opname
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/inventory/retur-rtv"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z"/>
+                                    </svg>
+                                    Retur Penitip (RTV)
+                                                                    </a>
+                            </li>
+                                            </ul>
+                </div>
+                                                <div>
+                    <p class="px-3 pb-2 text-label-sm uppercase tracking-wider text-text-subtle">POS / Kasir</p>
+                    <ul class="space-y-0.5">
+                                                    <li>
+                                <a href="http://localhost:8000/pos/kasir"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M3 10h18M7 15h2m4 0h2M5 6h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z"/>
+                                    </svg>
+                                    Kasir
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/pos/riwayat-transaksi"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+                                    </svg>
+                                    Riwayat Transaksi
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/pos/shift-kasir"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    Shift Kasir
+                                                                    </a>
+                            </li>
+                                            </ul>
+                </div>
+                                                <div>
+                    <p class="px-3 pb-2 text-label-sm uppercase tracking-wider text-text-subtle">Reports &amp; Analisis</p>
+                    <ul class="space-y-0.5">
+                                                    <li>
+                                <a href="http://localhost:8000/reports/consignor-settlement"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9 7h6m-6 4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z"/>
+                                    </svg>
+                                    Consignor Settlement
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/reports/profit-margin"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                    </svg>
+                                    Profit Margin vs Fee
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/reports/laporan-penjualan-stok"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                    </svg>
+                                    Laporan Penjualan &amp; Stok
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/reports/audit-log"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                    </svg>
+                                    Audit Log
+                                                                    </a>
+                            </li>
+                                            </ul>
+                </div>
+                                                <div>
+                    <p class="px-3 pb-2 text-label-sm uppercase tracking-wider text-text-subtle">Pengaturan</p>
+                    <ul class="space-y-0.5">
+                                                    <li>
+                                <a href="http://localhost:8000/settings/pengguna-role"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    </svg>
+                                    Pengguna &amp; Role
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/settings/perangkat"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                    </svg>
+                                    Perangkat
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/settings/wa-template"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                                    </svg>
+                                    Template WhatsApp
+                                                                    </a>
+                            </li>
+                                                    <li>
+                                <a href="http://localhost:8000/settings/parameter"
+                                   class="group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition text-text-muted hover:bg-canvas hover:text-text-strong">
+                                    <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                    </svg>
+                                    Parameter Sistem
+                                                                    </a>
+                            </li>
+                                            </ul>
+                </div>
+                        </nav>
+
+    <div class="border-t border-border-subtle p-4">
+        <div class="flex items-center gap-2 rounded-lg bg-canvas px-3 py-2.5">
+            <span class="relative flex h-2.5 w-2.5">
+                <span class="absolute inline-flex h-full w-full rounded-full bg-success-text opacity-50"></span>
+                <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-success-text"></span>
+            </span>
+            <div class="text-body-sm">
+                <p class="font-semibold text-text-strong">Tersinkron</p>
+                <p class="text-label-sm text-text-muted">Shift Reguler 1 · Ahmad Fauzi</p>
+            </div>
+        </div>
+    </div>
+</aside>
+            <div class="lg:pl-64">
+                <header class="sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b border-border-subtle bg-surface-lowest/95 px-4 backdrop-blur sm:px-6 lg:px-8">
+    <div class="flex items-center gap-3">
+        <button type="button" class="flex h-9 w-9 items-center justify-center rounded-lg text-text-muted hover:bg-canvas lg:hidden" @click="sidebarOpen = true" aria-label="Buka menu">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+
+        <div class="hidden items-center gap-2 md:flex">
+            <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-label-sm">
+                <span class="relative flex h-2 w-2">
+                    <span class="absolute inline-flex h-full w-full rounded-full bg-success-text opacity-60"></span>
+                    <span class="relative inline-flex h-2 w-2 rounded-full bg-success-text"></span>
+                </span>
+                <span class="font-semibold text-success-text">ONLINE</span>
+            </span>
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-warning-bg px-2.5 py-0.5 text-label-sm text-warning-text">
+                Antrean sync: 2
+            </span>
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-info-bg px-2.5 py-0.5 text-label-sm text-info-text">
+                Karantina aging: 1
+            </span>
+        </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+        <span class="hidden text-label-sm italic text-text-subtle xl:block">Hot Wheels Store · Cassiopeia Plaza</span>
+
+        <button type="button" class="relative flex h-9 w-9 items-center justify-center rounded-lg text-text-muted transition hover:bg-canvas hover:text-text-strong" @click="$store.toast.push('Tidak ada notifikasi baru', 'info')" aria-label="Notifikasi">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+            </svg>
+            <span class="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-error-text text-label-sm text-on-primary">3</span>
+        </button>
+
+        <div class="relative flex items-center gap-3 border-l border-border-subtle pl-3" x-data="{ profileOpen: false }">
+            <div class="hidden text-right sm:block">
+                <p class="text-body-md font-semibold leading-tight text-text-strong">Ahmad Fauzi</p>
+                <p class="text-label-sm text-text-muted">Kasir · Reguler</p>
+            </div>
+            <button type="button" class="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-headline-sm font-semibold text-on-primary" @click="profileOpen = !profileOpen" aria-label="Menu profil">AF</button>
+
+            <div x-show="profileOpen" x-cloak @click.outside="profileOpen = false" x-transition
+                 class="absolute right-4 top-16 w-56 rounded-xl border border-border-subtle bg-surface-lowest p-1.5 shadow-lg">
+                <a href="http://localhost:8000/profile" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-body-md text-text-muted hover:bg-canvas hover:text-text-strong">
+                    <svg class="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                    Profil Saya
+                </a>
+                <form method="POST" action="http://localhost:8000/logout">
+                    <input type="hidden" name="_token" value="U2P4bIyQTyJY70oazwC9bErzPEeiq4dXyWrg3IDR" autocomplete="off">                    <button type="submit" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-body-md text-error-text hover:bg-error-bg">
+                        <svg class="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                        Keluar
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</header>
+                <!-- Global toasts -->
+                <div class="fixed top-4 right-4 z-[60] flex flex-col gap-2" x-data>
+                    <template x-for="t in $store.toast.items" :key="t.id">
+                        <div x-show="t" x-transition:enter="transition ease-out duration-200"
+                             x-transition:enter-start="opacity-0 translate-x-4"
+                             x-transition:enter-end="opacity-100 translate-x-0"
+                             x-transition:leave="transition ease-in duration-150"
+                             x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                             class="pointer-events-auto flex w-80 items-start gap-3 rounded-lg border bg-surface-lowest p-4 shadow-lg"
+                             :class="{
+                                'border-success-border bg-success-bg': t.type === 'success',
+                                'border-error-border bg-error-bg': t.type === 'error',
+                                'border-warning-border bg-warning-bg': t.type === 'warning',
+                                'border-info-border bg-info-bg': t.type === 'info',
+                             }">
+                            <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-success-bg text-label-md text-success-text"
+                                  :class="{
+                                    'bg-success-bg text-success-text': t.type === 'success',
+                                    'bg-error-bg text-error-text': t.type === 'error',
+                                    'bg-warning-bg text-warning-text': t.type === 'warning',
+                                    'bg-info-bg text-info-text': t.type === 'info',
+                                  }"
+                                  x-text="t.icon"></span>
+                            <p class="text-body-sm text-text-strong" x-text="t.message"></p>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Page Content -->
+                <main class="px-4 py-6 sm:px-6 lg:px-8">
+                    <div class="mx-auto max-w-7xl">
+                        &lt;div class=&quot;mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between&quot;&gt;
+    &lt;div class=&quot;min-w-0&quot;&gt;
+                    &lt;nav class=&quot;mb-1.5 flex flex-wrap items-center gap-1.5 text-label-sm text-text-subtle&quot; aria-label=&quot;Breadcrumb&quot;&gt;
+                                    &lt;span&gt;Home&lt;/span&gt;
+                                            &lt;svg class=&quot;h-3 w-3&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot;&gt;&lt;path d=&quot;M9 18l6-6-6-6&quot;/&gt;&lt;/svg&gt;
+                                                        &lt;span&gt;Dashboard&lt;/span&gt;
+                                                &lt;/nav&gt;
+                &lt;h1 class=&quot;text-headline-lg text-text-strong&quot;&gt;Dashboard&lt;/h1&gt;
+                    &lt;p class=&quot;mt-1 text-body-sm text-text-muted&quot;&gt;Ringkasan operasional &amp;amp; performa hari ini · Kamis, 24 Sep 2026&lt;/p&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;flex shrink-0 flex-wrap items-center gap-2&quot;&gt;
+            &lt;button type=&quot;button&quot; class=&quot;btn-secondary&quot; @click=&quot;$store.toast.push(&#039;Tombol cetak disiapkan untuk pre-print (opsional)&#039;, &#039;info&#039;)&quot;&gt;
+            Cetak
+        &lt;/button&gt;
+        &lt;a href=&quot;http://localhost:8000/pos/kasir&quot; class=&quot;btn-primary&quot;&gt;
+            &lt;svg class=&quot;h-5 w-5&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;&gt;&lt;path d=&quot;M3 10h18M7 15h2m4 0h2M5 6h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z&quot;/&gt;&lt;/svg&gt;
+            Buka Kasir
+        &lt;/a&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;div class=&quot;space-y-6&quot;&gt;
+    &lt;div class=&quot;flex items-start gap-3 rounded-lg border px-4 py-3 border-warning-border bg-warning-bg text-warning-text&quot;&gt;
+    &lt;svg class=&quot;mt-0.5 h-5 w-5 shrink-0&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;path d=&quot;M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z&quot; /&gt;
+    &lt;/svg&gt;
+    &lt;div class=&quot;text-body-sm&quot;&gt;&lt;span class=&quot;font-semibold&quot;&gt;Karantina aging kritis.&lt;/span&gt;
+        3 kasus menunggu verifikasi (1 kasus &amp;gt; 7 hari).
+        &lt;a href=&quot;http://localhost:8000/inventory/karantina&quot; class=&quot;font-semibold underline&quot;&gt;Buka Karantina →&lt;/a&gt;&lt;/div&gt;
+&lt;/div&gt;
+    &lt;div class=&quot;grid gap-5 sm:grid-cols-2 xl:grid-cols-4&quot;&gt;
+        &lt;div class=&quot;card card-pad&quot;&gt;
+    &lt;div class=&quot;flex items-start justify-between gap-4&quot;&gt;
+        &lt;div class=&quot;min-w-0&quot;&gt;
+            &lt;p class=&quot;text-label-sm uppercase tracking-wide text-text-muted&quot;&gt;Penjualan Hari Ini&lt;/p&gt;
+            &lt;p class=&quot;mt-1.5 text-currency-display text-text-strong tabular-nums&quot;&gt;Rp4.215.000&lt;/p&gt;
+                            &lt;p class=&quot;mt-1 inline-flex items-center gap-1 text-label-md text-success-text&quot;&gt;
+                    +18,4% dari kemarin
+                &lt;/p&gt;
+                    &lt;/div&gt;
+                    &lt;div class=&quot;flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary&quot;&gt;
+                &lt;svg class=&quot;h-5 w-5&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; aria-hidden=&quot;true&quot;&gt;
+                    &lt;path d=&quot;M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z&quot; /&gt;
+                &lt;/svg&gt;
+            &lt;/div&gt;
+            &lt;/div&gt;
+&lt;/div&gt;        &lt;div class=&quot;card card-pad&quot;&gt;
+    &lt;div class=&quot;flex items-start justify-between gap-4&quot;&gt;
+        &lt;div class=&quot;min-w-0&quot;&gt;
+            &lt;p class=&quot;text-label-sm uppercase tracking-wide text-text-muted&quot;&gt;Estimasi Margin Hari Ini&lt;/p&gt;
+            &lt;p class=&quot;mt-1.5 text-currency-display text-text-strong tabular-nums&quot;&gt;Rp892.400&lt;/p&gt;
+                            &lt;p class=&quot;mt-1 inline-flex items-center gap-1 text-label-md text-success-text&quot;&gt;
+                    +9,1% dari kemarin
+                &lt;/p&gt;
+                    &lt;/div&gt;
+                    &lt;div class=&quot;flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary&quot;&gt;
+                &lt;svg class=&quot;h-5 w-5&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; aria-hidden=&quot;true&quot;&gt;
+                    &lt;path d=&quot;M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z&quot; /&gt;
+                &lt;/svg&gt;
+            &lt;/div&gt;
+            &lt;/div&gt;
+&lt;/div&gt;        &lt;div class=&quot;card card-pad&quot;&gt;
+    &lt;div class=&quot;flex items-start justify-between gap-4&quot;&gt;
+        &lt;div class=&quot;min-w-0&quot;&gt;
+            &lt;p class=&quot;text-label-sm uppercase tracking-wide text-text-muted&quot;&gt;Saldo Titipan Siap Cair&lt;/p&gt;
+            &lt;p class=&quot;mt-1.5 text-currency-display text-text-strong tabular-nums&quot;&gt;Rp2.512.000&lt;/p&gt;
+                            &lt;p class=&quot;mt-1 inline-flex items-center gap-1 text-label-md text-info-text&quot;&gt;
+                    3 penitip aktif
+                &lt;/p&gt;
+                    &lt;/div&gt;
+                    &lt;div class=&quot;flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary&quot;&gt;
+                &lt;svg class=&quot;h-5 w-5&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; aria-hidden=&quot;true&quot;&gt;
+                    &lt;path d=&quot;M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z&quot; /&gt;
+                &lt;/svg&gt;
+            &lt;/div&gt;
+            &lt;/div&gt;
+&lt;/div&gt;        &lt;div class=&quot;card card-pad&quot;&gt;
+    &lt;div class=&quot;flex items-start justify-between gap-4&quot;&gt;
+        &lt;div class=&quot;min-w-0&quot;&gt;
+            &lt;p class=&quot;text-label-sm uppercase tracking-wide text-text-muted&quot;&gt;Unit Stok Tersedia&lt;/p&gt;
+            &lt;p class=&quot;mt-1.5 text-currency-display text-text-strong tabular-nums&quot;&gt;412&lt;/p&gt;
+                            &lt;p class=&quot;mt-1 inline-flex items-center gap-1 text-label-md text-warning-text&quot;&gt;
+                    8 unit terlaris
+                &lt;/p&gt;
+                    &lt;/div&gt;
+                    &lt;div class=&quot;flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary&quot;&gt;
+                &lt;svg class=&quot;h-5 w-5&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; aria-hidden=&quot;true&quot;&gt;
+                    &lt;path d=&quot;M5 13l4 4L19 7&quot; /&gt;
+                &lt;/svg&gt;
+            &lt;/div&gt;
+            &lt;/div&gt;
+&lt;/div&gt;    &lt;/div&gt;
+
+    &lt;div class=&quot;grid gap-6 lg:grid-cols-3&quot;&gt;
+        &lt;!-- Recent activity (7 col) --&gt;
+        &lt;div class=&quot;lg:col-span-2 card&quot;&gt;
+            &lt;div class=&quot;flex items-center justify-between border-b border-border-subtle px-6 py-4&quot;&gt;
+                &lt;div&gt;
+                    &lt;h2 class=&quot;text-headline-sm text-text-strong&quot;&gt;Aktivitas Terkini&lt;/h2&gt;
+                    &lt;p class=&quot;text-label-sm text-text-muted&quot;&gt;Kasir memantau transaksi sebelum menyelesaikan shift.&lt;/p&gt;
+                &lt;/div&gt;
+                &lt;span class=&quot;inline-flex items-center gap-1.5 rounded-full bg-canvas px-2.5 py-1 text-label-sm text-text-muted&quot;&gt;
+                    &lt;span class=&quot;h-1.5 w-1.5 rounded-full bg-success-text&quot;&gt;&lt;/span&gt; Live
+                &lt;/span&gt;
+            &lt;/div&gt;
+
+                            &lt;ul class=&quot;divide-y divide-border-subtle&quot;&gt;
+                                            &lt;li class=&quot;flex items-start gap-4 px-6 py-3.5 transition hover:bg-canvas&quot;&gt;
+                            &lt;span class=&quot;w-20 shrink-0 pt-0.5 text-label-sm text-text-subtle tabular-nums&quot;&gt;14:02 WIB&lt;/span&gt;
+                            &lt;span class=&quot;flex-1 text-body-sm text-text-strong&quot;&gt;Penitipan masuk 8 unit (CN01-Budi Santoso) · SKU CN01-HW-004 → s/d 007&lt;/span&gt;
+                        &lt;/li&gt;
+                                            &lt;li class=&quot;flex items-start gap-4 px-6 py-3.5 transition hover:bg-canvas&quot;&gt;
+                            &lt;span class=&quot;w-20 shrink-0 pt-0.5 text-label-sm text-text-subtle tabular-nums&quot;&gt;13:47 WIB&lt;/span&gt;
+                            &lt;span class=&quot;flex-1 text-body-sm text-text-strong&quot;&gt;Kasus karantina Q-2026-017 dipindahkan ke rak Q-00-01&lt;/span&gt;
+                        &lt;/li&gt;
+                                            &lt;li class=&quot;flex items-start gap-4 px-6 py-3.5 transition hover:bg-canvas&quot;&gt;
+                            &lt;span class=&quot;w-20 shrink-0 pt-0.5 text-label-sm text-text-subtle tabular-nums&quot;&gt;13:26 WIB&lt;/span&gt;
+                            &lt;span class=&quot;flex-1 text-body-sm text-text-strong&quot;&gt;Transaksi POS-CP2-2026-08913 selesai · Rp505.000 tunai&lt;/span&gt;
+                        &lt;/li&gt;
+                                            &lt;li class=&quot;flex items-start gap-4 px-6 py-3.5 transition hover:bg-canvas&quot;&gt;
+                            &lt;span class=&quot;w-20 shrink-0 pt-0.5 text-label-sm text-text-subtle tabular-nums&quot;&gt;12:58 WIB&lt;/span&gt;
+                            &lt;span class=&quot;flex-1 text-body-sm text-text-strong&quot;&gt;Settlement CN01-Budi Santoso dibuka · 12 SKU · Estimasi Rp1.840.000&lt;/span&gt;
+                        &lt;/li&gt;
+                                            &lt;li class=&quot;flex items-start gap-4 px-6 py-3.5 transition hover:bg-canvas&quot;&gt;
+                            &lt;span class=&quot;w-20 shrink-0 pt-0.5 text-label-sm text-text-subtle tabular-nums&quot;&gt;12:41 WIB&lt;/span&gt;
+                            &lt;span class=&quot;flex-1 text-body-sm text-text-strong&quot;&gt;Printer label WMS-01 dites · 3×2cm OK (203 DPI)&lt;/span&gt;
+                        &lt;/li&gt;
+                                            &lt;li class=&quot;flex items-start gap-4 px-6 py-3.5 transition hover:bg-canvas&quot;&gt;
+                            &lt;span class=&quot;w-20 shrink-0 pt-0.5 text-label-sm text-text-subtle tabular-nums&quot;&gt;11:30 WIB&lt;/span&gt;
+                            &lt;span class=&quot;flex-1 text-body-sm text-text-strong&quot;&gt;Stok opname dimulai oleh Ahmad Fauzi · Progress 342/450 rak&lt;/span&gt;
+                        &lt;/li&gt;
+                                    &lt;/ul&gt;
+                    &lt;/div&gt;
+
+        &lt;!-- Rack capacity + top consignor (5 col) --&gt;
+        &lt;div class=&quot;space-y-6&quot;&gt;
+            &lt;div class=&quot;card card-pad&quot;&gt;
+                &lt;h2 class=&quot;text-headline-sm text-text-strong&quot;&gt;Kapasitas Rak&lt;/h2&gt;
+                &lt;ul class=&quot;mt-4 space-y-3.5&quot;&gt;
+                                            &lt;li&gt;
+                            &lt;div class=&quot;mb-1 flex items-center justify-between text-body-sm&quot;&gt;
+                                &lt;span class=&quot;font-medium text-text-strong&quot;&gt;A-01-03&lt;/span&gt;
+                                &lt;span class=&quot;text-text-muted tabular-nums&quot;&gt;18/24 · 75%&lt;/span&gt;
+                            &lt;/div&gt;
+                            &lt;div class=&quot;h-2 w-full overflow-hidden rounded-full bg-canvas&quot;&gt;
+                                &lt;div class=&quot;h-2 rounded-full transition-all duration-500
+                                    bg-warning-text&quot;
+                                     style=&quot;width: 75%&quot;&gt;&lt;/div&gt;
+                            &lt;/div&gt;
+                        &lt;/li&gt;
+                                            &lt;li&gt;
+                            &lt;div class=&quot;mb-1 flex items-center justify-between text-body-sm&quot;&gt;
+                                &lt;span class=&quot;font-medium text-text-strong&quot;&gt;A-02-01&lt;/span&gt;
+                                &lt;span class=&quot;text-text-muted tabular-nums&quot;&gt;22/24 · 92%&lt;/span&gt;
+                            &lt;/div&gt;
+                            &lt;div class=&quot;h-2 w-full overflow-hidden rounded-full bg-canvas&quot;&gt;
+                                &lt;div class=&quot;h-2 rounded-full transition-all duration-500
+                                    bg-error-text&quot;
+                                     style=&quot;width: 92%&quot;&gt;&lt;/div&gt;
+                            &lt;/div&gt;
+                        &lt;/li&gt;
+                                            &lt;li&gt;
+                            &lt;div class=&quot;mb-1 flex items-center justify-between text-body-sm&quot;&gt;
+                                &lt;span class=&quot;font-medium text-text-strong&quot;&gt;B-01-05&lt;/span&gt;
+                                &lt;span class=&quot;text-text-muted tabular-nums&quot;&gt;40/48 · 83%&lt;/span&gt;
+                            &lt;/div&gt;
+                            &lt;div class=&quot;h-2 w-full overflow-hidden rounded-full bg-canvas&quot;&gt;
+                                &lt;div class=&quot;h-2 rounded-full transition-all duration-500
+                                    bg-warning-text&quot;
+                                     style=&quot;width: 83%&quot;&gt;&lt;/div&gt;
+                            &lt;/div&gt;
+                        &lt;/li&gt;
+                                            &lt;li&gt;
+                            &lt;div class=&quot;mb-1 flex items-center justify-between text-body-sm&quot;&gt;
+                                &lt;span class=&quot;font-medium text-text-strong&quot;&gt;Q-00-01&lt;/span&gt;
+                                &lt;span class=&quot;text-text-muted tabular-nums&quot;&gt;7/12 · 58%&lt;/span&gt;
+                            &lt;/div&gt;
+                            &lt;div class=&quot;h-2 w-full overflow-hidden rounded-full bg-canvas&quot;&gt;
+                                &lt;div class=&quot;h-2 rounded-full transition-all duration-500
+                                    bg-primary&quot;
+                                     style=&quot;width: 58%&quot;&gt;&lt;/div&gt;
+                            &lt;/div&gt;
+                        &lt;/li&gt;
+                                            &lt;li&gt;
+                            &lt;div class=&quot;mb-1 flex items-center justify-between text-body-sm&quot;&gt;
+                                &lt;span class=&quot;font-medium text-text-strong&quot;&gt;R-00-02&lt;/span&gt;
+                                &lt;span class=&quot;text-text-muted tabular-nums&quot;&gt;3/10 · 30%&lt;/span&gt;
+                            &lt;/div&gt;
+                            &lt;div class=&quot;h-2 w-full overflow-hidden rounded-full bg-canvas&quot;&gt;
+                                &lt;div class=&quot;h-2 rounded-full transition-all duration-500
+                                    bg-primary&quot;
+                                     style=&quot;width: 30%&quot;&gt;&lt;/div&gt;
+                            &lt;/div&gt;
+                        &lt;/li&gt;
+                                            &lt;li&gt;
+                            &lt;div class=&quot;mb-1 flex items-center justify-between text-body-sm&quot;&gt;
+                                &lt;span class=&quot;font-medium text-text-strong&quot;&gt;C-03-08&lt;/span&gt;
+                                &lt;span class=&quot;text-text-muted tabular-nums&quot;&gt;51/60 · 85%&lt;/span&gt;
+                            &lt;/div&gt;
+                            &lt;div class=&quot;h-2 w-full overflow-hidden rounded-full bg-canvas&quot;&gt;
+                                &lt;div class=&quot;h-2 rounded-full transition-all duration-500
+                                    bg-warning-text&quot;
+                                     style=&quot;width: 85%&quot;&gt;&lt;/div&gt;
+                            &lt;/div&gt;
+                        &lt;/li&gt;
+                                    &lt;/ul&gt;
+            &lt;/div&gt;
+
+            &lt;div class=&quot;card card-pad&quot;&gt;
+                &lt;div class=&quot;flex items-center justify-between&quot;&gt;
+                    &lt;h2 class=&quot;text-headline-sm text-text-strong&quot;&gt;Top Consignor&lt;/h2&gt;
+                    &lt;a href=&quot;http://localhost:8000/reports/consignor-settlement&quot; class=&quot;text-label-md font-semibold text-primary hover:underline&quot;&gt;Settlement →&lt;/a&gt;
+                &lt;/div&gt;
+                &lt;ul class=&quot;mt-4 space-y-3&quot;&gt;
+                                            &lt;li class=&quot;flex items-center justify-between gap-3&quot;&gt;
+                            &lt;div class=&quot;flex items-center gap-3&quot;&gt;
+                                &lt;span class=&quot;flex h-8 w-8 items-center justify-center rounded-lg bg-canvas text-label-md font-semibold text-text-muted&quot;&gt;1&lt;/span&gt;
+                                &lt;div&gt;
+                                    &lt;p class=&quot;text-body-sm font-medium text-text-strong&quot;&gt;Budi Santoso&lt;/p&gt;
+                                    &lt;p class=&quot;font-mono text-label-sm text-text-subtle&quot;&gt;CN01&lt;/p&gt;
+                                &lt;/div&gt;
+                            &lt;/div&gt;
+                            &lt;span class=&quot;text-body-md font-semibold text-text-strong tabular-nums&quot;&gt;Rp1.840.000&lt;/span&gt;
+                        &lt;/li&gt;
+                                            &lt;li class=&quot;flex items-center justify-between gap-3&quot;&gt;
+                            &lt;div class=&quot;flex items-center gap-3&quot;&gt;
+                                &lt;span class=&quot;flex h-8 w-8 items-center justify-center rounded-lg bg-canvas text-label-md font-semibold text-text-muted&quot;&gt;2&lt;/span&gt;
+                                &lt;div&gt;
+                                    &lt;p class=&quot;text-body-sm font-medium text-text-strong&quot;&gt;Rina Wijaya&lt;/p&gt;
+                                    &lt;p class=&quot;font-mono text-label-sm text-text-subtle&quot;&gt;CN02&lt;/p&gt;
+                                &lt;/div&gt;
+                            &lt;/div&gt;
+                            &lt;span class=&quot;text-body-md font-semibold text-text-strong tabular-nums&quot;&gt;Rp672.000&lt;/span&gt;
+                        &lt;/li&gt;
+                                            &lt;li class=&quot;flex items-center justify-between gap-3&quot;&gt;
+                            &lt;div class=&quot;flex items-center gap-3&quot;&gt;
+                                &lt;span class=&quot;flex h-8 w-8 items-center justify-center rounded-lg bg-canvas text-label-md font-semibold text-text-muted&quot;&gt;3&lt;/span&gt;
+                                &lt;div&gt;
+                                    &lt;p class=&quot;text-body-sm font-medium text-text-strong&quot;&gt;Agus Kurniawan&lt;/p&gt;
+                                    &lt;p class=&quot;font-mono text-label-sm text-text-subtle&quot;&gt;CN03&lt;/p&gt;
+                                &lt;/div&gt;
+                            &lt;/div&gt;
+                            &lt;span class=&quot;text-body-md font-semibold text-text-strong tabular-nums&quot;&gt;Rp0&lt;/span&gt;
+                        &lt;/li&gt;
+                                    &lt;/ul&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/div&gt;
+                    </div>
+                </main>
+
+                <footer class="px-6 pb-6 text-label-sm text-text-subtle lg:px-8">
+                    <div class="text-center">
+                        Semi-WMS &amp; POS Konsinyasi Hot Wheels · v0.1 (UI Blueprint)
+                    </div>
+                </footer>
+            </div>
+        </div>
+    </body>
+</html>
