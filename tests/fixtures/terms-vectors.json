@@ -1,0 +1,142 @@
+{
+  "_note": [
+    "Vektor bersama untuk TermsCalculator (PHP) dan terms-calculator.js (browser).",
+    "Kedua sisi membaca file ini, jadi angka yang dipratinjau kasir dan angka yang",
+    "disimpan server tidak bisa berbeda karena salah satu test lupa diperbarui.",
+    "Ubah di sini, bukan di file test."
+  ],
+  "vectors": [
+    {
+      "name": "dokumen: 20 persen",
+      "listPrice": 50000,
+      "schemeType": "PERCENTAGE",
+      "schemeRate": 20,
+      "discount": 0,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": 10000,
+      "consignorRight": 40000,
+      "negativeMargin": false
+    },
+    {
+      "name": "dokumen: nett 38.000",
+      "listPrice": 50000,
+      "schemeType": "NETT",
+      "schemeAmount": 38000,
+      "discount": 0,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": 12000,
+      "consignorRight": 38000,
+      "negativeMargin": false
+    },
+    {
+      "name": "dokumen: flat 8.000",
+      "listPrice": 50000,
+      "schemeType": "FLAT",
+      "schemeAmount": 8000,
+      "discount": 0,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": 8000,
+      "consignorRight": 42000,
+      "negativeMargin": false
+    },
+    {
+      "name": "diskon ditanggung toko",
+      "listPrice": 50000,
+      "schemeType": "FLAT",
+      "schemeAmount": 10000,
+      "discount": 5000,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": 5000,
+      "consignorRight": 40000,
+      "negativeMargin": false
+    },
+    {
+      "name": "diskon ditanggung berdua",
+      "listPrice": 50000,
+      "schemeType": "FLAT",
+      "schemeAmount": 10000,
+      "discount": 5000,
+      "discountPolicy": "SHARED",
+      "storeFee": 10000,
+      "consignorRight": 35000,
+      "negativeMargin": false
+    },
+    {
+      "name": "diskon memotong bagian toko",
+      "listPrice": 50000,
+      "schemeType": "PERCENTAGE",
+      "schemeRate": 20,
+      "discount": 5000,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": 4000,
+      "consignorRight": 41000,
+      "negativeMargin": false
+    },
+    {
+      "name": "diskon memotong hasil penjualan berdua",
+      "listPrice": 50000,
+      "schemeType": "PERCENTAGE",
+      "schemeRate": 20,
+      "discount": 5000,
+      "discountPolicy": "SHARED",
+      "storeFee": 9000,
+      "consignorRight": 36000,
+      "negativeMargin": false
+    },
+    {
+      "name": "diskon lebih besar dari fee, margin negatif",
+      "listPrice": 50000,
+      "schemeType": "FLAT",
+      "schemeAmount": 8000,
+      "discount": 45000,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": -37000,
+      "consignorRight": 42000,
+      "negativeMargin": true
+    },
+    {
+      "name": "nett di atas harga jual, margin negatif",
+      "listPrice": 50000,
+      "schemeType": "NETT",
+      "schemeAmount": 55000,
+      "discount": 0,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": -5000,
+      "consignorRight": 55000,
+      "negativeMargin": true
+    },
+    {
+      "name": "pembulatan setengah ke atas",
+      "listPrice": 10,
+      "schemeType": "PERCENTAGE",
+      "schemeRate": 25,
+      "discount": 0,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": 3,
+      "consignorRight": 7,
+      "negativeMargin": false
+    },
+    {
+      "name": "pembulatan per unit, bukan per total",
+      "listPrice": 999,
+      "schemeType": "PERCENTAGE",
+      "schemeRate": 15,
+      "discount": 0,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": 150,
+      "consignorRight": 849,
+      "negativeMargin": false
+    },
+    {
+      "name": "diskon tepat menghabiskan harga jual",
+      "listPrice": 50000,
+      "schemeType": "FLAT",
+      "schemeAmount": 8000,
+      "discount": 50000,
+      "discountPolicy": "STORE_BEARS",
+      "storeFee": -42000,
+      "consignorRight": 42000,
+      "negativeMargin": true
+    }
+  ]
+}

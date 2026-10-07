@@ -1,4 +1,4 @@
-@props(['searchPlaceholder' => 'Cari...'])
+@props(['searchPlaceholder' => 'Cari...', 'filters' => null, 'actions' => null])
 
 <div {{ $attributes->merge(['class' => 'mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between']) }}>
     <div class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">

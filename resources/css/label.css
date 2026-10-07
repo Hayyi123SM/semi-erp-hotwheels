@@ -1,0 +1,570 @@
+/*
+ * Gaya label thermal.
+ *
+ * Berdiri sendiri dari app.css, bukan disisipkan ke sana, karena aturan yang
+ * dipakai di sini (page break, media query cetak) tidak berguna di halaman
+ * aplikasi dan hanya menambah ukuran bundel untuk semua orang.
+ *
+ * UKURAN TIDAK ADA DI FILE INI. Lebar dan tinggi label, ukuran font, ukuran
+ * QR, dan jarak semuanya ditulis renderer sebagai inline style dari
+ * LabelGeometry. Alasannya geometri: angka itu harus bisa diuji
+ * (LabelGeometryTest) dan harus ikut ke kertas apa adanya, sementara CSS
+ * mudah berubah tanpa ada test yang gagal.
+ *
+ * File ini hanya mengatur bentuk: merapikan, memotong, dan perilaku cetak.
+ */
+
+.label {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #fff;
+    color: #000;
+    font-family: 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif;
+    /* Label thermal diisi rapat: ruang kosong berarti luas yang terbuang. */
+    line-height: 1.1;
+    /* Tanpa ini browser boleh membuang warna latar saat mencetak, dan label
+       yang terisi gelap akan tercetak kosong. */
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+}
+
+.label__body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+.label__rows {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--row-gap, 0.03cm);
+    min-width: 0;
+    overflow: hidden;
+}
+
+.label__line,
+.label__stack {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/*
+ * `font-size` tidak ada di sini: renderer menulisnya inline dari
+ * `LabelRow::CAPTION_FONT_SIZE_CM`, karena angka itu ikut menentukan
+ * `captionWidthCm()` dan jadi menentukan kapasitas baris nilai. Kalau lives di
+ * CSS, mengubah CSS diam-diam membuat hitungan geometri tidak lagi cocok dengan
+ * yang benar-benar dicetak.
+ */
+.label__caption {
+    flex: none;
+    font-weight: 700;
+    letter-spacing: 0.01cm;
+}
+
+.label__value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/*
+ * SKU adalah identitas unit. Font mono supaya pembeda 0/O dan 1/I tidak
+ * tertukar, dan boleh membungkus: memotong SKU membuat stiker tidak bisa
+ * dipindai. `overflow-wrap: anywhere` dipakai karena satu kata panjang tanpa
+ * spasi harus tetap bisa patah antar huruf.
+ */
+.label__value--sku {
+    font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+    letter-spacing: 0.01cm;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    white-space: normal;
+}
+
+/*
+ * Baris yang boleh membungkus, ditentukan `LabelRow::maxLines`.
+ *
+ * `max-height` inline dari renderer sudah persis sebesar ruang yang
+ * dianggarkan, jadi baris ketiga otomatis terpotong di situ -- tidak perlu
+ * menghitung `-webkit-line-clamp` yang tidak seragam antar browser.
+ */
+.label__value--wrap {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.label__qr {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.label__qr svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* QR wajib hitam-putih: menghemat tinta dan menjaga kontras yang
+       dibutuhkan modul pemindai. */
+    shape-rendering: crispEdges;
+}
+
+/* --------------------------------------------------------- 1,5 x 1,5 cm
+ * QR dengan SKU dan harga di bawahnya. Rasional ukuran QR dan kedua baris
+ * teksnya ada di bagian "label QR + SKU" di bawah file ini.
+ * ---------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------- 3x2 cm
+ * Layout sempit. Tanpa keterangan kolom: kolom teksnya hanya sekitar 1,7 cm,
+ * dan keterangan akan membuat teksnya mengecil sampai tidak terbaca.
+ * ---------------------------------------------------------------------- */
+
+.label--compact .label__rows {
+    justify-content: center;
+}
+
+/*
+ * Dulu ada `.label--compact .label__value { white-space: nowrap; }` di sini.
+ *
+ * Aturan itu kelihatan benar tapi salah: specificity-nya (0,2,0) mengalahkan
+ * `.label__value--sku` yang hanya (0,1,0), sehingga SKU dipaksa satu baris
+ * persis di template yang `LabelGeometry` menganggarkan dua baris untuknya --
+ * hasilnya `HW-2024-000…`, identitas unit yang tidak bisa dipindai.
+ *
+ * Sekarang tidak ada stylesheet yang memutuskan sendiri. `LabelRow::maxLines`
+ * yang menentukan, dan renderer memberi kelas `label__value--wrap` ke baris
+ * yang memang boleh membungkus. Aturan di bawah tidak pernah menyalakan
+ * `white-space` per layout, jadi kelas CSS dan geometri tidak bisa berbeda
+ * pendapat lagi tanpa test yang gagal.
+ */
+
+/* --------------------------------------------------------------- 4x3 cm
+ * Layout lebar, dengan keterangan setiap kolom.
+ * ---------------------------------------------------------------------- */
+
+.label--full .label__rows {
+    justify-content: space-around;
+}
+
+/*
+ * Label rak. Kode diberi rata kiri kalau ada QR di sampingnya supaya tidak
+ * ada jarak kosong yang membuat kode terlihat mengapung di tengah label.
+ */
+.label--rack .label__rows {
+    justify-content: center;
+}
+
+.label--rack:has(.label__qr) .label__rows {
+    justify-content: flex-start;
+}
+
+/* ----------------------------------------------------------------- layar
+ * Di layar label diberi garis putus-putus supaya operator bisa menghitung
+ * jarak antar label dan mengukur gauge printer (FR-IB-25).
+ * ---------------------------------------------------------------------- */
+
+@media screen {
+    /*
+     * Halaman abu-abu, kertas putih.
+     *
+     * Owner membandingkan hasil cetak dengan kertas aslinya, jadi di layar
+     * harus terlihat mana tepi kertas dan mana yang cuma latar. Dua warna putih
+     * bertumpuk tidak membandingkan apa pun.
+     *
+     * Padding bawah 30 mm adalah ruang untuk bar kendali yang menempel di
+     * dasar layar: tanpa itu, lembar terakhir tertutup tombol begitu halaman
+     * di-scroll sampai dasar.
+     */
+    body {
+        background: #e2e8f0;
+        padding: 8mm 0 30mm;
+    }
+
+    .label-sheet {
+        margin-inline: auto;
+        background: #fff;
+        border-radius: 1mm;
+        box-shadow: 0 1px 3px rgb(15 23 42 / 25%);
+    }
+
+    /*
+     * Garis putus-putus di label, bukan di tepi kertas.
+     *
+     * Yang diukur operator adalah jarak antar label untuk mengoreksi gauge
+     * printer (FR-IB-25). Tepi kertas ditandai oleh bayangan dan radius di atas.
+     */
+    .label {
+        outline: 1px dashed #94a3b8;
+        outline-offset: 0.5mm;
+    }
+}
+
+.label-sheet {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2mm;
+    /*
+     * Padding nol, termasuk di mode gulungan.
+     *
+     * Nilai 5 mm yang pernah ada di sini merusak kedua mode, bukan cuma satu.
+     *
+     * Mode stiker: `.label-sheet--grid` menetapkan lebar kertas apa adanya
+     * dengan `box-sizing: border-box`, sehingga 5 mm di kiri dan 5 mm di kanan
+     * memakan ruang kolom yang tidak ada -- hasilnya label terakhir menggantung
+     * di luar kertas.
+     *
+     * Mode gulungan lebih halus jebakannya: `@page` di sini berukuran sama
+     * dengan label itu sendiri dengan `margin: 0`, jadi 5 mm padding tidak
+     * terlihat di layar (yang diukur operator cuma kotak labelnya) tapi
+     * mendorong label keluar kotak halaman. Dialog cetak tetap menawarkan
+     * 1,5 x 1,5 cm dan yang keluar dari pemotong thermal bukan label utuh.
+     */
+    padding: 0;
+}
+
+/* ---------------------------------------------------------- kertas stiker
+ * Grid untuk mode stiker. Punya kelasnya sendiri, bukan menimpa `.label-sheet`,
+ * supaya mode gulungan -- satu label satu halaman, sudah dipakai sejak awal --
+ * tidak ikut berubah dan tidak perlu diuji ulang setiap kali blueprint stiker
+ * ditambah.
+ *
+ * Ukuran kolom, tinggi baris, celah, dan ukuran kertas SEMUA datang dari custom
+ * property yang ditulis `SheetGrid`, bukan dari angka di sini.
+ * `--label-h` pada `grid-auto-rows` dan `align-content: start` adalah dua hal
+ * yang berbeda dan keduanya wajib: tanpa `grid-auto-rows` baris ikut meregang,
+ * dan tanpa `align-content: start` baris meregang juga sampai memenuhi tinggi
+ * kertas, sehingga tinggi label bukan lagi 15 mm dan label meleset ke sel
+ * berikutnya. `align-content: start` juga yang menyisakan sisa tinggi sebagai
+ * ruang kosong di bawah, persis seperti hitungan geometri.
+ * ---------------------------------------------------------------------- */
+
+.label-sheet--grid {
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 1), var(--label-w, auto));
+    grid-auto-rows: var(--label-h, auto);
+    gap: var(--gap, 0);
+    /*
+     * Dua arah ini sengaja berbeda.
+     *
+     * Vertikal `start`: sisa tinggi dikumpulkan di bawah sebagai ruang
+     * kosong, persis seperti hitungan geometri yang ditulis badge "Sisa
+     * bawah" dan yang dipakai printer untuk menerima kertas.
+     *
+     * Horizontal `center`: kertas hasil die-cut menyisakan margin yang sama di
+     * kiri dan kanan. Sisa lebar yang menumpuk di satu sisi akan menggeser
+     * seluruh label menjauh dari stiker fisiknya, jadi sisa itu dibagi dua.
+     */
+    align-content: start;
+    justify-content: center;
+    width: var(--sheet-w, auto);
+    min-height: var(--sheet-h, auto);
+}
+
+/* ------------------------------------------------------------- bar kendali
+ * Satu elemen `position: fixed` untuk tombol DAN informasi.
+ *
+ * Sebelumnya keduanya elemen fixed yang terpisah: tombol menempel kanan atas,
+ * peringatan menempel kiri bawah, keduanya lebar sampai 12 cm, keduanya
+ * `z-index: 10`. Di layar sempit keduanya bertumpuk -- dan yang payung bukan
+ * tombol, melainkan teks peringatan yang menutupi tombol tepat saat operator
+ * paling butuh menekan cetak.
+ *
+ * Bar ini menutupi layar dari kiri ke kanan, jadi tidak ada lagi dua sudut
+ * yang bisa saling tabrak. Isinya `flex-wrap`, sehingga di layar sempit bar
+ * bertumpuk ke bawah sendiri dan tidak pernah memotong apa pun.
+ *
+ * `pointer-events: none` pada wadahnya penting: area bar yang tidak berisi
+ * tombol harus tetap bisa diklik dan di-scroll, dan tidak boleh berubah jadi
+ * lapisan tak tembus di atas kertas.
+ * ---------------------------------------------------------------------- */
+
+.label-toolbar {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.5rem 0.75rem;
+    pointer-events: none;
+}
+
+.label-toolbar > * {
+    pointer-events: auto;
+}
+
+.label-toolbar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.4rem;
+}
+
+/*
+ * 2,75rem = 44px, target sentuh minimum yang nyaman di tablet. Tombol lama
+ * memakai font 11px dengan padding 3mm, yang untuk layar sentuh terasa
+ * kekecilan dan sering tidak kena.
+ */
+.label-toolbar__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid #0f172a;
+    border-radius: 0.35rem;
+    font: 600 0.85rem/1.2 'DejaVu Sans', Arial, sans-serif;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.label-toolbar__btn--primary {
+    background: #0f172a;
+    color: #fff;
+}
+
+.label-toolbar__btn--secondary {
+    background: #fff;
+    color: #0f172a;
+}
+
+/*
+ * Panel informasi memakai `<details>` supaya bisa ditutup tanpa JavaScript:
+ * halaman cetak label sengaja tidak memuat Alpine atau bundle aplikasi, dan
+ * tablet operator tidak boleh butuh connection untuk menekan tombol.
+ *
+ * Baris ringkasannya sudah membawa angka yang paling sering dicari -- jumlah
+ * label per halaman -- supaya panel ini tetap informatif saat tertutup, tanpa
+ * harus menutupi kertas.
+ */
+.label-toolbar__info {
+    max-height: 38vh;
+    overflow: auto;
+    border: 1px solid #0f172a;
+    border-radius: 0.35rem;
+    background: #fff;
+    color: #0f172a;
+    font: 600 0.8rem/1.4 'DejaVu Sans', Arial, sans-serif;
+}
+
+.label-toolbar__info > summary {
+    padding: 0.45rem 0.7rem;
+    cursor: pointer;
+}
+
+.label-toolbar__body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.25rem;
+    justify-content: flex-end;
+    padding: 0 0.7rem 0.6rem;
+}
+
+.label-toolbar__note {
+    margin: 0;
+    max-width: 60ch;
+    font-weight: 400;
+    text-align: right;
+}
+
+.label-toolbar__note--warning {
+    padding-left: 0.55rem;
+    border-left: 3px solid #0f172a;
+}
+
+/* --------------------------------------------------------- layar sentuh
+ * Satu breakpoint saja, 40rem (640px).
+ *
+ * Versi sebelumnya punya dua blok `@media (max-width: 640px)` dan dua blok
+ * `641px-1024px` yang saling menimpa nilai `bottom`-nya. Duplicated seperti
+ * itu tidak pernah diuji dan cepat tidak sinkron dengan rules yang asli.
+ * ---------------------------------------------------------------------- */
+
+@media (max-width: 40rem) {
+    .label-toolbar__actions {
+        flex-direction: column;
+    }
+
+    .label-toolbar__btn {
+        width: 100%;
+        font-size: 0.95rem;
+    }
+
+    .label-toolbar__body {
+        justify-content: flex-start;
+    }
+
+    .label-toolbar__note {
+        max-width: none;
+        text-align: left;
+    }
+
+    .label-toolbar__note--warning {
+        border-left: 0;
+        border-top: 1px solid #cbd5e1;
+        padding-left: 0;
+        padding-top: 0.35rem;
+    }
+}
+
+/* ------------------------------------------------------------------ cetak
+ * Satu label satu halaman. Printer thermal memakai kertas continuous, jadi
+ * memecah per label membuat printer tidak perlu diset ulang tiap label dan
+ * tidak perlu tahu ukuran lembar.
+ *
+ * Pemecahan per label ini HANYA untuk gulungan, makanya selector-nya
+ * `:not(.label-sheet--grid)`. Kalau tidak, grid stiker ikut terpecah per label:
+ * 48 label jadi 48 halaman dan operator harus mengganti kertas 48 kali.
+ * --------------------------------------------------------------------- */
+
+@media print {
+    body {
+        margin: 0;
+        background: #fff;
+    }
+
+    /* Panel kendali ada supaya operator bisa mencetak ulang tanpa kembali ke
+       halaman antrean, tapi tidak boleh ikut masuk ke kertas. */
+    .no-print {
+        display: none !important;
+    }
+
+    .label-sheet {
+        display: block;
+        gap: 0;
+        padding: 0;
+        background: #fff;
+    }
+
+    /*
+     * Grid tetap grid. Aturan `.label-sheet` di atas menimpa `display` jadi
+     * block, dan karena kedua selector punya specificity sama, urutan di
+     * stylesheet yang menentukan -- makanya aturan ini harus ditulis setelahnya.
+     */
+    .label-sheet--grid {
+        display: grid;
+        gap: var(--gap);
+        padding: 0;
+        background: #fff;
+    }
+
+    /*
+     * Yang dipecah per halaman pada mode stiker adalah lembarnya, bukan
+     * labelnya: satu lembar stiker = satu halaman cetak.
+     */
+    .label-sheet--grid {
+        break-after: page;
+        page-break-after: always;
+    }
+
+    .label-sheet--grid:last-child {
+        break-after: auto;
+        page-break-after: auto;
+    }
+
+    /* Stiker tidak boleh terbelah dua antar halaman. */
+    .label-sheet--grid > .label {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    .label {
+        outline: 0;
+        /* Pemotong label thermal memotong tepat di tepi, jadi tidak ada ruang
+           aman yang bisa ditambahkan tanpa membuat label meleset. */
+        margin: 0;
+    }
+
+    .label-sheet:not(.label-sheet--grid) > .label {
+        break-after: page;
+        page-break-after: always;
+    }
+
+    .label-sheet:not(.label-sheet--grid) > .label:last-child {
+        break-after: auto;
+        page-break-after: auto;
+    }
+}
+
+/* ------------------------------------------------------ label QR + SKU
+ * QR dipusatkan sendiri; SKU dan harga menempel di tepi bawah.
+ *
+ * `position: absolute` untuk QR, bukan `align-self: center` di dalam flow.
+ *
+ * Alasannya ruangnya sempit sekali. Label 15 mm, QR 8,6 mm, dua baris teks
+ * (SKU + harga) masing-masing 1,25 mm. Kalau QR dan teksnya dijadikan satu
+ * grup dengan `justify-content: center` -- caranya sebelumnya -- QR-nya ikut
+ * bergeser ke bawah bersama teks, dan jarak QR ke tepi bawah label hilang.
+ * Scanner sering butuh beberapa milimeter ruang kosong di sekeliling simbol,
+ * jadi variant itu hanya dipilih kalau tidak ada tempat lain.
+ *
+ * Memusatkan QR sebagai elemen mutlak membebaskan tepi bawah untuk teks;
+ * dua baris setinggi 1,25 mm menyisakan ~0,1 mm antara teks dan QR (lihat
+ * `QR_ONLY_MAX_SIDE_CM` di `LabelGeometry` untuk anggaran ruangnya).
+ *
+ * Harga ikut tercetak di sini, diambil dari `LabelContent` (snapshot payload
+ * stiker) -- jadi re-print dengan alasan perubahan harga tetap mencetak harga
+ * lama persis seperti template lain, sampai batch dicetak ulang.
+ * ---------------------------------------------------------------------- */
+
+.label__body--qr-only {
+    position: relative;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.03cm;
+}
+
+.label__body--qr-only .label__qr {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.label__qr-text {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 1.05;
+    padding: 0 0.01cm;
+}
+
+/*
+ * `font-size` ditulis inline dari `LabelGeometry::QR_ONLY_SKU_FONT_CM`, bukan
+ * di sini. Tinggi baris ini menentukan apakah barisnya masih muat di bawah
+ * QR, jadi angka itu harus bisa diuji bersama geometri -- kalau ia hanya hidup
+ * di stylesheet, test tidak bisa membuktikan sisa ruang label cukup untuknya.
+ */
+.label__qr-sku {
+    font-family: "DejaVu Sans Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+        Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: var(--sku-font, 0.125cm);
+    line-height: 1;
+    word-break: break-all;
+}
+
+.label__qr-price {
+    font-family: "DejaVu Sans Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+        Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: var(--sku-font, 0.125cm);
+    line-height: 1;
+    /*
+     * Harga tidak boleh dipenggal: `Rp100.000.000` (13 karakter) masih muat
+     * di lebar 1,38 cm, dan angka yang terpotong lebih buruk daripada yang
+     * terlalu kecil. Baris SKU boleh menyesuaikan teksnya, baris harga tidak.
+     */
+    white-space: nowrap;
+}

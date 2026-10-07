@@ -1,0 +1,367 @@
+/*
+ * Bukti terima titipan: struk thermal 58/80 mm dan A4.
+ *
+ * Berkas ini dipakai oleh satu halaman saja, dan halaman itu tidak memuat
+ * app.css. Semua yang ditulis di sini harus berdiri sendiri: tidak ada kelas
+ * utilitas dari app.css yang bisa diandalkan, dan tidak ada yang boleh menimpa
+ * gaya ini dari luar.
+ *
+ * Dua mode tampilan dipisah tegas:
+ *
+ * - `screen`  untuk Staff yang sedang memegang struk di layar.
+ * - `print`   untuk kertasnya.
+ *
+ * Pemisahan itu bukan aturan disiplin, tapi karena kesalahannya berlawanan arah.
+ * Aturan `@media print` yang lupa disembunyikan membuat tombol "Cetak" ikut
+ * tercetak di kertas. Aturan layar yang ikut berlaku saat print membuat
+ * navigasi ikut terbawa. Keduanya pernah terjadi di halaman label, jadi di sini
+ * keduanya dijaga dari awal.
+ */
+
+.receipt-body {
+    margin: 0;
+    background: #f4f5f7;
+    color: #101828;
+    font-family:
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        "Segoe UI",
+        sans-serif;
+}
+
+/*
+ * Lebar area cetak. Nilainya datang dari server (`ReceiptSheet::page()`) lewat
+ * atribut `style` di elemen pembungkus, karena ukurannya mengikuti setelan
+ * Owner dan tidak bisa ditulis sebagai angka tetap di CSS.
+ *
+ * Yang di sini hanya lebar di layar: struk tidak boleh selebar jendela browser
+ * karena kolom nominalnya jadi tidak bisa dibandingkan, tapi juga tidak boleh
+ * lebih lebar dari kertas aslinya karena selalu ada gulungan yang lebih kecil.
+ */
+
+.receipt-sheet {
+    box-sizing: border-box;
+    margin: 24px auto;
+    padding: 8mm 4mm;
+    background: #fff;
+    box-shadow:
+        0 1px 3px rgb(16 24 40 / 12%),
+        0 8px 24px rgb(16 24 40 / 8%);
+}
+
+.receipt-sheet *,
+.receipt-sheet *::before,
+.receipt-sheet *::after {
+    box-sizing: border-box;
+}
+
+/* --- Bilah alat di layar ------------------------------------------------ */
+
+.receipt-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: #fff;
+    border: 1px solid #e4e7ec;
+    border-radius: 8px;
+}
+
+.receipt-toolbar__group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+/*
+ * Tombol di bilah alat.
+ *
+ * Ditulis ulang di sini, bukan pakai `btn-primary` dari app.css. Halaman ini
+ * memang sengaja tidak memuat app.css supaya layout aplikasi tidak ikut ke
+ * kertas, jadi kelas dari sana tidak akan ada: tombolnya akan tampil sebagai
+ * teks biasa yang bisa diklik, dan "Cetak" adalah satu-satunya tombol yang
+ * benar-benar menjalankan tugas di halaman ini.
+ *
+ * Gayanya sengaja dibuat mirip `btn-primary` app.css supaya tetap terasa bagian
+ * dari aplikasi yang sama, tanpa mengimpor seluruh app.css ke halaman cetak.
+ */
+
+.receipt-btn {
+    display: inline-flex;
+    height: 40px;
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    transition: background-color 0.15s ease;
+}
+
+.receipt-btn--primary {
+    color: #fff;
+    background: #2563eb;
+}
+
+.receipt-btn--primary:hover {
+    background: #1d4ed8;
+}
+
+.receipt-btn--secondary {
+    color: #101828;
+    background: #fff;
+    border-color: #d0d5dd;
+}
+
+.receipt-btn--secondary:hover {
+    background: #f9fafb;
+    border-color: #98a2b3;
+}
+
+.receipt-toolbar__note {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #475467;
+}
+
+/* --- Isi struk ---------------------------------------------------------- */
+
+.receipt-store {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.receipt-title {
+    margin: 2px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.receipt-rule {
+    margin: 8px 0;
+    border: 0;
+    border-top: 1px dashed #98a2b3;
+}
+
+.receipt-rows {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.receipt-row {
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.receipt-row__key {
+    color: #475467;
+}
+
+.receipt-row__value {
+    margin: 0;
+    text-align: right;
+    font-weight: 600;
+}
+
+.receipt-note {
+    margin: 8px 0 0;
+    padding: 6px 8px;
+    font-size: 10px;
+    line-height: 1.5;
+    background: #fffaeb;
+    border-left: 2px solid #f79009;
+}
+
+/*
+ * Rincian SKU.
+ *
+ * Thermal: satu kolom, font monospace. Monospace dipakai karena kolom pcs, harga,
+ * dan skema harus sejajar supaya nominalnya bisa dibaca tanpa menghitung ulang
+ * dari teks yang membungkus.
+ */
+
+.receipt-lines {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.receipt-line {
+    display: grid;
+    gap: 1px;
+}
+
+.receipt-line__sku {
+    font-weight: 700;
+}
+
+.receipt-line__meta {
+    display: flex;
+    gap: 6px;
+    justify-content: space-between;
+    color: #344054;
+}
+
+/* --- Tanda tangan ------------------------------------------------------- */
+
+/*
+ * Dua kolom, bukan satu kolom panjang.
+ *
+ * Tanda tangan orang yang sudah melingkar di kertas thermal bertumpuk dengan
+ * garis di bawahnya, dan ujung garis yang menunjuk ke kolom sebelah membuat
+ * keduanya dibaca saling menimpa. Dua kolom menjaga kedua garis tetap terpisah.
+ */
+
+.receipt-signatures {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+    text-align: center;
+}
+
+.receipt-signature__role {
+    font-size: 10px;
+    color: #475467;
+}
+
+.receipt-signature__space {
+    height: 48px;
+}
+
+.receipt-signature__name {
+    padding-top: 2px;
+    border-top: 1px solid #101828;
+    font-size: 10px;
+}
+
+/*
+ * Footer "Dicetak".
+ *
+ * Ini metadata pencetakan, bukan angka dokumen, dan sengaja diletakkan paling
+ * akhir: kalau ikut naik ke bagian atas, orang membandingkan struk dengan nota
+ * akan menghitung metadata cetaknya sebagai bagian dari dokumen.
+ */
+.receipt-printed {
+    margin-top: 12px;
+    font-size: 9px;
+    line-height: 1.4;
+    color: #667085;
+    text-align: center;
+}
+
+/* --- Mode thermal ------------------------------------------------------- */
+
+.receipt-sheet--thermal {
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/*
+ * Roll thermal butuh ruang kosong di bawah yang lebih besar dari isi.
+ *
+ * Pemotong memotong tepat di tepi kertas yang keluar. Tanpa padding bawah ini,
+ * footer "Dicetak" dan satu tanda tangan berada di jalur potong, jadi yang
+ * tersisa di tangan penitip berhenti tepat sebelum bukti dicetak.
+ */
+.receipt-sheet--thermal .receipt-signature__space {
+    height: 56px;
+}
+
+/* --- Mode A4 ------------------------------------------------------------ */
+
+.receipt-sheet--a4 {
+    padding: 14mm 16mm;
+}
+
+/*
+ * Tabel, bukan daftar satu kolom. A4 bukan struk: isinya dokumen yang dibaca
+ * lebih dari sekali, dan kolom yang sejajar membuat nominalnya bisa diperiksa
+ * tanpa dibaca ulang.
+ */
+.receipt-sheet--a4 .receipt-line {
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: baseline;
+}
+
+.receipt-sheet--a4 .receipt-line__meta {
+    justify-content: flex-end;
+    gap: 16px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Print -------------------------------------------------------------- */
+
+@media print {
+    .receipt-body {
+        background: #fff;
+    }
+
+    .receipt-toolbar {
+        display: none;
+    }
+
+    .receipt-sheet {
+        margin: 0;
+        padding: 4mm;
+        box-shadow: none;
+        border: 0;
+    }
+
+    .receipt-sheet--a4 {
+        padding: 0;
+    }
+
+    /*
+     * Mematikan pemenggalan baris.
+     *
+     * Isi struk boleh melewati tinggi satu halaman thermal -- panjang kertas
+     * mengikuti isinya. Yang dijaga hanya supaya satu baris tidak terbelah di
+     * dua halaman, karena pemotong memotong di antara keduanya dan pemotong
+     * hanya memperlakukan satu potong.
+     */
+    .receipt-line,
+    .receipt-signatures,
+    .receipt-printed {
+        break-inside: avoid;
+    }
+}
+
+
+/* Versi datar untuk info pratinjau di dalam halaman preview */
+.receipt-toolbar--preview {
+    position: static;
+    top: auto;
+    z-index: auto;
+    justify-content: center;
+    padding: 0;
+    margin-bottom: 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}

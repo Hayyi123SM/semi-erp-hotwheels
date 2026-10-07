@@ -1,0 +1,22 @@
+# Konteks build tidak boleh membawa artefak lokal maupun rahasia.
+.git
+.github
+node_modules
+vendor
+public/build
+# Berkas penanda dev server Vite; kalau ikut masuk, produksi justru memuat
+# asset dari http://[::1]:5173.
+public/hot
+.env
+.env.*
+storage/logs/*.log
+database/*.sqlite
+tests
+phpunit.xml
+phpunit.mysql.xml
+docs
+*.md
+docker-compose.yml
+Dockerfile
+.dockerignore
+.phpunit.result.cache

@@ -52,7 +52,7 @@
         [
             'group' => 'Pengaturan',
             'items' => [
-                ['label' => 'Pengguna & Role', 'route' => 'setting.pengguna', 'icon' => 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z'],
+                ['label' => 'Pengguna & Role', 'owner' => true, 'route' => 'setting.pengguna', 'icon' => 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z'],
                 ['label' => 'Perangkat', 'route' => 'setting.perangkat', 'icon' => 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z'],
                 ['label' => 'Template WhatsApp', 'route' => 'setting.wa-template', 'icon' => 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z'],
                 ['label' => 'Parameter Sistem', 'route' => 'setting.parameter', 'icon' => 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z'],
@@ -60,58 +60,107 @@
         ],
     ];
 
-    $isActive = function ($route) use ($active) {
-        return $active === $route;
+    $isOwner = auth()->user()?->isOwner() ?? false;
+
+    // Item yang ditandai `owner` disembunyikan dari Staff, bukan sekadar ditolak
+    // saat diklik. Menu lain tetap muncul untuk Staff karena halamannya memang
+    // boleh dibaca: memilih penitip, mencetak label, dan membuka Stock In
+    // Pribadi yang nanti menjelaskan sendiri bagian mana yang Owner-only.
+    // Menyembunyikan semuanya hanya memindahkan frustrasi ke navigasi yang lebih
+    // dalam tanpa menutup celah yang ada. Grup yang jadi kosong ikut dibuang,
+    // supaya tidak ada judul menggantung tanpa isinya.
+    $navigation = array_values(array_filter(
+        array_map(function (array $section) use ($isOwner): array {
+            if (! isset($section['items'])) {
+                return $section;
+            }
+
+            return [
+                ...$section,
+                'items' => array_values(array_filter(
+                    $section['items'],
+                    fn (array $item): bool => $isOwner || ! ($item['owner'] ?? false),
+                )),
+            ];
+        }, $navigation),
+        fn (array $section): bool => ! isset($section['items']) || $section['items'] !== [],
+    ));
+
+    // A section stays lit while the reader is inside it, so create and edit
+    // pages keep their menu item highlighted instead of dropping the whole
+    // sidebar into a neutral state. Route names are a strict prefix hierarchy
+    // (`master.penitip` -> `master.penitip.create`), so a child is recognised
+    // by its separator. Comparing with str_contains() instead would light up a
+    // sibling the moment its name extended the prefix.
+    $isActive = function (string $route) use ($active): bool {
+        if ($active === null) {
+            return false;
+        }
+
+        return $active === $route || str_starts_with($active, $route.'.');
     };
 @endphp
 
-<!-- Mobile overlay -->
-<div x-show="sidebarOpen" x-cloak @click="sidebarOpen = false"
-     class="fixed inset-0 z-30 bg-text-strong/40 lg:hidden"></div>
+<!-- Drawer scrim, mobile only. From md the rail is always on screen. -->
+<div x-show="open && ! isTablet" x-cloak @click="closeDrawer()"
+     class="fixed inset-0 z-30 bg-text-strong/40 md:hidden"></div>
 
-<aside x-data="{ isDesktop: window.matchMedia('(min-width: 1024px)').matches }"
-       x-show="isDesktop || sidebarOpen" x-cloak
-       x-transition:enter="transition ease-out duration-200"
-       x-transition:enter-start="-translate-x-full"
-       x-transition:enter-end="translate-x-0"
-       x-transition:leave="transition ease-in duration-150"
-       x-transition:leave-start="translate-x-0"
-       x-transition:leave-end="-translate-x-full"
-       class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border-subtle bg-surface-lowest lg:translate-x-0 lg:transition-none">
-    <div class="flex h-16 items-center justify-between border-b border-border-subtle px-5">
-        <a href="{{ route('dashboard') }}" class="flex items-center gap-2.5">
-            <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-on-primary">
+{{--
+    The width comes from --sidebar-current in app.css, and the md+ content offset
+    reads the same variable, so the rail and the gutter can never drift apart.
+    Alpine owns only the translate, and binds exactly one of the two classes at
+    a time so there is no Tailwind variant to win a specificity fight against.
+--}}
+<aside id="app-sidebar"
+       class="fixed inset-y-0 left-0 z-40 flex w-[var(--sidebar-current)] flex-col border-r border-border-subtle bg-surface-lowest transition-transform duration-200 ease-out"
+       :class="isVisible ? 'translate-x-0' : '-translate-x-full'"
+       @keydown.escape.window="open && closeDrawer()">
+    <div class="flex h-16 shrink-0 items-center gap-2 border-b border-border-subtle px-3 md:px-5"
+         :class="isLabelled ? 'justify-between' : 'justify-center'">
+        <a href="{{ route('dashboard') }}" class="flex min-w-0 items-center gap-2.5" title="SemiERP HotWheels">
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-on-primary">
                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M5 13l4 4L19 7"/>
                 </svg>
             </span>
-            <span class="text-headline-sm font-semibold text-text-strong">SemiERP<wbr>HotWheels</span>
+            <span class="sidebar-label text-headline-sm font-semibold text-text-strong" x-show="isLabelled">SemiERP<wbr>HotWheels</span>
         </a>
-        <button type="button" class="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:bg-canvas lg:hidden" @click="sidebarOpen = false" aria-label="Tutup menu">
+        <button type="button" x-ref="drawerClose"
+                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-canvas md:hidden"
+                @click="closeDrawer()" aria-label="Tutup menu">
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M6 18L18 6"/></svg>
         </button>
     </div>
 
-    <nav class="flex-1 space-y-6 overflow-y-auto px-3 py-5">
+    <nav class="flex-1 space-y-6 overflow-y-auto overflow-x-hidden px-3 py-5" aria-label="Navigasi utama">
         @foreach ($navigation as $section)
             @if (isset($section['items']))
                 <div>
-                    <p class="px-3 pb-2 text-label-sm uppercase tracking-wider text-text-subtle">{{ $section['group'] }}</p>
+                    {{-- A 72px rail has no room for group headings, so they become a rule. --}}
+                    <p class="px-3 pb-2 text-label-sm uppercase tracking-wider text-text-subtle" x-show="isLabelled">{{ $section['group'] }}</p>
+                    <div class="mx-3 mb-3 border-t border-border-subtle md:hidden" x-show="! isLabelled" role="separator" aria-label="{{ $section['group'] }}"></div>
                     <ul class="space-y-0.5">
                         @foreach ($section['items'] as $item)
                             <li>
                                 <a href="{{ route($item['route']) }}"
                                    @class([
-                                       'group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition',
-                                       'bg-primary-soft text-primary' => $isActive($item['route']),
-                                       'text-text-muted hover:bg-canvas hover:text-text-strong' => !$isActive($item['route']),
-                                   ])>
+                                       'group relative flex items-center gap-3 rounded-lg py-2 text-body-md font-medium transition focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:outline-none',
+                                       'bg-primary-soft px-3 text-primary' => $isActive($item['route']),
+                                       'px-3 text-text-muted hover:bg-canvas hover:text-text-strong' => !$isActive($item['route']),
+                                   ])
+                                   :class="isLabelled ? '' : 'justify-center'"
+                                   :title="isLabelled ? null : @js($item['label'])"
+                                   @if ($isActive($item['route'])) aria-current="page" @endif>
                                     <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                         <path d="{{ $item['icon'] }}"/>
                                     </svg>
-                                    {{ $item['label'] }}
+                                    <span class="sidebar-label" x-show="isLabelled">{{ $item['label'] }}</span>
                                     @if ($active === 'inventory.karantina' && $item['route'] === 'inventory.karantina')
-                                        <span class="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-karantina-bg px-1.5 text-label-sm text-karantina-text">3</span>
+                                        {{-- A count badge does not fit in the rail; the dot carries the same signal. --}}
+                                        <span class="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-karantina-bg px-1.5 text-label-sm text-karantina-text" x-show="isLabelled">3</span>
+                                        <span class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-karantina-text" x-show="! isLabelled">
+                                            <span class="sr-only">3 barang karantina</span>
+                                        </span>
                                     @endif
                                 </a>
                             </li>
@@ -122,30 +171,55 @@
                 <div>
                     <a href="{{ route($section['route']) }}"
                        @class([
-                           'group flex items-center gap-3 rounded-lg px-3 py-2 text-body-md font-medium transition',
-                           'bg-primary-soft text-primary' => $isActive($section['route']),
-                           'text-text-muted hover:bg-canvas hover:text-text-strong' => !$isActive($section['route']),
-                       ])>
+                           'group relative flex items-center gap-3 rounded-lg py-2 text-body-md font-medium transition focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:outline-none',
+                           'bg-primary-soft px-3 text-primary' => $isActive($section['route']),
+                           'px-3 text-text-muted hover:bg-canvas hover:text-text-strong' => !$isActive($section['route']),
+                       ])
+                       :class="isLabelled ? '' : 'justify-center'"
+                       :title="isLabelled ? null : @js($section['label'])"
+                       @if ($isActive($section['route'])) aria-current="page" @endif>
                         <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <path d="{{ $section['icon'] }}"/>
                         </svg>
-                        {{ $section['label'] }}
+                        <span class="sidebar-label" x-show="isLabelled">{{ $section['label'] }}</span>
                     </a>
                 </div>
             @endif
         @endforeach
     </nav>
 
-    <div class="border-t border-border-subtle p-4">
-        <div class="flex items-center gap-2 rounded-lg bg-canvas px-3 py-2.5">
-            <span class="relative flex h-2.5 w-2.5">
-                <span class="absolute inline-flex h-full w-full rounded-full bg-success-text opacity-50"></span>
-                <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-success-text"></span>
-            </span>
-            <div class="text-body-sm">
-                <p class="font-semibold text-text-strong">Tersinkron</p>
-                <p class="text-label-sm text-text-muted">Shift Reguler 1 · Ahmad Fauzi</p>
+    <div class="shrink-0 border-t border-border-subtle p-3">
+        <div class="flex items-center gap-2" :class="isLabelled ? '' : 'justify-center'">
+            <div class="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-canvas px-3 py-2.5" x-show="isLabelled">
+                <span class="relative flex h-2.5 w-2.5 shrink-0">
+                    <span class="absolute inline-flex h-full w-full rounded-full bg-success-text opacity-50"></span>
+                    <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-success-text"></span>
+                </span>
+                <div class="min-w-0 text-body-sm">
+                    <p class="font-semibold text-text-strong">Tersinkron</p>
+                    <p class="truncate text-label-sm text-text-muted">Shift Reguler 1 · Ahmad Fauzi</p>
+                </div>
             </div>
+
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-canvas" x-show="! isLabelled" title="Tersinkron · Shift Reguler 1">
+                <span class="relative flex h-2.5 w-2.5">
+                    <span class="absolute inline-flex h-full w-full rounded-full bg-success-text opacity-50"></span>
+                    <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-success-text"></span>
+                </span>
+                <span class="sr-only">Tersinkron · Shift Reguler 1</span>
+            </span>
+
+            {{-- Rail <-> full sidebar. Pushes the content instead of overlaying it. --}}
+            <button type="button" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-muted transition hover:bg-canvas hover:text-text-strong focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:outline-none"
+                    x-show="isPinnable" @click="togglePinned()"
+                    :aria-pressed="pinned ? 'true' : 'false'"
+                    :aria-label="pinned ? 'Ciutkan sidebar' : 'Perluas sidebar'"
+                    :title="pinned ? 'Ciutkan sidebar' : 'Perluas sidebar'">
+                <svg class="h-4 w-4 transition-transform duration-200" :class="pinned ? 'rotate-180' : ''"
+                     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M15 18l-6-6 6-6"/>
+                </svg>
+            </button>
         </div>
     </div>
 </aside>

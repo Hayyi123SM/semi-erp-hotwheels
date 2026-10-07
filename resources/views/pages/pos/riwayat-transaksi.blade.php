@@ -3,83 +3,67 @@
     subtitle="Nota per shift, kasir & metode. Void/refund memerlukan PIN Owner."
     :crumbs="['POS / Kasir', 'Riwayat Transaksi']"
 >
+    <x-slot:actions>
+        {{--
+            Jumlah nota yang sedang difilter, dari paginator yang sama dengan
+            tabelnya. Angka hard-coded seperti "4.215.000" terlihat benar sampai
+            kebetulan salah, dan yang salah di halaman ini hilang di antara nota
+            yang benar.
+        --}}
+        <x-ui.badge-status :type="$table->rows()->total() > 0 ? 'info' : 'neutral'">
+            {{ $table->rows()->total() }} nota
+        </x-ui.badge-status>
+    </x-slot:actions>
 </x-ui.page-header>
 
 <div class="space-y-6">
-    <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        <x-ui.stat-card label="Transaksi Hari Ini" value="{{ count($transactions) }}" delta="7 nota" delta-tone="info" />
-        <x-ui.stat-card label="Total Penjualan" value="Rp4.215.000" delta="+18,4%" delta-tone="success" icon="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-        <x-ui.stat-card label="Refund / Void" value="2" delta="1 void · 1 refund" delta-tone="warning" />
-        <x-ui.stat-card label="Pending Sync" value="0" delta="Semua tersinkron" delta-tone="success" />
-    </div>
-
     <x-ui.section-card>
-        <x-ui.toolbar search-placeholder="Cari nota POS-...">
+        <x-ui.data-table :table="$table">
             <x-slot:filters>
-                <select class="input-base h-11 w-auto">
-                    <option>Semua Shift</option>
-                    <option>Reguler Shift 1</option>
-                    <option>Reguler Shift 2</option>
-                </select>
-                <select class="input-base h-11 w-auto">
-                    <option>Semua Metode</option>
-                    <option>TUNAI</option>
-                    <option>QRIS</option>
-                    <option>KARTU</option>
-                </select>
-                <select class="input-base h-11 w-auto">
-                    <option>Semua Status</option>
-                    <option>LUNAS</option>
-                    <option>REFUND</option>
-                    <option>VOID</option>
-                </select>
-            </x-slot:filters>
-        </x-ui.toolbar>
-
-        <table class="w-full text-left">
-            <thead class="thead-dense">
-                <tr>
-                    <th class="px-6 py-3 font-semibold">Nota</th>
-                    <th class="px-6 py-3 font-semibold">Waktu</th>
-                    <th class="px-6 py-3 font-semibold">Kasir</th>
-                    <th class="px-6 py-3 font-semibold">Metode</th>
-                    <th class="px-6 py-3 text-center font-semibold">Item</th>
-                    <th class="px-6 py-3 text-right font-semibold">Total</th>
-                    <th class="px-6 py-3 text-right font-semibold">Status</th>
-                    <th class="px-6 py-3 text-right font-semibold">Aksi</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-border-subtle">
-                @foreach ($transactions as $tx)
-                    <tr class="row-dense transition hover:bg-canvas">
-                        <td class="px-6 py-3 font-mono text-sku text-text-strong">{{ $tx['nota'] }}</td>
-                        <td class="px-6 py-3 text-body-sm text-text-muted tabular-nums">{{ $tx['time'] }}</td>
-                        <td class="px-6 py-3 text-body-sm text-text-strong">{{ $tx['casher'] }}</td>
-                        <td class="px-6 py-3 text-body-sm text-text-muted">{{ $tx['method'] }}</td>
-                        <td class="px-6 py-3 text-center text-body-md tabular-nums">{{ $tx['items'] }}</td>
-                        <td class="px-6 py-3 text-right text-body-md font-semibold tabular-nums">{{ \App\Support\MockData::rupiah($tx['total']) }}</td>
-                        <td class="px-6 py-3 text-right">
-                            @if ($tx['status'] === 'LUNAS')
-                                <x-ui.badge-status type="success">LUNAS</x-ui.badge-status>
-                            @elseif ($tx['status'] === 'REFUND')
-                                <x-ui.badge-status type="warning">REFUND</x-ui.badge-status>
-                            @else
-                                <x-ui.badge-status type="error">VOID</x-ui.badge-status>
+                {{--
+                    Opsi shift dari database, dibatasi ke shift milik sendiri
+                    kecuali yang membuka adalah Owner -- sama persis dengan batas
+                    tabelnya. Selector yang menawarkan semua shift ke kasir adalah
+                    filter yang selalu mengembalikan kosong, dan yang kosong di sini
+                    terbaca sebagai "tidak ada transaksi".
+                --}}
+                <select name="shift" class="select-base filter-select" aria-label="Filter shift">
+                    <option value="">Semua Shift</option>
+                    @foreach ($shiftOptions as $shift)
+                        <option value="{{ $shift->id }}" @selected(request()->query('shift') === (string) $shift->id)>
+                            Shift {{ $shift->id }}
+                            @if ($shift->opened_at)
+                                &middot; {{ $shift->opened_at->translatedFormat('d M Y H:i') }}
                             @endif
-                        </td>
-                        <td class="px-6 py-3">
-                            <div class="flex justify-end gap-1">
-                                <button type="button" class="btn-ghost h-9 px-3"
-                                        @click="$store.toast.push('Detail nota dibuka: {{ $tx['nota'] }}', 'info')">Detail</button>
-                                @if ($tx['status'] === 'LUNAS')
-                                    <button type="button" class="btn-ghost h-9 px-3 text-error-text"
-                                            @click="$store.toast.push('Void memerlukan PIN Owner (mock)', 'warning')">Void</button>
-                                @endif
-                            </div>
-                        </td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
+                        </option>
+                    @endforeach
+                </select>
+
+                <select name="method" class="select-base filter-select" aria-label="Filter metode pembayaran">
+                    <option value="">Semua Metode</option>
+                    @foreach ($methodOptions as $value => $label)
+                        <option value="{{ $value }}" @selected(request()->query('method') === (string) $value)>
+                            {{ $label }}
+                        </option>
+                    @endforeach
+                </select>
+
+                <select name="status" class="select-base filter-select" aria-label="Filter status nota">
+                    <option value="">Semua Status</option>
+                    @foreach ($statusOptions as $value => $label)
+                        <option value="{{ $value }}" @selected(request()->query('status') === (string) $value)>
+                            {{ $label }}
+                        </option>
+                    @endforeach
+                </select>
+
+                <label class="filter-chip">
+                    <input type="checkbox" name="pending_sync" value="1"
+                           class="h-4 w-4 rounded border-border-strong text-primary focus:ring-primary/30"
+                           @checked(request()->boolean('pending_sync'))>
+                    Belum sinkron
+                </label>
+            </x-slot:filters>
+        </x-ui.data-table>
     </x-ui.section-card>
 </div>

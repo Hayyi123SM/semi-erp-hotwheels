@@ -1,13 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
 @import "tailwindcss";
+@import "sweetalert2/dist/sweetalert2.css";
 
 @source "../views";
 @source "../js";
 @source "../components";
 
 @theme {
-    --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    --font-sans:
+        "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono:
+        "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
     /* ====== Canvas & Surfaces ====== */
     --color-canvas: #f8fafc;
@@ -125,29 +128,262 @@
     --text-currency-display--letter-spacing: -0.02em;
 }
 
-@layer components {
-    [x-cloak] {
-        display: none;
-    }
+/*
+ * The sidebar is resolved in CSS rather than from Alpine so the first paint is
+ * already correct. Alpine only flips `data-sidebar="expanded"` on <html>, which
+ * is why the rail and the full sidebar can never disagree on width.
+ *
+ *   < 768px   off-canvas drawer, 256px when open
+ *   768-1279   icon rail, 72px — 256px while pinned
+ *   >= 1280px  full sidebar, 256px
+ *
+ * Every band declares its own value rather than relying on the base rule to
+ * cascade. The base used to be the 72px rail, which also squeezed the mobile
+ * drawer down to icon width while its labels were still on screen.
+ */
+:root {
+    --sidebar-current: 16rem;
+}
 
+@media (min-width: 768px) {
+    :root {
+        --sidebar-current: 4.5rem;
+    }
+}
+
+@media (min-width: 768px) and (max-width: 1279.98px) {
+    :root[data-sidebar="expanded"] {
+        --sidebar-current: 16rem;
+    }
+}
+
+/* Declared last so it outranks the rail rule above at equal specificity. */
+@media (min-width: 1280px) {
+    :root {
+        --sidebar-current: 16rem;
+    }
+}
+
+@layer base {
+    /*
+     * `clip` and not `hidden`: `overflow-x: hidden` would turn <body> into a
+     * scroll container and silently break every `position: sticky` child,
+     * including the bulk grid's sticky first column.
+     */
+    body {
+        overflow-x: clip;
+    }
+}
+
+/*
+ * Sengaja DI LUAR `@layer`.
+ *
+ * Aturan ini berlawanan dengan semua class lain di file ini: tujuannya
+ * menang, bukan sekadar berlaku. Kalau ditaruh di `@layer components` --
+ * posisi yang pernah dipakai -- specificity-nya `0,1,0`, sama dengan
+ * `.flex` dan `.btn-secondary`. Di build, `utilities` berada setelah
+ * `components`, jadi class display menang dan cloak tidak berlaku sama
+ * sekali: elemen `x-cloak` yang punya `class="flex"` ter-render terlihat
+ * sampai Alpine boot, lalu hilang. Di halaman Cetak Label itu berarti
+ * modal "Tandai gagal dicetak" muncul sekilas lalu lenyap saat reload.
+ *
+ * Aturan unlayered menang atas SEMUA author CSS ber-layer, jadi cloak
+ * tidak bisa dikalahkan `.flex`, `grid`, atau `.btn-*` tanpa perlu
+ * `!important`, dan tanpa perlu setiap elemen menambahkan kelas
+ * tambahan hanya untuk menetralkan spesifisitasnya sendiri.
+ *
+ * Tetap aman setelah Alpine jalan: Alpine menghapus atribut `x-cloak`
+ * saat init, jadi selektor ini tidak lagi cocok. Dan `x-show` menulis
+ * inline style, yang menang atas aturan author mana pun -- cloak tidak
+ * ikut melumpuhkan `x-show`.
+ */
+[x-cloak] {
+    display: none;
+}
+
+@layer components {
     .card {
         @apply bg-surface-lowest border border-border-subtle rounded-xl;
     }
 
     .card-pad {
-        @apply p-6;
+        @apply p-4 md:p-6;
     }
 
     .thead-dense {
-        @apply bg-canvas text-text-dim text-label-sm uppercase tracking-wide;
+        @apply border-b border-border-subtle bg-canvas text-text-dim text-label-sm uppercase tracking-wide;
     }
 
+    /*
+     * The divider lives on the row, not on the cells. A cell that is hidden by
+     * priority would take its half of the line with it and leave a gap, and
+     * min-h-* is meaningless here: table rows are sized by their content plus
+     * the cell padding from Column::CELL_PADDING.
+     */
     .row-dense {
-        @apply h-12 border-b border-border-subtle/60 last:border-0;
+        @apply border-b border-border-subtle/60 last:border-0 transition hover:bg-canvas;
+    }
+
+    /*
+     * Long values wrap to a second line and stop there, with the untruncated text
+     * in the title attribute. Left unbounded, one long name stretched the whole
+     * table past the viewport; cut to a single line, the value was simply lost.
+     */
+    .cell-text {
+        @apply line-clamp-2;
+    }
+
+    .table-scroll {
+        @apply overflow-x-auto overscroll-x-contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /*
+     * Pins the first column of a wide bulk grid while the rest scrolls sideways,
+     * so the SKU stays visible next to the input you are typing into.
+     * Needs an opaque background and a higher z-index than its neighbours,
+     * otherwise scrolled cells show through it.
+     */
+    .table-sticky-col {
+        @apply sticky left-0 z-1 bg-surface-lowest;
+    }
+
+    /* The seam that hints there is more table to the left of the fold. */
+    .table-sticky-col-shadow {
+        box-shadow: 1px 0 0 var(--color-border-subtle);
+    }
+
+    /*
+     * Thead paints itself with .thead-dense's bg-canvas, and two single-class
+     * rules would settle by source order, not by the order they are written in
+     * the class attribute. The descendant selector outranks both so the pinned
+     * header cell keeps the same fill as its neighbours.
+     */
+    thead .table-sticky-col {
+        @apply bg-canvas;
+    }
+
+    /* Below md a table row is rendered as this card instead. */
+    .data-table-card {
+        @apply flex flex-col gap-2 px-4 py-3.5 transition hover:bg-canvas;
+    }
+
+    /*
+     * Which of the two branches a data table shows is decided by
+     * `data-table-view` on <html>, not by Alpine, because the switch has to be
+     * right on the very first paint: a returning grid user would otherwise watch
+     * the table render and then get replaced by it.
+     *
+     *   < 768px    always the card list, whatever the preference
+     *   md+ table  the real table
+     *   md+ grid   the same cards, in columns
+     */
+    .data-table-table {
+        @apply hidden md:block;
+    }
+
+    .data-table-cards {
+        @apply divide-y divide-border-subtle md:hidden;
+    }
+
+    :root[data-table-view="grid"] .data-table-table {
+        @apply hidden;
+    }
+
+    :root[data-table-view="grid"] .data-table-cards {
+        @apply grid grid-cols-1 gap-3 p-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4;
+    }
+
+    /*
+     * The card list is separated by divide-y, which is a top border on all but
+     * the last child and would double up against the full border a grid cell
+     * needs to read as a card of its own.
+     */
+    :root[data-table-view="grid"] .data-table-cards > :not(:last-child) {
+        border-block-start-width: 0;
+    }
+
+    :root[data-table-view="grid"] .data-table-cards > .data-table-card {
+        @apply rounded-xl border border-border-subtle bg-surface-lowest;
+    }
+
+    /*
+     * Shell chrome collapses to a single dot in the tablet icon rail. truncate
+     * needs a block box: text-overflow is ignored on an inline element, which is
+     * what let the labels overflow the 72px rail.
+     */
+    .sidebar-label {
+        @apply block truncate;
     }
 
     .input-base {
         @apply w-full h-11 rounded-lg border border-border-strong bg-surface-lowest px-3.5 text-body-md text-text-strong placeholder:text-text-subtle focus:ring-[3px] focus:ring-primary/15 focus:border-primary outline-none transition;
+    }
+
+    .select-base {
+        @apply w-full h-11 rounded-lg border border-border-strong bg-surface-lowest px-3 text-body-md text-text-strong focus:ring-[3px] focus:ring-primary/15 focus:border-primary outline-none transition;
+    }
+
+    /**
+     * The second toolbar row holds controls a page adds for itself, and those
+     * have to keep the same 44px as the default row above. A hand written
+     * `px-3 py-2` pill lands on ~34px, which is the one place a filter strip
+     * looks out of line with everything next to it.
+     *
+     * The checked state is part of the class because a filter that is applied
+     * must be readable without hunting: the strip is a scan, not a search.
+     */
+    .filter-chip {
+        @apply inline-flex h-11 cursor-pointer items-center gap-2 rounded-lg border border-border-subtle bg-surface-lowest px-3 text-label-md text-text-muted transition select-none hover:border-border-strong hover:text-text-strong has-[:checked]:border-primary/40 has-[:checked]:bg-primary-soft has-[:checked]:text-primary has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary/40;
+    }
+
+    /**
+     * A filter the reader has actually set, shown as something to lift off.
+     *
+     * The strip holds two tiers on purpose: 44px controls you use to change a
+     * filter, and these pills that state the current one. They stay a tier
+     * below the controls — the same height as the sort chips that already share
+     * this row — and the primary tint is what separates "this is your state"
+     * from "this reorders the list".
+     */
+    .filter-token {
+        @apply inline-flex h-8 items-center gap-1.5 rounded-full border border-primary/30 bg-primary-soft px-3 text-label-sm font-medium text-primary transition select-none hover:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:outline-none;
+    }
+
+    /**
+     * Companion to .select-base for use inside the filter strip.
+     *
+     * .select-base is `w-full` on purpose, because in a form a dropdown should
+     * fill its column. Inside a wrapping strip that same width claims a whole
+     * line and pushes every control after it onto the next one, so the strip
+     * needs a fixed measure and a hard `shrink-0` to keep it on that line.
+     *
+     * Applied together: `class="select-base filter-select"`.
+     */
+    .filter-select {
+        @apply w-48 shrink-0;
+    }
+
+    /**
+     * Full-bleed band under the default row. The tint is what tells the eye
+     * "this strip belongs to the page, not to the table" — the padding lives on
+     * the row itself rather than on the form, so the tint can reach the card
+     * edges and both rows still share one left edge.
+     */
+    .filter-strip {
+        @apply border-t border-border-subtle bg-canvas/60;
+    }
+
+    .btn-icon {
+        @apply inline-flex h-11 w-11 items-center justify-center rounded-lg text-text-muted transition select-none hover:bg-canvas hover:text-text-strong active:scale-[0.99];
+    }
+
+    .page-link {
+        @apply inline-flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-label-md font-semibold text-text-muted transition hover:bg-canvas hover:text-text-strong;
+    }
+
+    .page-link-active {
+        @apply bg-text-strong text-white hover:bg-text-strong hover:text-white;
     }
 
     .btn-primary {
@@ -166,28 +402,153 @@
         @apply inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 font-semibold text-text-muted transition select-none hover:bg-canvas hover:text-text-strong active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50;
     }
 
+    /* The ring always sits on the input, never on the joined button beside it.
+       Two rings on one control read as two focusable things. */
     .scan-input {
         @apply font-mono h-14 text-body-lg w-full rounded-lg border border-border-strong bg-surface-lowest px-4 text-text-strong placeholder:text-text-subtle outline-none transition;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12), 0 0 0 1px #2563eb;
+        box-shadow:
+            0 0 0 3px rgb(37 99 235 / 0.12),
+            0 0 0 1px var(--color-primary);
     }
     .scan-input:focus {
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25), 0 0 0 1px #2563eb;
+        box-shadow:
+            0 0 0 3px rgb(37 99 235 / 0.25),
+            0 0 0 1px var(--color-primary);
     }
 
     .sticky-bar {
         box-shadow: 0 -2px 8px -1px rgba(15, 23, 42, 0.06);
+        /* Clear the iOS home indicator so the bar's buttons stay tappable. */
+        padding-bottom: max(1rem, env(safe-area-inset-bottom));
     }
 
     .badge-pill {
         @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-label-md;
     }
+
+    /*
+     * Modal and confirm footer. On phones the actions stack and take the full
+     * width so neither button gets squeezed; from sm they return to an inline
+     * right-aligned row. The form/button pair is covered because row actions
+     * submit through a <form> that wraps its own <button>.
+     */
+    .modal-actions {
+        @apply flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end;
+    }
+
+    .modal-actions > *,
+    .modal-actions > form {
+        @apply w-full sm:w-auto;
+    }
+
+    .modal-actions > form > button {
+        @apply w-full;
+    }
 }
 
 @keyframes pulse-green {
-    0% { background-color: #dcfce7; }
-    100% { background-color: transparent; }
+    0% {
+        background-color: #dcfce7;
+    }
+    100% {
+        background-color: transparent;
+    }
 }
 
 .pulse-green {
     animation: pulse-green 1s ease-out;
+}
+/* ==========================================================================
+   SweetAlert2, wearing this project's colours.
+
+   Deliberately outside every cascade layer. An unlayered rule outranks a
+   layered one of equal specificity regardless of source order, so putting
+   this in `@layer base` would let the library's own `:root` win on
+   `--swal2-*` and the theme would look correct in the source and wrong on
+   screen.
+
+   Only the custom properties are set here. SweetAlert2 writes a button's
+   background inline whenever `confirmButtonColor` and friends are passed, so
+   no per-call colour is set anywhere in notify.js and these stay in charge.
+   Two of the library's own colours are derived from the computed button style
+   -- the focus ring and the tick in the success icon -- and they follow along.
+   ========================================================================== */
+:root {
+    --swal2-backdrop: rgb(15 23 42 / 0.45);
+    --swal2-border: 1px solid var(--color-border-subtle);
+    --swal2-border-radius: 0.75rem;
+    --swal2-background: var(--color-surface-lowest);
+    --swal2-color: var(--color-text-main);
+    --swal2-outline: 0 0 0 3px
+        color-mix(in oklab, var(--color-primary) 35%, transparent);
+
+    --swal2-title-padding: 1.25rem 1.25rem 0;
+    --swal2-html-container-padding: 0.75rem 1.25rem 0;
+    --swal2-padding: 0 0 1.25rem;
+
+    --swal2-confirm-button-background-color: var(--color-primary);
+    --swal2-confirm-button-color: var(--color-on-primary);
+    --swal2-confirm-button-border-radius: 0.5rem;
+    --swal2-deny-button-background-color: var(--color-error-text);
+    --swal2-deny-button-color: #fff;
+    --swal2-deny-button-border-radius: 0.5rem;
+    --swal2-cancel-button-background-color: var(--color-surface-container-high);
+    --swal2-cancel-button-color: var(--color-text-strong);
+    --swal2-cancel-button-border-radius: 0.5rem;
+
+    --swal2-input-background: var(--color-surface-lowest);
+    --swal2-input-border: 1px solid var(--color-border-strong);
+    --swal2-input-border-radius: 0.5rem;
+    --swal2-input-focus-border: 1px solid var(--color-primary);
+    --swal2-input-focus-box-shadow: 0 0 0 3px
+        color-mix(in oklab, var(--color-primary) 25%, transparent);
+
+    --swal2-close-button-color: var(--color-text-subtle);
+    --swal2-close-button-font-size: 1.75rem;
+    --swal2-toast-border: 1px solid var(--color-border-subtle);
+    --swal2-toast-box-shadow: 0 8px 24px -8px rgb(15 23 42 / 0.18);
+}
+
+/* The status icon colours, which the library sets in CSS rather than by var.
+   `color` cascades into the icon's own fill and stroke. */
+.swal2-icon-success {
+    color: var(--color-success-text);
+}
+.swal2-icon-error {
+    color: var(--color-error-text);
+}
+.swal2-icon-warning {
+    color: var(--color-warning-text);
+}
+.swal2-icon-info {
+    color: var(--color-info-text);
+}
+.swal2-icon-question {
+    color: var(--color-primary);
+}
+
+.swal2-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--color-text-strong);
+}
+
+.swal2-html-container {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--color-text-muted);
+}
+
+.swal2-popup {
+    box-shadow: 0 20px 48px -16px rgb(15 23 42 / 0.28);
+}
+
+/*
+ * A destructive answer, marked by a class on the button itself. Setting the
+ * custom property on the element the rule consumes it on is what makes this
+ * work: the rule that paints the button reads this variable from the button,
+ * and `:where()` gives that rule no specificity to fight.
+ */
+.swal-confirm-danger {
+    --swal2-confirm-button-background-color: var(--color-error-text);
 }

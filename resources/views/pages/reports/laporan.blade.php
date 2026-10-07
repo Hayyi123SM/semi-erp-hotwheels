@@ -21,31 +21,33 @@
 
     <div class="grid gap-6 lg:grid-cols-2">
         <x-ui.section-card title="Ringkasan Penjualan per Shift">
-            <table class="w-full text-left">
-                <thead class="thead-dense">
-                    <tr>
-                        <th class="px-4 py-3 font-semibold">Shift</th>
-                        <th class="px-4 py-3 text-center font-semibold">Nota</th>
-                        <th class="px-4 py-3 text-center font-semibold">Item</th>
-                        <th class="px-4 py-3 text-right font-semibold">Total</th>
-                        <th class="px-4 py-3 text-right font-semibold">Metode utama</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-border-subtle">
-                    @foreach ([
-                        ['s' => 'Reguler Shift 1', 'n' => 3, 'i' => 8, 't' => 1260000, 'm' => 'TUNAI'],
-                        ['s' => 'Reguler Shift 2', 'n' => 4, 'i' => 10, 't' => 2955000, 'm' => 'QRIS'],
-                    ] as $row)
-                        <tr class="row-dense">
-                            <td class="px-4 py-3 text-body-md font-medium text-text-strong">{{ $row['s'] }}</td>
-                            <td class="px-4 py-3 text-center tabular-nums">{{ $row['n'] }}</td>
-                            <td class="px-4 py-3 text-center tabular-nums">{{ $row['i'] }}</td>
-                            <td class="px-4 py-3 text-right font-semibold tabular-nums">{{ \App\Support\MockData::rupiah($row['t']) }}</td>
-                            <td class="px-4 py-3 text-right text-body-sm text-text-muted">{{ $row['m'] }}</td>
+            <div class="table-scroll">
+                <table class="w-full min-w-max text-left">
+                    <thead class="thead-dense">
+                        <tr>
+                            <th class="px-4 py-3 font-semibold">Shift</th>
+                            <th class="px-4 py-3 text-center font-semibold">Nota</th>
+                            <th class="px-4 py-3 text-center font-semibold">Item</th>
+                            <th class="px-4 py-3 text-right font-semibold">Total</th>
+                            <th class="px-4 py-3 text-right font-semibold">Metode utama</th>
                         </tr>
-                    @endforeach
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody class="divide-y divide-border-subtle">
+                        @foreach ([
+                            ['s' => 'Reguler Shift 1', 'n' => 3, 'i' => 8, 't' => 1260000, 'm' => 'TUNAI'],
+                            ['s' => 'Reguler Shift 2', 'n' => 4, 'i' => 10, 't' => 2955000, 'm' => 'QRIS'],
+                        ] as $row)
+                            <tr class="row-dense">
+                                <td class="px-4 py-3 text-body-md font-medium text-text-strong">{{ $row['s'] }}</td>
+                                <td class="px-4 py-3 text-center tabular-nums">{{ $row['n'] }}</td>
+                                <td class="px-4 py-3 text-center tabular-nums">{{ $row['i'] }}</td>
+                                <td class="px-4 py-3 text-right font-semibold tabular-nums">{{ \App\Support\MockData::rupiah($row['t']) }}</td>
+                                <td class="px-4 py-3 text-right text-body-sm text-text-muted">{{ $row['m'] }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
         </x-ui.section-card>
 
         <x-ui.section-card title="Nilai Stok per Kepemilikan">

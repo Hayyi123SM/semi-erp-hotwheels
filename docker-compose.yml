@@ -1,0 +1,112 @@
+# Docker Compose untuk deploy di Dokploy.
+#
+# Yang disesuaikan dengan panel:
+#   - `networks: dokploy-network` external — jaringan yang sama dipakai Traefik
+#     dan service database yang dibuat dari panel Dokploy.
+#   - Tanpa `container_name` (Dokploy menolaknya).
+#   - Data dipersist lewat named volume, bukan path di dalam repo, karena
+#     AutoDeploy melakukan `git clone` ulang tiap deploy.
+#   - Nilai ${...} dibaca docker compose dari `.env` yang ditulis Dokploy di
+#     folder ini. Variabel bertanda `:?` memaksa deploy gagal jelas kalau lupa.
+#   - Port tidak dibuka di sini: domain & HTTPS diatur lewat tab Domains
+#     Dokploy (service `app`, port 80).
+#
+# Service database dibuat terpisah dari panel. Isi DB_HOST/DB_PORT/DB_DATABASE/
+# DB_USERNAME/DB_PASSWORD dari tab Connections service tersebut; DB_CONNECTION
+# bebas mysql/postgres/sqlite sesuai jenis service yang dibuat.
+
+x-app-environment: &app-environment
+  APP_ENV: ${APP_ENV:-production}
+  APP_DEBUG: ${APP_DEBUG:-false}
+  APP_KEY: ${APP_KEY:?APP_KEY wajib diisi, jalankan php artisan key:generate --show}
+  APP_URL: ${APP_URL:?APP_URL wajib diisi, misal https://erp.contoh.com}
+  APP_LOCALE: ${APP_LOCALE:-id}
+  APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Jakarta}
+
+  # stdout/stderr adalah satu-satunya log yang tampil di panel Dokploy.
+  LOG_CHANNEL: ${LOG_CHANNEL:-stderr}
+
+  DB_CONNECTION: ${DB_CONNECTION:-mysql}
+  DB_HOST: ${DB_HOST:?DB_HOST wajib diisi dari tab Connections service DB}
+  DB_PORT: ${DB_PORT:-3306}
+  DB_DATABASE: ${DB_DATABASE:?DB_DATABASE wajib diisi}
+  DB_USERNAME: ${DB_USERNAME:?DB_USERNAME wajib diisi}
+  DB_PASSWORD: ${DB_PASSWORD:-}
+
+  # Sesuaikan dengan jenis service DB; bila SQLite, arahkan DB_DATABASE ke file
+  # di dalam named volume.
+  SESSION_DRIVER: ${SESSION_DRIVER:-database}
+  CACHE_STORE: ${CACHE_STORE:-database}
+  QUEUE_CONNECTION: ${QUEUE_CONNECTION:-database}
+
+  MAIL_MAILER: ${MAIL_MAILER:-log}
+  BROADCAST_CONNECTION: log
+  FILESYSTEM_DISK: local
+  # ASSET_URL sengaja tidak diisi — aset harus same-origin dengan domain yang
+  # dibuka (lihat catatan di .env).
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: semi-erp-hotwheels:latest
+    restart: always
+    environment:
+      <<: *app-environment
+      # Instance utama satu-satunya yang memanaskan route/view cache dan
+      # menjalankan migrasi — worker/scheduler tidak, agar tidak berebut
+      # penulisan file kompilasi view.
+      PRIMARY_APP: "true"
+    volumes:
+      - laravel-storage:/var/www/html/storage
+    networks:
+      - dokploy-network
+
+  # Semua service memakai image yang sama; bedanya hanya perintah yang
+  # dijalankan. `user` diturunkan ke www-data supaya log yang ditulis ke
+  # volume storage tidak dimiliki root.
+  worker:
+    image: semi-erp-hotwheels:latest
+    user: www-data:www-data
+    restart: always
+    command: php artisan queue:work --tries=3 --sleep=3
+    environment: *app-environment
+    volumes:
+      - laravel-storage:/var/www/html/storage
+    networks:
+      - dokploy-network
+    # Health check `/up` milik image butuh nginx yang hanya ada di service app,
+    # sehingga worker/scheduler akan selalu berstatus unhealthy bila tidak
+    # dimatikan.
+    healthcheck:
+      disable: true
+    depends_on:
+      app:
+        condition: service_healthy
+
+  scheduler:
+    image: semi-erp-hotwheels:latest
+    user: www-data:www-data
+    restart: always
+    command: php artisan schedule:work
+    environment: *app-environment
+    volumes:
+      - laravel-storage:/var/www/html/storage
+    networks:
+      - dokploy-network
+    healthcheck:
+      disable: true
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  # Isi storage (log, berkas import Excel) harus selamat saat image diganti
+  # saat deploy. Named volume juga bisa di-backup S3 lewat Dokploy Volume
+  # Backups.
+  laravel-storage:
+
+networks:
+  dokploy-network:
+    external: true

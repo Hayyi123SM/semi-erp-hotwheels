@@ -41,37 +41,39 @@
                     </div>
                 </div>
 
-                <table class="w-full text-left">
-                    <thead class="thead-dense">
-                        <tr>
-                            <th class="px-4 py-3 font-semibold">Nota / Tanggal</th>
-                            <th class="px-4 py-3 font-semibold">SKU</th>
-                            <th class="px-4 py-3 text-right font-semibold">Harga Jual</th>
-                            <th class="px-4 py-3 text-right font-semibold">Fee (20%)</th>
-                            <th class="px-4 py-3 text-right font-semibold">Hak Penitip</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-border-subtle">
-                        @foreach ([
-                            ['n' => 'POS-CP2-2026-08913 · 22 Sep', 's' => 'CN01-HW-001', 'jual' => 220000, 'fee' => 44000, 'hak' => 176000],
-                            ['n' => 'POS-CP2-2026-08911 · 22 Sep', 's' => 'CN01-HW-002', 'jual' => 185000, 'fee' => 37000, 'hak' => 148000],
-                            ['n' => 'POS-CP2-2026-08910 · 22 Sep', 's' => 'CN01-HW-001', 'jual' => 220000, 'fee' => 44000, 'hak' => 176000],
-                            ['n' => 'POS-CP2-2026-08908 · 21 Sep', 's' => 'CN01-HW-002', 'jual' => 185000, 'fee' => 37000, 'hak' => 148000],
-                        ] as $st)
-                            <tr class="row-dense">
-                                <td class="px-4 py-3 text-body-sm text-text-muted tabular-nums">{{ $st['n'] }}</td>
-                                <td class="px-4 py-3 font-mono text-sku text-text-strong">{{ $st['s'] }}</td>
-                                <td class="px-4 py-3 text-right text-body-md tabular-nums">{{ \App\Support\MockData::rupiah($st['jual']) }}</td>
-                                <td class="px-4 py-3 text-right text-body-md text-text-muted tabular-nums">{{ \App\Support\MockData::rupiah($st['fee']) }}</td>
-                                <td class="px-4 py-3 text-right text-body-md font-semibold text-titip-text tabular-nums">{{ \App\Support\MockData::rupiah($st['hak']) }}</td>
+                <div class="table-scroll">
+                    <table class="w-full min-w-max text-left">
+                        <thead class="thead-dense">
+                            <tr>
+                                <th class="px-4 py-3 font-semibold">Nota / Tanggal</th>
+                                <th class="px-4 py-3 font-semibold">SKU</th>
+                                <th class="px-4 py-3 text-right font-semibold">Harga Jual</th>
+                                <th class="px-4 py-3 text-right font-semibold">Fee (20%)</th>
+                                <th class="px-4 py-3 text-right font-semibold">Hak Penitip</th>
                             </tr>
-                        @endforeach
-                        <tr class="bg-canvas">
-                            <td colspan="4" class="px-4 py-4 text-right text-label-md font-semibold text-text-muted">TOTAL NET PAYABLE</td>
-                            <td class="px-4 py-4 text-right text-headline-md font-bold text-titip-text tabular-nums">Rp1.840.000</td>
-                        </tr>
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody class="divide-y divide-border-subtle">
+                            @foreach ([
+                                ['n' => 'POS-CP2-2026-08913 · 22 Sep', 's' => 'CN01-HW-001', 'jual' => 220000, 'fee' => 44000, 'hak' => 176000],
+                                ['n' => 'POS-CP2-2026-08911 · 22 Sep', 's' => 'CN01-HW-002', 'jual' => 185000, 'fee' => 37000, 'hak' => 148000],
+                                ['n' => 'POS-CP2-2026-08910 · 22 Sep', 's' => 'CN01-HW-001', 'jual' => 220000, 'fee' => 44000, 'hak' => 176000],
+                                ['n' => 'POS-CP2-2026-08908 · 21 Sep', 's' => 'CN01-HW-002', 'jual' => 185000, 'fee' => 37000, 'hak' => 148000],
+                            ] as $st)
+                                <tr class="row-dense">
+                                    <td class="px-4 py-3 text-body-sm text-text-muted tabular-nums">{{ $st['n'] }}</td>
+                                    <td class="px-4 py-3 font-mono text-sku text-text-strong">{{ $st['s'] }}</td>
+                                    <td class="px-4 py-3 text-right text-body-md tabular-nums">{{ \App\Support\MockData::rupiah($st['jual']) }}</td>
+                                    <td class="px-4 py-3 text-right text-body-md text-text-muted tabular-nums">{{ \App\Support\MockData::rupiah($st['fee']) }}</td>
+                                    <td class="px-4 py-3 text-right text-body-md font-semibold text-titip-text tabular-nums">{{ \App\Support\MockData::rupiah($st['hak']) }}</td>
+                                </tr>
+                            @endforeach
+                            <tr class="bg-canvas">
+                                <td colspan="4" class="px-4 py-4 text-right text-label-md font-semibold text-text-muted">TOTAL NET PAYABLE</td>
+                                <td class="px-4 py-4 text-right text-headline-md font-bold text-titip-text tabular-nums">Rp1.840.000</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
 
                 <div class="mt-4 flex flex-wrap justify-end gap-2">
                     <button type="button" class="btn-secondary" @click="$store.toast.push('Statement PDF dibuat (mock)', 'info')">Unduh PDF</button>

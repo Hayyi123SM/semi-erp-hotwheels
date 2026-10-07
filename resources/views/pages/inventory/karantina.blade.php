@@ -1,3 +1,5 @@
+@use('App\Support\Format')
+
 <x-ui.page-header
     title="Karantina"
     subtitle="Barang tak teridentifikasi / rusak / barcode tidak terbaca. SLA: assign dalam 3 hari, eskalasi 7 hari."
@@ -21,7 +23,7 @@
         <div class="lg:col-span-3 card">
             <div class="flex items-center justify-between border-b border-border-subtle px-5 py-4">
                 <h2 class="text-headline-sm text-text-strong">Antrean</h2>
-                <span class="rounded-full bg-karantina-bg px-2 py-0.5 text-label-sm text-karantina-text tabular-nums">{{ count($cases) }}</span>
+                <span class="rounded-full bg-karantina-bg px-2 py-0.5 text-label-sm text-karantina-text tabular-nums">{{ Format::number(count($cases)) }}</span>
             </div>
             <ul class="divide-y divide-border-subtle">
                 @foreach ($cases as $case)

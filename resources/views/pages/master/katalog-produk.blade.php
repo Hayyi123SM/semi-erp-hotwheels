@@ -1,142 +1,85 @@
+@use('App\Support\Format')
+
+@php
+    $isOwner = $canManage;
+@endphp
+
 <x-ui.page-header
     title="Katalog Produk"
-    subtitle="Master data item Hot Wheels dengan status verifikasi & kode SKU internal."
+    subtitle="Definisi produk, seri, kondisi & harga jual. SKU dipecah per lot di area Inventory."
     :crumbs="['Master Data', 'Katalog Produk']"
 >
     <x-slot:actions>
-        <button type="button" class="btn-secondary" @click="$store.toast.push('Template impor CSV diunduh (mock)', 'info')">
-            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
-            Impor CSV
-        </button>
-        <x-ui.modal title="Tambah Produk" description="Tambah/tab item ke katalog. Duplikat dideteksi non-modal." size="lg">
-            <x-slot:trigger>
-                <button type="button" class="btn-primary">
-                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v16m8-8H4"/></svg>
-                    Tambah Produk
-                </button>
-            </x-slot:trigger>
-            <x-slot:panel>
-                <form @submit.prevent="$store.toast.push('Produk tersimpan (mock)', 'success'); open = false" class="space-y-5">
-                    <div class="grid gap-5 sm:grid-cols-2">
-                        <x-ui.field label="Casting / Model" name="pr_model" required>
-                            <input id="pr_model" class="input-base" placeholder="mis. Nissan Skyline GT-R R34">
-                        </x-ui.field>
-                        <x-ui.field label="Seri" name="pr_series">
-                            <input id="pr_series" class="input-base" placeholder="mis. Fast &amp; Furious">
-                        </x-ui.field>
-                        <x-ui.field label="Tahun" name="pr_year">
-                            <input id="pr_year" type="number" class="input-base" placeholder="2024">
-                        </x-ui.field>
-                        <x-ui.field label="Warna" name="pr_color">
-                            <input id="pr_color" class="input-base" placeholder="mis. Bayside Blue">
-                        </x-ui.field>
-                        <x-ui.field label="Kondisi" name="pr_condition">
-                            <select id="pr_condition" class="input-base">
-                                <option>Mint</option>
-                                <option>Clear</option>
-                                <option>Used / Good</option>
-                            </select>
-                        </x-ui.field>
-                        <x-ui.field label="Kepemilikan" name="pr_owner">
-                            <select id="pr_owner" class="input-base">
-                                <option value="PRIBADI">Stok Pribadi (OW00)</option>
-                                <option value="TITIP">Titipan (CNxx)</option>
-                            </select>
-                        </x-ui.field>
-                        <x-ui.field label="Harga Jual (Rp)" name="pr_price">
-                            <input id="pr_price" class="input-base tabular-nums" placeholder="150000">
-                        </x-ui.field>
-                        <x-ui.field label="Rak Awal" name="pr_rack" hint="Kosongkan utk gunakan rak default">
-                            <input id="pr_rack" class="input-base font-mono uppercase" placeholder="A-01-03">
-                        </x-ui.field>
-                    </div>
-                    <div class="flex items-center justify-end gap-2 border-t border-border-subtle pt-4">
-                        <button type="button" class="btn-secondary" @click="open = false">Batal</button>
-                        <button type="submit" class="btn-primary">Simpan Produk</button>
-                    </div>
-                </form>
-            </x-slot:panel>
-        </x-ui.modal>
+        @if ($isOwner)
+            {{-- Opened through the shared helper, which walks the template below
+                 with Alpine as it opens and tears it down as it closes. --}}
+            <button type="button" class="btn-ghost"
+                    @click="notify.templateModal('seri-panel', {
+                        title: 'Kelola Seri',
+                        description: 'Tambahkan, ubah, atau hapus seri produk (mis. Hot Wheels, Matchbox, Mini GT).',
+                        size: 'lg',
+                    })">
+                Kelola Seri
+            </button>
+        @endif
     </x-slot:actions>
 </x-ui.page-header>
 
-<div class="space-y-6">
-    <x-ui.banner tone="warning">
-        <span class="font-semibold">Duplikat terdeteksi.</span>
-        <span class="font-mono">CN02-HW-001 Lamborghini Huracan</span> sudah ada pada seri Car Culture. Gunakan label internal WMS bila menerima unit lain (non-modal).
-    </x-ui.banner>
-
-    <x-ui.section-card>
-        <x-ui.toolbar search-placeholder="Cari casting, SKU, seri...">
-            <x-slot:filters>
-                <select class="input-base h-11 w-auto">
-                    <option>Semua Seri</option>
-                    <option>Car Culture</option>
-                    <option>Fast &amp; Furious</option>
-                    <option>Porsche</option>
-                    <option>Honda</option>
-                    <option>American Scene</option>
-                </select>
-                <select class="input-base h-11 w-auto">
-                    <option>Semua Kondisi</option>
-                    <option>Mint</option>
-                    <option>Clear</option>
-                    <option>Damaged</option>
-                </select>
-                <select class="input-base h-11 w-auto">
-                    <option>Semua Pemilik</option>
-                    <option>PRIBADI</option>
-                    <option>TITIP</option>
-                </select>
-            </x-slot:filters>
-        </x-ui.toolbar>
-
-        <table class="w-full text-left">
-            <thead class="thead-dense">
-                <tr>
-                    <th class="px-6 py-3 font-semibold">SKU</th>
-                    <th class="px-6 py-3 font-semibold">Produk</th>
-                    <th class="px-6 py-3 font-semibold">Seri / Tahun</th>
-                    <th class="px-6 py-3 font-semibold">Kondisi</th>
-                    <th class="px-6 py-3 font-semibold">Pemilik</th>
-                    <th class="px-6 py-3 font-semibold">Rak</th>
-                    <th class="px-6 py-3 text-right font-semibold">Harga</th>
-                    <th class="px-6 py-3 text-right font-semibold">Aksi</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-border-subtle">
-                @foreach ($products as $product)
-                    <tr class="row-dense transition hover:bg-canvas">
-                        <td class="px-6 py-3 font-mono text-sku text-text-strong">{{ $product['sku'] }}</td>
-                        <td class="px-6 py-3 text-body-md font-medium text-text-strong">{{ $product['model'] }}</td>
-                        <td class="px-6 py-3 text-body-sm text-text-muted">{{ $product['series'] }} · {{ $product['year'] }} · {{ $product['color'] }}</td>
-                        <td class="px-6 py-3">
-                            @if ($product['condition'] === 'Damaged')
-                                <x-ui.badge-status type="error">{{ $product['condition'] }}</x-ui.badge-status>
-                            @elseif ($product['condition'] === 'Clear')
-                                <x-ui.badge-status type="info">{{ $product['condition'] }}</x-ui.badge-status>
-                            @else
-                                <x-ui.badge-status type="success">{{ $product['condition'] }}</x-ui.badge-status>
-                            @endif
-                        </td>
-                        <td class="px-6 py-3">
-                            <x-ui.badge-ownership
-                                :type="$product['category']"
-                                :consignor="$product['category'] === 'TITIP' ? substr($product['sku'], 0, 4) : null" />
-                        </td>
-                        <td class="px-6 py-3 font-mono text-body-sm text-text-muted">{{ $product['rack'] }}</td>
-                        <td class="px-6 py-3 text-right text-body-md font-semibold text-text-strong tabular-nums">
-                            {{ \App\Support\MockData::rupiah($product['price']) }}
-                        </td>
-                        <td class="px-6 py-3">
-                            <div class="flex justify-end gap-1">
-                                <button type="button" class="btn-ghost h-9 px-3" @click="$store.toast.push('Edit produk dibuka (mock)', 'info')">Edit</button>
-                                <button type="button" class="btn-ghost h-9 px-3" @click="$store.toast.push('Cetak label dibuka (mock)', 'info')">Label</button>
-                            </div>
-                        </td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
-    </x-ui.section-card>
+<div class="mb-6 grid gap-5 sm:grid-cols-3">
+    <x-ui.stat-card label="Total Produk" :value="$totalProducts" delta="Definisi katalog" delta-tone="info" />
+    <x-ui.stat-card label="Lot Aktif" :value="$totalLots" delta="{{ Format::number($totalUnits) }} unit di tangan" delta-tone="success" />
+    <x-ui.stat-card label="Perlu Review" :value="$needsReviewCount" delta="Tunggu persetujuan Owner" delta-tone="warning" />
 </div>
+
+<x-ui.section-card>
+    <x-ui.data-table :table="$table">
+        <x-slot:filters>
+            <label class="filter-chip">
+                <input type="checkbox" name="needs_review" value="1" class="h-4 w-4 rounded border-border-strong text-primary focus:ring-primary/30" @checked(request()->boolean('needs_review'))>
+                Hanya perlu review
+            </label>
+        </x-slot:filters>
+        <x-slot:summary>{{ Format::number($series->count()) }} seri terdaftar</x-slot:summary>
+    </x-ui.data-table>
+</x-ui.section-card>
+
+@if ($isOwner)
+    <template id="seri-panel">
+        <div x-data="seriManager()">
+            <form @submit.prevent="add()" class="mb-5 grid gap-4 rounded-xl border border-border-subtle bg-canvas p-4 sm:grid-cols-4">
+                <div class="sm:col-span-2">
+                    <x-ui.field label="Nama Seri" name="series_name">
+                        <input x-model="name" class="input-base" placeholder="mis. Hot Wheels" required>
+                    </x-ui.field>
+                </div>
+                <div>
+                    <x-ui.field label="Kode (opsional)" name="series_code">
+                        <input x-model="code" class="input-base" placeholder="mis. HW">
+                    </x-ui.field>
+                </div>
+                <div class="flex items-end">
+                    <button type="submit" class="btn-primary w-full" x-bind:disabled="loading">Tambahkan</button>
+                </div>
+                <p x-show="error" x-text="error" class="text-label-sm text-error-text sm:col-span-4"></p>
+            </form>
+
+            <ul class="divide-y divide-border-subtle">
+                <template x-for="item in series" :key="item.id">
+                    <li class="flex items-center justify-between py-3">
+                        <div>
+                            <p class="text-body-md font-medium text-text-strong" x-text="item.name"></p>
+                            <p class="text-label-sm text-text-subtle">
+                                <span x-text="item.code || 'tanpa kode'"></span>
+                                · <span x-text="item.products_count + ' produk'"></span>
+                            </p>
+                        </div>
+                        <button type="button" class="btn-ghost h-8 px-3 text-error-text" @click="remove(item.id)">Hapus</button>
+                    </li>
+                </template>
+            </ul>
+            <p x-show="!loading && series.length === 0" class="py-4 text-center text-label-sm text-text-subtle">
+                Belum ada seri. Tambahkan seri pertama di atas.
+            </p>
+        </div>
+    </template>
+@endif

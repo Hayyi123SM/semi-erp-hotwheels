@@ -1,6 +1,8 @@
 <header class="sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b border-border-subtle bg-surface-lowest/95 px-4 backdrop-blur sm:px-6 lg:px-8">
-    <div class="flex items-center gap-3">
-        <button type="button" class="flex h-9 w-9 items-center justify-center rounded-lg text-text-muted hover:bg-canvas lg:hidden" @click="sidebarOpen = true" aria-label="Buka menu">
+    <div class="flex min-w-0 items-center gap-3">
+        {{-- The tablet rail is always on screen, so only mobile needs the drawer trigger. --}}
+        <button type="button" x-ref="menuToggle" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-canvas md:hidden"
+                @click="toggleDrawer()" :aria-expanded="open.toString()" aria-controls="app-sidebar" aria-label="Buka menu">
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
         </button>
 

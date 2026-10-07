@@ -19,7 +19,21 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <env name="APP_KEY" value="base64:ohJOG1ZtKzR8kK3VdYPMS7A5J2QaRnEAcQ0Yc3L1tFA="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <!--
+            Zona waktu test disamakan dengan produksi.
+
+            Tanpa ini, test memakai default `config/app.php` yang berupa UTC,
+            sementara produksi memakai Asia/Jakarta dari `.env`. Selisihnya tujuh
+            jam, dan yang terpengaruh langsung adalah teks yang mencantumkan waktu,
+            termasuk footer "Dicetak" pada bukti terima dan setiap kolom
+            timestamp di halaman yang diuji. Assertion yang ditulis dengan
+            `now()` akan lulus di UTC dan gagal di produksi, atau sebaliknya,
+            tergantung jam TEST-nya: test yang hijau jam tiga pagi bisa merah
+            jam sepuluh pagi.
+        -->
+        <env name="APP_TIMEZONE" value="Asia/Jakarta"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>

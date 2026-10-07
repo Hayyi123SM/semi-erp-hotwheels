@@ -8,7 +8,7 @@ class MockData
 {
     public static function rupiah(int $amount): string
     {
-        return 'Rp' . number_format($amount, 0, ',', '.');
+        return 'Rp'.number_format($amount, 0, ',', '.');
     }
 
     public static function date(string $datetime): string
