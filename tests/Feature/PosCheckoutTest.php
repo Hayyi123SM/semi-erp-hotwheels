@@ -98,6 +98,25 @@ class PosCheckoutTest extends TestCase
         $this->assertSame($cashier->id, $sale->user_id);
         $this->assertSame($response->json('sale_id'), $sale->getKey());
 
+        // Jawaban untuk dialog struk: pratinjau server + dua jalur cetak.
+        // `struk_html` mengulang nomor nota, dan URL-nya menyatukan `auto=1`
+        // dengan kembalian yang baru saja dihitung server.
+        $this->assertStringContainsString($sale->receipt_no, (string) $response->json('struk_html'));
+        $this->assertStringContainsString('No. nota', (string) $response->json('struk_html'));
+
+        $this->assertSame(
+            route('pos.struk.thermal', $sale).'?change=10000',
+            $response->json('thermal_url'),
+        );
+
+        $this->assertSame(
+            route('pos.struk', $sale).'?auto=1&change=10000',
+            $response->json('print_url'),
+        );
+
+        $this->assertSame('browser', $response->json('print_method'));
+        $this->assertSame('80mm', $response->json('paper'));
+
         // Stok: potongan dan catatan gerakannya lahir dari baris yang sama.
         $this->assertSame(1, $lot->fresh()->qty_on_hand);
 
@@ -453,5 +472,45 @@ class PosCheckoutTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors(['items'])
             ->assertJsonPath('errors.items.0', 'Keranjang kosong.');
+    }
+
+    /**
+     * Pembayaran non-tunai tidak punya kembalian, dan struknya harus tahu.
+     *
+     * Tunai selalu menyebut kembalian (0 pun untuk uang pas); QRIS tidak pernah
+     * menyebut "Kembalian" sama sekali, dan URL cetaknya tidak boleh membawa
+     * `change` yang tidak ada artinya.
+     */
+    #[Test]
+    public function a_non_cash_checkout_leaves_no_change_in_the_struk_links(): void
+    {
+        $cashier = $this->cashier();
+        $this->openShift($cashier);
+        $lot = StockLot::factory()->qty(2)->create(['list_price' => 45_000]);
+
+        $response = $this->actingAs($cashier)->postJson('/pos/transaksi', [
+            'client_sale_id' => 'cs-qris',
+            'items' => [$this->line($lot, 1)],
+            'payments' => [['method' => 'QRIS', 'amount' => 45_000, 'reference' => 'QR-REF-01']],
+            'tender' => null,
+        ])->assertOk();
+
+        $sale = Sale::sole();
+
+        $this->assertSame(0, $response->json('change'));
+
+        $this->assertSame(
+            route('pos.struk.thermal', $sale),
+            $response->json('thermal_url'),
+        );
+
+        $this->assertSame(
+            route('pos.struk', $sale).'?auto=1',
+            $response->json('print_url'),
+        );
+
+        $html = (string) $response->json('struk_html');
+        $this->assertStringContainsString('QRIS', $html);
+        $this->assertStringNotContainsString('Kembalian', $html);
     }
 }

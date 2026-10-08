@@ -1,3 +1,12 @@
+{{--
+    `receipt.css` sengaja TIDAK dipush dari halaman ini. `page()` merender view
+    halaman lebih dulu sebelum layout, dan `Factory::flushStateIfDoneRendering()`
+    mengosongkan stack tepat setelah render inner selesai -- push mana pun dari
+    sini tidak pernah sampai ke `@stack('head')` layout, dan pratinjau struk di
+    dialog kasir tampil sebagai teks tanpa format. Gaya itu sekarang dimuat
+    langsung oleh `layouts/app.blade.php`.
+--}}
+
 <div class="min-h-full"
      x-data="posCart()"
      data-lookup-url="{{ route('pos.produk.cari') }}"
@@ -303,14 +312,15 @@
                 {{--
                     Label hanya menjanjikan yang benar-benar terjadi.
 
-                    "Bayar & Cetak Struk" pernah tertulis di sini, dan tidak ada
-                    satu pun alur cetak struk POS di aplikasi ini: kasir menekan
-                    tombol itu, layarnya bilang sukses, dan kertasnya tidak keluar.
-                    Tidak dicetak bukan karena belum waktunya, tapi karena tombol
-                    yang menjanjikan sesuatu yang tidak bisa dilakukannya membuat
-                    orang menekannya berulang sambil menunggu printer yang tidak
-                    akan merespons. Cetakan struk menyusul bersama alurnya, dan
-                    labelnya ikut berubah bersamanya.
+                    Tombol ini bernama "Bayar", bukan "Bayar & Cetak Struk",
+                    karena cetak struk bukan bagian dari menekan tombol:
+                    setelah server mengiyakan, layar membuka dialog yang berisi
+                    pratinjau struk dengan "Cetak Struk" dan "Selesai", dan yang
+                    mencetak adalah kasir yang memilih -- bukan tombol bayar
+                    yang menyala sendiri. Label yang menjanjikan cetakan padahal
+                    belum ada pintunya pernah membuat kasir menekan tombol
+                    berulang sambil menunggu kertas; sekarang pintunya ada di
+                    dialog, dan labelnya tetap jujur.
 
                     `disabled` hanya untuk dua keadaan yang tidak bisa dijawab
                     dengan toast -- uang kurang dan permintaan yang sedang jalan.

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Auth\PinController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Inbound\ProductSearchController;
 use App\Http\Controllers\Master\ConsignorController;
 use App\Http\Controllers\Master\ImportController;
 use App\Http\Controllers\Master\ProductController;
@@ -89,6 +90,21 @@ Route::middleware('auth')->group(function () {
     // ===== 2. Inbound =====
     Route::get('/inbound/stock-in-pribadi', [InboundController::class, 'stockInPribadi'])->name('inbound.stock-in-pribadi');
     Route::post('/inbound/stock-in-pribadi', [InboundController::class, 'stockInPribadiStore'])->name('inbound.stock-in-pribadi.store');
+    /*
+     * Pencarian produk untuk popup Stock In Pribadi.
+     *
+     * `POST`, bukan `GET`, karena isinya pencarian yang dibaca orang, bukan
+     * alamat yang layak di-bookmark atau di-share: teks yang diketik operator
+     * tidak perlu masuk access log dan history browser.
+     *
+     * `throttle` mengikuti route picker kasir: panel memanggil endpoint ini
+     * setiap kali operator mengetik, jadi batasnya dinaikkan -- 120 per menit --
+     * supaya pencarian normal tidak pernah tertahan hanya karena satu layar
+     * sedang mengetik cepat.
+     */
+    Route::post('/inbound/produk/cari', ProductSearchController::class)
+        ->middleware('throttle:120,1')
+        ->name('inbound.produk.cari');
     Route::get('/inbound/consignment-in', [InboundController::class, 'consignmentIn'])->name('inbound.consignment-in');
     Route::post('/inbound/consignment-in', [InboundController::class, 'consignmentStore'])->name('inbound.consignment-in.store');
     Route::post('/inbound/consignment-in/drafts', [InboundController::class, 'draftStore'])->name('inbound.consignment-in.drafts.store');
@@ -152,6 +168,11 @@ Route::middleware('auth')->group(function () {
     // Uji cetak (FR-IB-25): hanya GET dan tidak menyentuh stok, jadi tidak
     // membuat job label apa pun.
     Route::get('/inbound/cetak-label/uji-cetak', [InboundController::class, 'testPrint'])->name('inbound.cetak-label.test-print');
+    // Pasangan TSPL dari uji cetak di atas: perintah cetak yang sama dikirim
+    // langsung ke printer (WebUSB/Web Serial), tanpa dialog browser -- jadi
+    // margin, skala, dan pemilihan kertas peramban tidak ikut menggeser label
+    // yang justru sedang diukur jaraknya. Tetap tidak membuat job apa pun.
+    Route::post('/inbound/cetak-label/uji-cetak/tsp', [InboundController::class, 'testPrintTsp'])->name('inbound.cetak-label.test-print-tsp');
 
     // ===== 3. Inventory =====
     Route::get('/inventory/live-stock', [InventoryController::class, 'liveStock'])->name('inventory.live-stock');
@@ -200,6 +221,22 @@ Route::middleware('auth')->group(function () {
      * membuka semua nota untuk audit.
      */
     Route::get('/pos/nota/{sale}', [PosController::class, 'nota'])->name('pos.nota');
+
+    /**
+     * Struk POS: halaman cetak dan byte thermal.
+     *
+     * Kepemilikan diterapkan seperti `pos.nota` -- di controller, tanpa
+     * middleware `owner` -- karena tiga halaman (nota, struk, thermal) berdiri
+     * di atas dokumen yang sama dan tidak boleh punya aturan pembuka yang
+     * berbeda. `{sale}` memakai ID, bukan `receipt_no`, seperti halaman nota.
+     *
+     * `GET` halaman dan `POST` thermal. Endpoint thermal hanya menyusun byte,
+     * tetapi tetap `POST`: memang tidak mengubah keadaan, dan GET yang berulang
+     * tidak punya alasan untuk masuk cache -- browser tidak akan menanyakan
+     * ulang kedaluwarsa byte, padahal byte struk harus selalu segar.
+     */
+    Route::get('/pos/struk/{sale}', [PosController::class, 'struk'])->name('pos.struk');
+    Route::post('/pos/struk/{sale}/thermal', [PosController::class, 'strukThermal'])->name('pos.struk.thermal');
 
     /**
      * Penyelesaian pembayaran dari layar kasir.
@@ -258,8 +295,12 @@ Route::middleware('auth')->group(function () {
         ->name('pos.produk.cari');
 
     // ===== 5. Reports & Analisis =====
-    Route::get('/reports/consignor-settlement', [ReportController::class, 'settlement'])->name('report.settlement');
-    Route::get('/reports/profit-margin', [ReportController::class, 'margin'])->name('report.margin');
+    // Settlement dan Margin membeberkan uang toko (saldo hak penitip, HPP,
+    // laba), jadi Owner-only. Pembatasan di controller juga dibuat untuk
+    // melindungi endpoint ekspor -- middleware di route melindungi halaman,
+    // `abort_unless` di controller menahan unduhan yang dipanggil langsung.
+    Route::get('/reports/consignor-settlement', [ReportController::class, 'settlement'])->middleware('owner')->name('report.settlement');
+    Route::get('/reports/profit-margin', [ReportController::class, 'margin'])->middleware('owner')->name('report.margin');
     Route::get('/reports/laporan-penjualan-stok', [ReportController::class, 'laporan'])->name('report.laporan');
     Route::get('/reports/audit-log', [ReportController::class, 'auditLog'])->name('report.audit-log');
 

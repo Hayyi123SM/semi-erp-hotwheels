@@ -1,0 +1,92 @@
+# Konfigurasi FrankenPHP (Caddy) untuk kontainer aplikasi.
+#
+# Baris ber-`{$...}` diisi oleh `php artisan octane:frankenphp` sebagai variabel
+# environment — hanya placeholder yang memang diset oleh launcher Octane yang
+# dipakai di sini, supaya tidak ada "environment variable undefined" saat
+# konfigurasi dikompilasi.
+{
+	# auto_https disable_redirects datang dari Octane: HTTPS sudah diurus
+	# Traefik (Dokploy) di depan kontainer, jadi container hanya HTTP polos.
+	{$CADDY_GLOBAL_OPTIONS}
+
+	# API admin hanya untuk perintah Octane (reload/stop) dan hanya mendengarkan
+	# loopback di dalam kontainer — tidak diekspos ke luar.
+	admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
+
+	# Traefik berbagi jaringan `dokploy-network` dengan kontainer ini; nilai
+	# X-Forwarded-* dari sana dipercaya sehingga IP klien asli terbaca benar di
+	# log dan pemanggilan `request()->ip()`.
+	servers {
+		trusted_proxies static private_ranges
+	}
+
+	frankenphp {
+		worker {
+			# Skrip worker Octane; jumlah thread per request dikirim lewat
+			# --workers (CADDY_SERVER_WORKER_DIRECTIVE, mis. "num 10").
+			file "{$APP_PUBLIC_PATH}/frankenphp-worker.php"
+			{$CADDY_SERVER_WORKER_DIRECTIVE}
+			{$CADDY_SERVER_WATCH_DIRECTIVES}
+		}
+	}
+}
+
+{$CADDY_SERVER_SERVER_NAME} {
+	log {
+		level {$CADDY_SERVER_LOG_LEVEL}
+
+		# Sembunyikan parameter sensitif (mis. token) dari log akses.
+		format filter {
+			wrap {$CADDY_SERVER_LOGGER}
+			fields {
+				request>uri query {
+					replace authorization REDACTED
+				}
+			}
+		}
+	}
+
+	# Impor Excel & ekspor laporan bisa besar — pengganti
+	# `client_max_body_size 32m` di nginx lama (lebih dari ini dibalas 413).
+	request_body {
+		max_size 32MB
+	}
+
+	route {
+		root * "{$APP_PUBLIC_PATH}"
+		encode zstd br gzip
+
+		header {
+			X-Content-Type-Options nosniff
+		}
+
+		# Aset hasil Vite memakai nama ber-hash, jadi aman disimpan 7 hari —
+		# pengganti location regex `expires 7d` di nginx lama.
+		@static_assets path_regexp \.(?:css|js|mjs|map|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|otf|eot)$
+		header @static_assets Cache-Control "public, max-age=604800"
+
+		# Rahasia tidak boleh tersaji: .env, .git, dsb. (.well-known dibiarkan
+		# untuk verifikasi domain). Regex Go/RE2 tidak punya lookahead seperti
+		# nginx `(?!...)`, jadi pengecualiannya ditulis lewat matcher `not`.
+		@secrets {
+			path_regexp (^|/)\..
+			not path /.well-known/*
+		}
+		respond @secrets 403
+
+		# Skrip worker hanya untuk pemanggilan internal FrankenPHP; akses web
+		# langsung harus 404 (di worker mode skrip ini mengakhiri dirinya
+		# sendiri, jadi tidak perlu dieksekusi lewat HTTP).
+		@worker_script path /frankenphp-worker.php
+		respond @worker_script 404
+
+		# Semua permintaan jatuh ke worker Octane; berkas nyata tetap
+		# dilayani statis oleh file_server bawaan php_server.
+		php_server {
+			index frankenphp-worker.php
+			try_files {path} frankenphp-worker.php
+			# Diperlukan bila public/storage adalah symlink ke storage volume.
+			resolve_root_symlink
+		}
+	}
+}

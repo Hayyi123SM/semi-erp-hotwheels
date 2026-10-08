@@ -336,10 +336,10 @@ class HtmlLabelRendererTest extends TestCase
         /*
          * Dua baris di bawah QR: SKU dan harga.
          *
-         * QR dipusatkan dan dikecilkan sampai 0,86 cm supaya sisa ruang bawah
-         * `(1,38 - 0,86) / 2 = 0,26 cm` cukup untuk dua baris @ 0,125 cm (lihat
-         * `QR_ONLY_MAX_SIDE_CM` di `LabelGeometry`). Harganya berasal dari
-         * snapshot payload, bukan harga lot saat ini.
+         * QR menempel padding atas dan dibatasi sampai 1,05 cm supaya sisa
+         * ruang bawah `(1,38 - 1,05) = 0,33 cm` cukup untuk dua baris @
+         * 0,15 cm (lihat `QR_ONLY_MAX_SIDE_CM` di `LabelGeometry`). Harganya
+         * berasal dari snapshot payload, bukan harga lot saat ini.
          */
         $this->assertStringContainsString('label__qr-text', $html);
         $this->assertStringContainsString('label__qr-sku', $html);
@@ -456,10 +456,12 @@ class HtmlLabelRendererTest extends TestCase
      * ditulis ulang ke CSS supaya ikut ke kertas apa adanya. Dua penulisan dari
      * satu sumber hanya aman kalau tidak ada yang berubah di antara keduanya.
      *
-     * Dan ada yang berubah: pembulatan ke dua desimal. Baris SKU 0,125 cm keluar
-     * sebagai 0,13 cm, 0,05 mm lebih besar dari yang dianggarkan. Di label 15 mm
-     * itu tidak terlihat dari bentuknya; yang terlihat hanya teks yang menutupi
-     * quiet zone QR dan pemindaian yang gagal tanpa sebab yang bisa ditebak.
+     * Dan ada yang berubah: pembulatan ke dua desimal. Baris SKU 0,15 cm bisa
+     * keluar sebagai 0,15 cm, tapi angka dengan desimal ketiga -- misalnya
+     * 0,504 cm -- akan dibulatkan ke atas, 0,01 mm lebih besar dari yang
+     * dianggarkan. Di label 15 mm itu tidak terlihat dari bentuknya; yang
+     * terlihat hanya teks yang menutupi quiet zone QR dan pemindaian yang
+     * gagal tanpa sebab yang bisa ditebak.
      *
      * Jadi yang diperiksa di sini bukan "font-nya cukup kecil", melainkan
      * "font-nya angka yang memang dikenal geometry". Pembulatan ke atas tidak
@@ -518,7 +520,8 @@ class HtmlLabelRendererTest extends TestCase
      * Angka ini menentukan apakah barisnya masih muat di bawah QR. Kalau
      * renderer menuliskan versinya sendiri, tidak ada yang lagi bisa
      * membuktikan ruang sisa label benar-benar memuatinya -- persis yang
-     * terjadi ketika 0,125 cm dibulatkan jadi 0,13 cm.
+     * terjadi ketika font dibulatkan ke atas, membuat teks memakai ruang yang
+     * tidak pernah dianggarkan dan menimpa quiet zone QR.
      */
     #[Test]
     public function the_qr_only_sku_line_uses_the_font_size_the_geometry_budgeted(): void

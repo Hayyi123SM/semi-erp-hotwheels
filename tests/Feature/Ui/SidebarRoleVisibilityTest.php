@@ -85,7 +85,7 @@ class SidebarRoleVisibilityTest extends TestCase
         $staff = $this->menuLabels(User::factory()->staff()->create());
 
         $this->assertSame(
-            array_values(array_diff($owner, ['Pengguna & Role'])),
+            array_values(array_diff($owner, ['Pengguna & Role', 'Consignor Settlement', 'Profit Margin vs Fee'])),
             $staff,
         );
     }

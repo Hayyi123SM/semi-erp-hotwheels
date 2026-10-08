@@ -81,9 +81,9 @@ class KasirLayoutTest extends TestCase
         // di atas tombol bayar.
         $this->assertStringNotContainsString('route(\'pos.riwayat\')', $blade);
 
-        // Label tombol tidak boleh menjanjikan cetak: alur cetak struk POS belum
-        // ada di aplikasi ini, jadi tombol yang menjanjikannya membuat kasir
-        // menekannya berulang menunggu printer yang tidak akan merespons.
+        // Label tombol tidak boleh menjanjikan cetakan dengan sendirinya:
+        // struk dicetak lewat dialog yang muncul setelah pembayaran tersimpan,
+        // jadi menekan tombol ini tidak mencetak apa pun dengan sendirinya.
         $this->assertStringNotContainsString('Cetak Struk', $blade);
         $this->assertStringContainsString("paying ? 'Menyimpan...' : 'Bayar'", $blade);
     }

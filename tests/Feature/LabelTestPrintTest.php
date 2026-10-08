@@ -136,4 +136,104 @@ class LabelTestPrintTest extends TestCase
         $this->assertSame(0, AuditLog::count());
         $this->assertSame($before, $lot->fresh()->only(['labels_printed', 'reprint_count', 'qty_on_hand']));
     }
+
+    // ------------------------------------------------------------------
+    // Jalur TSPL uji cetak: perintah yang sama, tanpa dialog browser.
+    //
+    // Margin, skala, dan pemilihan kertas di dialog peramban ikut menggeser
+    // label -- dan yang diukur operator di halaman ini justru jarak antar
+    // label. Endpoint ini menyusun perintah dari `LabelContent::sample()`
+    // yang sama dengan jalur HTML, supaya kedua jalur bisa dibandingkan.
+    // ------------------------------------------------------------------
+
+    #[Test]
+    public function the_tspl_endpoint_returns_commands_for_the_sample_label(): void
+    {
+        $response = $this->actingAs(User::factory()->staff()->create())
+            ->postJson(route('inbound.cetak-label.test-print-tsp'), ['template' => '3x2', 'copies' => 2])
+            ->assertOk()
+            ->json();
+
+        $this->assertTrue($response['ok']);
+        $this->assertSame(2, $response['total']);
+        $this->assertSame('roll', $response['paper']);
+        $this->assertStringContainsString('SIZE ', $response['text']);
+        // Isi label harus label contoh, bukan data lot sungguhan apa pun.
+        $this->assertStringContainsString(LabelContent::sample()->sku, $response['text']);
+
+        // Jumlah salinan benar-benar dikalikan: satu perintah PRINT per label.
+        $prints = array_filter(
+            explode("\n", trim($response['text'])),
+            fn (string $line) => str_starts_with($line, 'PRINT'),
+        );
+        $this->assertSame(2, count($prints));
+    }
+
+    /**
+     * Pasangan dari `the_test_print_creates_no_job_and_leaves_stock_untouched`
+     * untuk jalur TSPL: mengukur printer lewat jalur langsung juga tidak boleh
+     * meninggalkan jejak.
+     */
+    #[Test]
+    public function the_tspl_test_print_records_nothing(): void
+    {
+        $lot = StockLot::factory()->create([
+            'labels_printed' => 3,
+            'reprint_count' => 2,
+        ]);
+
+        $before = $lot->only(['labels_printed', 'reprint_count', 'qty_on_hand']);
+
+        $this->actingAs(User::factory()->staff()->create())
+            ->postJson(route('inbound.cetak-label.test-print-tsp'))
+            ->assertOk();
+
+        $this->assertSame(0, LabelPrintJob::count());
+        $this->assertSame(0, AuditLog::count());
+        $this->assertSame($before, $lot->fresh()->only(['labels_printed', 'reprint_count', 'qty_on_hand']));
+    }
+
+    /**
+     * Validasi identik dengan jalur GET: satu halaman tidak boleh bisa
+     * meminta dua ukuran berbeda tergantung tombol mana yang ditekan.
+     */
+    #[Test]
+    public function the_tspl_test_print_rejects_invalid_input(): void
+    {
+        $staff = User::factory()->staff()->create();
+
+        $this->actingAs($staff)
+            ->postJson(route('inbound.cetak-label.test-print-tsp'), ['copies' => 0])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('copies');
+
+        $this->actingAs($staff)
+            ->postJson(route('inbound.cetak-label.test-print-tsp'), ['template' => '10x10'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('template');
+    }
+
+    #[Test]
+    public function a_guest_cannot_fetch_the_tspl_test_print(): void
+    {
+        $this->post(route('inbound.cetak-label.test-print-tsp'))
+            ->assertRedirect(route('login'));
+    }
+
+    /**
+     * Tombol jalur langsung harus ada di halaman uji cetak beserta payload
+     * yang benar -- tanpanya operator tidak pernah tahu ada jalur kedua, dan
+     * margin dialog browser tetap jadi satu-satunya pilihan.
+     */
+    #[Test]
+    public function the_test_print_page_offers_the_direct_thermal_path(): void
+    {
+        $this->actingAs(User::factory()->staff()->create())
+            ->get(route('inbound.cetak-label.test-print', ['template' => '3x2', 'copies' => 2]))
+            ->assertOk()
+            ->assertSee('data-thermal-label', escape: false)
+            ->assertSee(route('inbound.cetak-label.test-print-tsp'), escape: false)
+            ->assertSee('&quot;template&quot;:&quot;3x2&quot;', escape: false)
+            ->assertSee('&quot;copies&quot;:2', escape: false);
+    }
 }

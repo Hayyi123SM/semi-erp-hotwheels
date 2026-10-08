@@ -217,15 +217,16 @@ class PosSaleDetailTest extends TestCase
     }
 
     /**
-     * Halaman ini tidak menjanjikan apa pun yang belum bisa dilakukannya.
+     * Halaman ini hanya membaca, dan satu-satunya pintu keluar yang menulis
+     * dibawanya adalah halaman struk.
      *
-     * Alur cetak struk POS belum ada. Tombol "Cetak" yang tidak menghasilkan
-     * kertas membuat kasir menekannya berulang sambil menunggu printer yang
-     * tidak akan merespons, jadi tidak ada satu pun di sini sampai alurnya
-     * ikut ada.
+     * "Cetak Struk" membuka halaman struk (`pos.struk`) -- halaman yang tidak
+     * menulis apa pun ke nota. Tidak ada dan tidak boleh ada tombol void di
+     * sini: void menulis nota, dan layak dibicarakan terpisah dengan
+     * pengawalnya sendiri.
      */
     #[Test]
-    public function the_page_promises_nothing_it_cannot_do(): void
+    public function the_page_offers_the_struk_and_nothing_that_writes(): void
     {
         $cashier = $this->staff();
         $sale = $this->sale($cashier);
@@ -235,7 +236,8 @@ class PosSaleDetailTest extends TestCase
             ->assertOk()
             ->getContent();
 
-        $this->assertStringNotContainsString('Cetak Struk', $html);
+        $this->assertStringContainsString('Cetak Struk', $html);
+        $this->assertStringContainsString('href="'.route('pos.struk', $sale).'"', $html);
 
         // Bentuk konfirmasi bersama yang dipakai semua aksi merusak di daftar --
         // void akan lewat sini kalau sudah ada. Halamannya tidak punya tabel,

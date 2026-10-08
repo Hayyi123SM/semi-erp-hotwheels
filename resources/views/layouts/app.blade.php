@@ -33,7 +33,16 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-        @vite(['resources/css/app.css', 'resources/js/app.js'])
+        {{--
+            `receipt.css` ikut dimuat di sini, bukan di-push dari halaman yang
+            membutuhkannya. `page()` merender view halaman sebelum layout, dan
+            stack di-flush begitu render inner selesai -- push dari halaman
+            (kasir, misalnya) tidak pernah sampai ke `@stack('head')` ini, dan
+            pratinjau struk di dialog kasir tampil sebagai teks tanpa format.
+            Semua aturannya ber-namespace `.receipt-*`, jadi aman berdampingan
+            dengan app.css di halaman mana pun yang menampilkan struk.
+        --}}
+        @vite(['resources/css/app.css', 'resources/css/receipt.css', 'resources/js/app.js'])
         @stack('head')
     </head>
     <body class="h-full bg-canvas font-sans text-text-strong antialiased">

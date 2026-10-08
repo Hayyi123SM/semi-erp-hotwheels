@@ -782,4 +782,181 @@ describe("posCart: paying", () => {
         expect(toasts.at(-1)).toMatchObject({ type: "error" });
         expect(toasts.at(-1).message).toContain("belum tercatat");
     });
+
+    it("opens the struk dialog with the server-rendered preview once the sale is saved", async () => {
+        const { cart } = cartWith();
+        const modal = vi.fn(async () => ({ isConfirmed: false }));
+        window.notify = { modal };
+
+        global.fetch = checkout({
+            body: {
+                receipt_no: "HW-20261006-0001",
+                total: 45_000,
+                change: 5_000,
+                struk_html: "<div class=\"receipt-sheet\">pratinjau dari server</div>",
+                print_method: "browser",
+                paper: "80mm",
+                thermal_url: "/pos/struk/7/thermal",
+                print_url: "/pos/struk/7?auto=1&change=5000",
+            },
+        });
+
+        await cart.pay();
+
+        expect(modal).toHaveBeenCalledTimes(1);
+
+        const options = modal.mock.calls[0][0];
+        expect(options.title).toContain("HW-20261006-0001");
+        expect(options.html).toContain("pratinjau dari server");
+        expect(options.html).toContain("Cetak Struk");
+        expect(options.html).toContain('x-data="posStrukDialog($el.dataset)"');
+
+        // Dialog tidak menahan `pay()`: pemeriksaan di sini selesai walau
+        // dialognya masih terbuka.
+        expect(cart.paying).toBe(false);
+        expect(cart.items).toHaveLength(0);
+    });
+
+    it("skips the dialog when the checkout answer carries no preview", async () => {
+        const { cart } = cartWith();
+        const modal = vi.fn();
+        window.notify = { modal };
+
+        global.fetch = checkout({
+            body: { receipt_no: "HW-20261006-0001", change: 5_000 },
+        });
+
+        await cart.pay();
+
+        expect(modal).not.toHaveBeenCalled();
+        expect(cart.items).toHaveLength(0);
+    });
+});
+
+describe("posCart: struk dialog body", () => {
+    const STRUK = {
+        receitLikeHtml: "<div class=\"receipt-sheet\">stub</div>",
+        print_method: "thermal",
+        paper: "58mm",
+        thermal_url: "/pos/struk/7/thermal",
+        print_url: "/pos/struk/7?auto=1&change=5000",
+    };
+
+    function dialogHtml(data) {
+        const { cart } = mount();
+        return cart.strukDialogHtml(data);
+    }
+
+    it("hands the two print routes to the dialog through data attributes, not a string template", () => {
+        const html = dialogHtml({ ...STRUK, struk_html: STRUK.receitLikeHtml });
+
+        expect(html).toContain("data-thermal-url=\"/pos/struk/7/thermal\"");
+        expect(html).toContain("data-print-url=\"/pos/struk/7?auto=1&amp;change=5000\"");
+        expect(html).toContain("data-method=\"thermal\"");
+        expect(html).toContain("data-paper=\"58mm\"");
+    });
+
+    it("keeps the server preview intact inside the dialog", () => {
+        const html = dialogHtml({ ...STRUK, struk_html: STRUK.receitLikeHtml });
+
+        expect(html).toContain("receipt-sheet");
+        expect(html).toContain("Cetak Struk");
+        expect(html).toContain("Selesai");
+    });
+});
+
+describe("posStrukDialog: printing after a sale", () => {
+    const BASE = {
+        method: "browser",
+        paper: "80mm",
+        thermalUrl: "/pos/struk/7/thermal",
+        printUrl: "/pos/struk/7?auto=1",
+    };
+
+    function buildDialog(opts) {
+        let dialog = null;
+
+        registerCart({
+            data(name, factory) {
+                if (name !== "posStrukDialog") return;
+                dialog = factory(opts);
+            },
+        });
+
+        return dialog;
+    }
+
+    afterEach(() => {
+        delete window.notify;
+        delete window.__thermalPrint;
+        delete window.open;
+    });
+
+    it("opens the browser print dialog for the default (browser) method", () => {
+        const open = vi.fn();
+        window.open = open;
+
+        const dialog = buildDialog(BASE);
+        dialog.cetak();
+
+        expect(open).toHaveBeenCalledWith(
+            "/pos/struk/7?auto=1",
+            "_blank",
+            "noopener",
+        );
+    });
+
+    it("sends bytes to the thermal endpoint only for struk paper when the shop is on thermal", () => {
+        const print = vi.fn();
+        window.__thermalPrint = print;
+
+        const dialog = buildDialog({ ...BASE, method: "thermal", paper: "58mm" });
+        dialog.cetak();
+
+        expect(print).toHaveBeenCalledWith(
+            "/pos/struk/7/thermal",
+            expect.objectContaining({ onFailed: expect.any(Function) }),
+        );
+    });
+
+    it("never attempts thermal on A4, whatever the global method says", () => {
+        const print = vi.fn();
+        window.__thermalPrint = print;
+        const open = vi.fn();
+        window.open = open;
+
+        const dialog = buildDialog({ ...BASE, method: "thermal", paper: "a4" });
+        dialog.cetak();
+
+        expect(print).not.toHaveBeenCalled();
+        expect(open).toHaveBeenCalled();
+    });
+
+    it("falls back to the browser dialog when thermal fails", () => {
+        const open = vi.fn();
+        window.open = open;
+        window.__thermalPrint = (url, { onFailed }) => onFailed();
+
+        const dialog = buildDialog({ ...BASE, method: "thermal", paper: "58mm" });
+        dialog.cetak();
+
+        expect(open).toHaveBeenCalledWith(
+            "/pos/struk/7?auto=1",
+            "_blank",
+            "noopener",
+        );
+    });
+
+    it("closes the dialog on Selesai, and only inside a page that has notify", () => {
+        const close = vi.fn();
+        window.notify = { close };
+
+        const dialog = buildDialog(BASE);
+        dialog.selesai();
+
+        expect(close).toHaveBeenCalledTimes(1);
+
+        delete window.notify;
+        dialog.selesai();
+    });
 });

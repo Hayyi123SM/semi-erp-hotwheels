@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Pages;
 
 use App\Enums\InputMethod;
+use App\Enums\PaperSize;
 use App\Enums\PaymentMethod;
 use App\Enums\SaleStatus;
 use App\Http\Controllers\Controller;
@@ -16,9 +17,12 @@ use App\Services\Pos\Checkout;
 use App\Services\Pos\CheckoutLine;
 use App\Services\Pos\CheckoutPayment;
 use App\Services\Pos\CheckoutService;
+use App\Services\Pos\SaleStrukSheet;
 use App\Services\Pos\ShiftAlreadyClosedException;
 use App\Services\Pos\ShiftAlreadyOpenException;
 use App\Services\Pos\ShiftService;
+use App\Services\Print\PrintSettings;
+use App\Services\Print\Thermal\PosStrukRenderer;
 use App\Support\DataTable\Column;
 use App\Support\DataTable\DataTable;
 use App\Support\DeviceId;
@@ -83,9 +87,16 @@ class PosController extends Controller
      * nomor struk untuk ditampilkan, kembalian untuk dihitung ulang di depan
      * pelanggan.
      *
+     * Balasan juga membawa struktur untuk dialog struk yang muncul setelah bayar:
+     * `struk_html` (pratinjau yang ditanam ke dialog), `thermal_url`/`print_url`
+     * untuk tombol Cetak, dan pengaturan kertas/cara cetak yang sedang berlaku.
+     * Kembalian TIDAK tersimpan di database, jadi URL dan pratinjau membawanya
+     * sebagai query param saat pembayaran tunai -- cetakan ulang dari riwayat
+     * tidak lagi punya angkanya.
+     *
      * `POST`, bukan `GET`: ini membuat uang berpindah dan stok berkurang.
      */
-    public function store(CheckoutRequest $request, CheckoutService $service): JsonResponse
+    public function store(CheckoutRequest $request, CheckoutService $service, PrintSettings $printSettings): JsonResponse
     {
         $checkout = new Checkout(
             clientSaleId: (string) $request->validated('client_sale_id'),
@@ -118,7 +129,55 @@ class PosController extends Controller
             'receipt_no' => $sale->receipt_no,
             'total' => $sale->total,
             'change' => $this->change($checkout, $sale),
+            ...$this->strukPayload($sale, $request, $printSettings, $checkout),
         ]);
+    }
+
+    /**
+     * Isi dialog struk untuk nota yang baru saja jadi.
+     *
+     * Dipisah dari `store()` supaya daftar kunci jawabannya bisa diuji tanpa
+     * menyusun seluruh balasan checkout, dan satu-satunya pemanggilnya adalah
+     * layar kasir (lewat `store()`).
+     *
+     * @return array{struk_html: string, thermal_url: string, print_url: string, print_method: string, paper: string}
+     */
+    private function strukPayload(Sale $sale, Request $request, PrintSettings $printSettings, Checkout $checkout): array
+    {
+        $sale->loadMissing(['items.lot.product.series', 'payments', 'cashier', 'shift']);
+
+        // Tunai selalu menghasilkan angka kembalian penyebutannya (0 pun untuk
+        // uang pas); pembayaran non-tunai tidak punya kembalian sama sekali.
+        $changeDue = $checkout->paysWithCash() ? $this->change($checkout, $sale) : null;
+
+        $sheet = new SaleStrukSheet(
+            sale: $sale,
+            paper: $printSettings->paper(),
+            printedBy: $request->user(),
+            changeDue: $changeDue,
+        );
+
+        $query = ['auto' => 1];
+
+        if ($changeDue !== null) {
+            $query['change'] = $changeDue;
+        }
+
+        return [
+            'struk_html' => view('components.pos.struk-sheet', ['sheet' => $sheet, 'embedded' => true])->render(),
+            'thermal_url' => route('pos.struk.thermal', $sale).$this->changeQuery($changeDue),
+            'print_url' => route('pos.struk', $sale).'?'.http_build_query($query),
+            'print_method' => $printSettings->method()->value,
+            'paper' => $printSettings->paper()->value,
+        ];
+    }
+
+    /**
+     * Query `change` untuk URL thermal, hanya saat layar kasir punya angkanya.
+     */
+    private function changeQuery(?int $changeDue): string
+    {
+        return $changeDue === null ? '' : '?change='.$changeDue;
     }
 
     /**
@@ -285,15 +344,7 @@ class PosController extends Controller
         // kedua halaman tidak bisa perlahan berbeda pendapat: daftar menampilkan
         // nota, tapi halamannya menolak adalah celah yang hanya muncul kalau
         // dua tempat menulis ulang aturan yang sama.
-        $visible = $this
-            ->visibleTo($request, Sale::query())
-            ->whereKey($sale->getKey())
-            ->exists();
-
-        // 404, bukan 403. Balasan 403 memberi tahu pengunjung bahwa nota ini
-        // ada dan dia tidak berhak -- informasi yang tidak perlu diberikan pada
-        // kasir yang sedang mengintip nomor nota orang lain.
-        abort_unless($visible, 404);
+        $this->abortUnlessSees($request, $sale);
 
         $sale->load([
             'items.lot.product.series',
@@ -305,6 +356,134 @@ class PosController extends Controller
         return $this->page('pages.pos.nota', [
             'sale' => $sale,
         ], $sale->receipt_no);
+    }
+
+    /**
+     * Halaman cetak struk POS.
+     *
+     * Kebalikan dari halaman nota dalam satu hal penting: ini dokumen utuh,
+     * jadi `response()->view()`, bukan `$this->page()` -- alasan yang persis
+     * sama dengan bukti terima titipan (`inbound.consignment-receipt`).
+     *
+     * `autoPrint` hanya menyala untuk alur "Bayar" di layar kasir, lewat
+     * `print_url` yang dikirim balasan checkout. Cetakan ulang dari riwayat
+     * (`pos.nota`) tidak pernah memunculkan dialog print dengan sendirinya.
+     *
+     * `change` query param membawa kembalian yang hanya diketahui saat checkout
+     * selesai; tanpa itu, baris "Kembalian" tidak ditampilkan (cetakan ulang).
+     */
+    public function struk(Sale $sale, Request $request, PrintSettings $printSettings)
+    {
+        $this->abortUnlessSees($request, $sale);
+
+        $sale->loadMissing(['items.lot.product.series', 'payments', 'cashier', 'shift']);
+
+        $changeDue = $request->query('change') === null
+            ? null
+            : max(0, (int) $request->query('change'));
+
+        $sheet = new SaleStrukSheet(
+            sale: $sale,
+            paper: $printSettings->paper(),
+            printedBy: $request->user(),
+            changeDue: $changeDue,
+        );
+
+        return response()->view('pages.pos.struk-cetak', [
+            'sale' => $sale,
+            'sheet' => $sheet,
+            'previews' => collect(PaperSize::cases())->mapWithKeys(fn (PaperSize $paper) => [
+                $paper->value => new SaleStrukSheet(
+                    sale: $sale,
+                    paper: $paper,
+                    printedBy: $request->user(),
+                    changeDue: $changeDue,
+                ),
+            ])->toArray(),
+            'autoPrint' => $request->boolean('auto'),
+            'method' => $printSettings->method(),
+            'thermalError' => session('thermal_print_error'),
+        ]);
+    }
+
+    /**
+     * Susun byte ESC/POS struk POS untuk cetak thermal.
+     *
+     * Sama seperti bukti terima titipan, endpoint ini tidak mencetak apa pun
+     * di server: pengiriman ke printer terjadi dari perangkat yang membuka
+     * halaman (Web Bluetooth). Yang dikirim ke sini hanya permintaan byte.
+     *
+     * A4 tidak bisa dicetak thermal; kalau kertasnya A4, ini membalas 422 dan
+     * pemanggil jatuh ke cetak browser.
+     *
+     * `POST`, bukan `GET`: membangun byte adalah pekerjaan yang tidak mengubah
+     * keadaan, jadi GET yang berulang tidak punya alasan untuk masuk cache.
+     */
+    public function strukThermal(Sale $sale, Request $request, PrintSettings $printSettings): JsonResponse
+    {
+        $this->abortUnlessSees($request, $sale);
+
+        $sale->loadMissing(['items.lot.product.series', 'payments', 'cashier', 'shift']);
+
+        $paper = $printSettings->paper();
+        $paperParam = $request->query('paper');
+        if ($paperParam !== null) {
+            $candidate = PaperSize::tryFrom((string) $paperParam);
+            if ($candidate !== null) {
+                $paper = $candidate;
+            }
+        }
+        if (! $paper->isThermal() || $paper->escposColumnWidth() === null) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'Ukuran '.$paper->label().' tidak bisa dicetak thermal. Gunakan tombol cetak browser.',
+            ], 422);
+        }
+
+        $changeDue = $request->query('change') === null
+            ? null
+            : max(0, (int) $request->query('change'));
+
+        $sheet = new SaleStrukSheet(
+            sale: $sale,
+            paper: $paper,
+            printedBy: $request->user(),
+            changeDue: $changeDue,
+        );
+
+        try {
+            $bytes = PosStrukRenderer::render($sheet);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'bytesB64' => base64_encode($bytes),
+            'paper' => $paper->value,
+            'width' => $paper->escposColumnWidth(),
+        ]);
+    }
+
+    /**
+     * 404, bukan 403, saat pengunjung tidak berhak membuka nota/struk ini.
+     *
+     * Balasan 403 memberi tahu pengunjung bahwa nota ini ada dan dia tidak
+     * berhak -- informasi yang tidak perlu diberikan pada kasir yang sedang
+     * mengintip nomor nota orang lain. Dipakai halaman nota, halaman struk,
+     * dan endpoint thermal: tiga halaman yang menyebutkan dokumen yang sama
+     * tidak boleh punya aturan pembuka yang berbeda.
+     *
+     * @throws NotFoundHttpException
+     */
+    private function abortUnlessSees(Request $request, Sale $sale): void
+    {
+        $visible = $this
+            ->visibleTo($request, Sale::query())
+            ->whereKey($sale->getKey())
+            ->exists();
+
+        abort_unless($visible, 404);
     }
 
     /**

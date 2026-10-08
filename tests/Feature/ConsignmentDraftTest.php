@@ -146,6 +146,10 @@ class ConsignmentDraftTest extends TestCase
         $resumed->assertOk();
         $resumed->assertJsonPath('draft.draft_id', $draft->draft_id);
         $resumed->assertJsonPath('draft.items.0.qty', 2);
+        // Nama produk ikut dipulihkan supaya grid yang dilanjutkan menampilkan
+        // identitas barang, bukan baris tanpa nama. Draft hanya menyimpan
+        // `product_id`, jadi nama dihidrasi controller lewat relasi produk.
+        $resumed->assertJsonPath('draft.items.0.product_name', $this->product->name);
         $resumed->assertJsonPath('draft.items.0.scheme_type', SchemeType::Percentage->value);
         // Rate desimal harus kembali sebagai angka desimal, bukan "12" atau
         // "12.50" yang nanti bikin kolom rate gagal di-isi ulang.

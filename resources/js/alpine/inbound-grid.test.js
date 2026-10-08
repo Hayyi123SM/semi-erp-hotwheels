@@ -453,12 +453,15 @@ describe('inboundGrid', () => {
     });
 
     describe('grid editing', () => {
-        it('keeps one row when the last one would be removed', () => {
+        it('removes a row even when it is the last one', () => {
+            // Produk hanya masuk lewat popup, jadi grid kosong adalah keadaan
+            // yang sah -- menyisakan baris kosong tanpa cara mengisinya hanya
+            // menyisakan baris yang tidak bisa dipakai.
             component.rows = [row()];
 
             component.removeRow(0);
 
-            expect(component.rows).toHaveLength(1);
+            expect(component.rows).toHaveLength(0);
         });
 
         it('splits a row into a copy that has to be re-entered', () => {
@@ -468,6 +471,61 @@ describe('inboundGrid', () => {
 
             expect(component.rows).toHaveLength(2);
             expect(component.rows[1]).toMatchObject({ qty: 1, scheme_type: 'PERCENTAGE', scheme_rate: 20 });
+        });
+    });
+
+    describe('product picker', () => {
+        it('appends the chosen product as a new row and closes the popup', () => {
+            component.pickerOpen = true;
+
+            component.onProductPicked({
+                detail: {
+                    item: {
+                        product_id: 3,
+                        name: 'Toyota Supra',
+                        casting_code: 'HWX-42',
+                    },
+                },
+            });
+
+            expect(component.rows).toHaveLength(1);
+            expect(component.rows[0]).toMatchObject({
+                product_id: 3,
+                product_name: 'Toyota Supra',
+                casting_code: 'HWX-42',
+                qty: 1,
+                card_condition: 'MINT',
+            });
+            expect(component.pickerOpen).toBe(false);
+        });
+
+        it('lets the same product be added twice', () => {
+            // `splitRow` memecah satu produk ke beberapa baris dengan skema
+            // berbeda, jadi menolak produk yang sudah ada akan mematikan alur
+            // itu. Berbeda dari Stock In Pribadi, duplikat di sini sah.
+            component.onProductPicked({ detail: { item: { product_id: 3, name: 'Toyota Supra' } } });
+            component.onProductPicked({ detail: { item: { product_id: 3, name: 'Toyota Supra' } } });
+
+            expect(component.rows).toHaveLength(2);
+        });
+
+        it('does nothing when the payload carries no product_id', () => {
+            // Picker kasir lama tidak memuat `product_id`; tanpa guard ini baris
+            // tanpa primary key masuk grid dan ditolak server sebagai baris
+            // kosong. Popup juga harus tetap terbuka -- guard pulang sebelum
+            // `closePicker`.
+            component.pickerOpen = true;
+
+            component.onProductPicked({ detail: { item: { name: 'Toyota Supra' } } });
+
+            expect(component.rows).toHaveLength(0);
+            expect(component.pickerOpen).toBe(true);
+        });
+
+        it('reads the product straight off the detail when there is no item wrapper', () => {
+            component.onProductPicked({ detail: { product_id: 3, name: 'Toyota Supra', casting_code: 'HWX-42' } });
+
+            expect(component.rows[0]).toMatchObject({ product_id: 3, product_name: 'Toyota Supra' });
         });
     });
 });

@@ -51,7 +51,12 @@ services:
       context: .
       dockerfile: Dockerfile
     image: semi-erp-hotwheels:latest
+    user: www-data:www-data
     restart: always
+    # FrankenPHP (lewat Octane) melayani semua request sebagai worker; jumlah
+    # thread-nya menggantikan pm.max_children=10 php-fpm lama. Sesuaikan
+    # lewat OCTANE_WORKERS di .env bersamaan dengan RAM server.
+    command: php artisan octane:frankenphp --host=0.0.0.0 --port=80 --workers=${OCTANE_WORKERS:-10} --caddyfile=docker/Caddyfile
     environment:
       <<: *app-environment
       # Instance utama satu-satunya yang memanaskan route/view cache dan
@@ -63,9 +68,8 @@ services:
     networks:
       - dokploy-network
 
-  # Semua service memakai image yang sama; bedanya hanya perintah yang
-  # dijalankan. `user` diturunkan ke www-data supaya log yang ditulis ke
-  # volume storage tidak dimiliki root.
+  # Semua service memakai image yang sama dan berjalan sebagai www-data;
+  # bedanya hanya perintah yang dijalankan.
   worker:
     image: semi-erp-hotwheels:latest
     user: www-data:www-data
@@ -76,9 +80,9 @@ services:
       - laravel-storage:/var/www/html/storage
     networks:
       - dokploy-network
-    # Health check `/up` milik image butuh nginx yang hanya ada di service app,
-    # sehingga worker/scheduler akan selalu berstatus unhealthy bila tidak
-    # dimatikan.
+    # Health check `/up` milik image hanya bisa dijawab service app (server
+    # HTTP hanya berjalan di sana), sehingga worker/scheduler akan selalu
+    # berstatus unhealthy bila tidak dimatikan.
     healthcheck:
       disable: true
     depends_on:

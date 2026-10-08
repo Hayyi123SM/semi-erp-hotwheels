@@ -76,7 +76,7 @@ class TspLabelRendererTest extends TestCase
 
         $qr = $this->firstQr($block->ops);
 
-        // Sisi maksimal QR-only = 0,86 cm = 68,8 dot; sel = 69 / 29 = 2.
+        // Sisi maksimal QR-only = 1,05 cm = 84 dot; sel = 84 / 29 = 2.
         $this->assertSame(2, $qr->cell);
         $this->assertSame(31, $qr->x); // (120 - 58) / 2 = 31, dipusatkan.
         $this->assertSame(5, $qr->y);  // padding 0,06 cm.
@@ -208,7 +208,7 @@ class TspLabelRendererTest extends TestCase
     #[Test]
     public function qr_only_ignores_override_bigger_than_the_cap(): void
     {
-        // Cap QR-only = 0,86 cm; override 1,2 cm diabaikan dengan tenang,
+        // Cap QR-only = 1,05 cm; override 1,2 cm diabaikan dengan tenang,
         // perilaku yang sama dengan `HtmlLabelRenderer`.
         $block = $this->renderer()->render(
             LabelContent::fromLot($this->lot()),

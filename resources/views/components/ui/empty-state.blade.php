@@ -8,4 +8,5 @@
     </div>
     <h3 class="mt-4 text-headline-sm text-text-strong">{{ $title }}</h3>
     <p class="mt-1 max-w-sm text-body-sm text-text-muted">{{ $description }}</p>
+    {{ $slot }}
 </div>

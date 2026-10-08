@@ -1,10 +1,13 @@
 /*
- * Bukti terima titipan: struk thermal 58/80 mm dan A4.
+ * Struk dan bukti terima: thermal 58/80 mm dan A4.
  *
- * Berkas ini dipakai oleh satu halaman saja, dan halaman itu tidak memuat
- * app.css. Semua yang ditulis di sini harus berdiri sendiri: tidak ada kelas
- * utilitas dari app.css yang bisa diandalkan, dan tidak ada yang boleh menimpa
- * gaya ini dari luar.
+ * Berkas ini dipakai dua arah: halaman cetak mandiri (`/bukti-terima`,
+ * `pos/struk-cetak`) yang TIDAK memuat app.css, dan halaman aplikasi lewat
+ * `layouts/app.blade.php` untuk pratinjau di dialog kasir serta kartu
+ * pengaturan Perangkat. Semua selektornya ber-namespace `.receipt-*`, jadi
+ * aman berdampingan dengan app.css; tidak ada yang boleh menimpa gaya ini
+ * dari luar, dan tidak ada yang di sini yang berlaku untuk elemen di luar
+ * namespace itu.
  *
  * Dua mode tampilan dipisah tegas:
  *
@@ -312,6 +315,85 @@
     justify-content: flex-end;
     gap: 16px;
     font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Nota kasir (POS).
+ *
+ * Kelas ini dipakai partial `components/pos/struk-sheet`, satu-satunya sumber
+ * isi struk POS: pratinjau di layar kasir, halaman cetak, dan byte ESC/POS.
+ * Layoutnya meniru nota kertas: nama toko, judul "Nota Kasir", kepala dokumen,
+ * rincian SKU, ringkasan uang, pembayaran, kembalian, lalu footer.
+ */
+
+/*
+ * Di dalam dialog kasir, kertas tidak boleh digeser oleh margin dan tidak
+ * boleh membawa bayangan sendiri: dialognya yang menjadi kertas.
+ */
+.receipt-sheet--embedded {
+    margin: 0;
+    box-shadow: none;
+}
+
+/*
+ * Nama produk di bawah SKU. Thermal memakai satu kolom, jadi nama membungkus
+ * sendiri; A4 sudah punya kolom tabel lewat `.receipt-sheet--a4` di atas.
+ */
+.receipt-line__name {
+    margin: 0;
+}
+
+/*
+ * `qty × harga` dan total baris harus sejajar antarbaris supaya nominalnya
+ * bisa dibandingkan tanpa menghitung ulang dari teks yang membungkus.
+ */
+.receipt-line__qty {
+    font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Ringkasan uang, blok yang sama dengan `.receipt-rows` kepala dokumen.
+ */
+.receipt-totals {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+/*
+ * Baris Total dipisahkan garis di atasnya supaya terbaca sebagai hasil
+ * (bukan bagian dari daftar yang dijumlahkan), dan dicetak lebih besar.
+ */
+.receipt-row--total {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed #98a2b3;
+}
+
+.receipt-row--total .receipt-row__key,
+.receipt-row--total .receipt-row__value {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+/*
+ * Kembalian adalah uang yang keluar dari laci, bukan angka yang dihitung
+ * kasir: diberi warna sukses yang sama seperti kalkulasi di layar kasir.
+ */
+.receipt-row--change .receipt-row__value {
+    color: #067647;
+}
+
+/*
+ * Kalimat penutup, satu-satunya bagian struk yang bukan data.
+ */
+.receipt-footnote {
+    margin: 12px 0 0;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
 }
 
 /* --- Print -------------------------------------------------------------- */

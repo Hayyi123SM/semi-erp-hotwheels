@@ -24,7 +24,7 @@
     </div>
 
     <div class="flex items-center gap-3">
-        <span class="hidden text-label-sm italic text-text-subtle xl:block">Hot Wheels Store · Cassiopeia Plaza</span>
+        <span class="hidden text-label-sm italic text-text-subtle xl:block">167 Diecast Shop · Cassiopeia Plaza</span>
 
         <button type="button" class="relative flex h-9 w-9 items-center justify-center rounded-lg text-text-muted transition hover:bg-canvas hover:text-text-strong" @click="$store.toast.push('Tidak ada notifikasi baru', 'info')" aria-label="Notifikasi">
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

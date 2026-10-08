@@ -241,6 +241,35 @@ class InboundTest extends TestCase
     }
 
     #[Test]
+    public function a_rejected_commit_brings_the_rows_back_with_the_product_names(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $consignor = Consignor::factory()->create();
+        $series = ProductSeries::factory()->create(['code' => 'HW']);
+        $product = Product::factory()->create(['series_id' => $series->id, 'name' => 'Skyline GT-R R34']);
+        $rack = Rack::factory()->create();
+
+        // Popup picker mengirim `product_id` saja. Tanpa hidrasi di controller,
+        // form yang ditolak server akan kembali dengan baris tanpa nama dan
+        // kasir kehilangan konteks barang yang sedang ia perbaiki.
+        $this->actingAs($owner)
+            ->from('/inbound/consignment-in')
+            ->post('/inbound/consignment-in', [
+                'consignor_id' => $consignor->id,
+                'consignment_date' => '2026-09-28',
+                'verified' => '1',
+                'items' => [['product_id' => $product->id, 'qty' => '0', 'rack_id' => $rack->id]],
+            ])
+            ->assertSessionHasErrors('items.0.qty');
+
+        $this->actingAs($owner)
+            ->get('/inbound/consignment-in')
+            ->assertOk()
+            ->assertSee('Skyline GT-R R34', false)
+            ->assertSee((string) $product->casting_code, false);
+    }
+
+    #[Test]
     public function invalid_consignor_id_is_rejected(): void
     {
         $owner = User::factory()->owner()->create();

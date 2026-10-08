@@ -49,11 +49,17 @@
             {{--
                 Cetak langsung (thermal), hanya saat Owner memilihnya.
 
-                Jalur ini menyusun ulang perintah TSPL dari server untuk `jobIds`
-                yang sama, lalu mengirimnya lewat WebUSB. Kalau gagal (tanpa
-                WebUSB, tanpa printer yang punya interface vendor), `onFailed`
-                di `label-thermal.js` jatuh kembali ke `window.print()` -- jadi
-                cetakan tidak pernah hilang diam-diam, hanya butuh dialog browser.
+                Jalur ini menyusun ulang perintah TSPL dari server untuk
+                `jobIds` yang sama. Tombol utama mengirimnya lewat Web
+                Bluetooth -- satu klik satu dialog, dan dialognya sudah
+                menyaring nama printer supaya hanya printer yang tampil.
+                Tombol "Cetak via USB" memakai perintah yang sama lewat WebUSB
+                untuk saat printer tersambung lewat kabel.
+
+                Menutup dialog pemilihan bukan kegagalan: `label-thermal.js`
+                hanya menampilkan "Dibatalkan." Kegagalan nyata memanggil
+                `onFailed`, yang jatuh ke `window.print()` -- cetakan tidak
+                pernah hilang diam-diam, hanya butuh dialog browser.
             --}}
             @if (($labelPrintMethod ?? 'browser') === 'thermal' && isset($jobIds))
                 <button type="button"
@@ -61,7 +67,45 @@
                         data-url="{{ $thermalUrl }}"
                         data-ids="{{ json_encode($jobIds, JSON_UNESCAPED_SLASHES) }}"
                         class="label-toolbar__btn">
-                    Cetak {{ $total }} label thermal
+                    Cetak {{ $total }} label (Bluetooth)
+                </button>
+                <button type="button"
+                        data-thermal-label
+                        data-transport="usb"
+                        data-url="{{ $thermalUrl }}"
+                        data-ids="{{ json_encode($jobIds, JSON_UNESCAPED_SLASHES) }}"
+                        class="label-toolbar__btn">
+                    Cetak via USB
+                </button>
+                @vite(['resources/js/label-thermal.js'])
+            @elseif ($isTestPrint ?? false)
+                {{--
+                    Uji cetak selalu menawarkan jalur langsung, apa pun print
+                    method yang dipilih di Pengaturan: halaman ini memang alat
+                    kalibrasi, dan dialog browser adalah salah satu variabel
+                    yang sedang diukur (margin, skala, ukuran kertas bisa
+                    menggeser label tanpa kesalahan operator).
+
+                    Tidak ada `jobIds` di sini karena uji cetak sengaja tidak
+                    membuat job, jadi endpointnya menerima `template` + `copies`
+                    -- bukan `ids` -- lewat `data-payload`. Tombol utama memakai
+                    Web Bluetooth, tombol kedua memakai WebUSB; keduanya badan
+                    request yang sama.
+                --}}
+                <button type="button"
+                        data-thermal-label
+                        data-url="{{ route('inbound.cetak-label.test-print-tsp') }}"
+                        data-payload="{{ json_encode(['template' => $activeTemplate?->value, 'copies' => $total], JSON_UNESCAPED_SLASHES) }}"
+                        class="label-toolbar__btn">
+                    Cetak {{ $total }} label (Bluetooth)
+                </button>
+                <button type="button"
+                        data-thermal-label
+                        data-transport="usb"
+                        data-url="{{ route('inbound.cetak-label.test-print-tsp') }}"
+                        data-payload="{{ json_encode(['template' => $activeTemplate?->value, 'copies' => $total], JSON_UNESCAPED_SLASHES) }}"
+                        class="label-toolbar__btn">
+                    Cetak via USB
                 </button>
                 @vite(['resources/js/label-thermal.js'])
             @endif

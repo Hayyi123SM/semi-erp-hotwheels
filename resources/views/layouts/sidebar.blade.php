@@ -43,8 +43,8 @@
         [
             'group' => 'Reports & Analisis',
             'items' => [
-                ['label' => 'Consignor Settlement', 'route' => 'report.settlement', 'icon' => 'M9 7h6m-6 4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z'],
-                ['label' => 'Profit Margin vs Fee', 'route' => 'report.margin', 'icon' => 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'],
+                ['label' => 'Consignor Settlement', 'owner' => true, 'route' => 'report.settlement', 'icon' => 'M9 7h6m-6 4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z'],
+                ['label' => 'Profit Margin vs Fee', 'owner' => true, 'route' => 'report.margin', 'icon' => 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'],
                 ['label' => 'Laporan Penjualan & Stok', 'route' => 'report.laporan', 'icon' => 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'],
                 ['label' => 'Audit Log', 'route' => 'report.audit-log', 'icon' => 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'],
             ],
@@ -118,12 +118,9 @@
     <div class="flex h-16 shrink-0 items-center gap-2 border-b border-border-subtle px-3 md:px-5"
          :class="isLabelled ? 'justify-between' : 'justify-center'">
         <a href="{{ route('dashboard') }}" class="flex min-w-0 items-center gap-2.5" title="SemiERP HotWheels">
-            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-on-primary">
-                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M5 13l4 4L19 7"/>
-                </svg>
-            </span>
-            <span class="sidebar-label text-headline-sm font-semibold text-text-strong" x-show="isLabelled">SemiERP<wbr>HotWheels</span>
+            <img class="w-8 ml-[5px] flex-none" src="/assets/images/167_LOGO.png"
+                        alt="image" />
+            <span class="sidebar-label text-headline-sm font-semibold text-text-strong" x-show="isLabelled">167 Diecast</span>
         </a>
         <button type="button" x-ref="drawerClose"
                 class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-canvas md:hidden"

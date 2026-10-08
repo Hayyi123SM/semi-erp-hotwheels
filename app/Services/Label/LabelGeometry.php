@@ -66,48 +66,47 @@ final readonly class LabelGeometry
      * Sisi QR maksimum pada template QR-only, dalam sentimeter.
      *
      * Angka ini hasil sisa ruang, bukan pilihan bulat. Label QR-only 1,5 cm
-     * dengan padding 0,06 cm per sisi menyisakan 1,38 cm. Dua baris teks di
-     * bawah QR -- SKU dan harga, masing-masing setinggi 0,125 cm --
-     * membutuhkan 0,25 cm. Biar baris kedua tidak menimpa modul, ruang bawah
-     * QR harus lebih dari itu: 0,86 cm dipakai supaya sisa
-     * `(1,38 - 0,86) / 2 = 0,26 cm` masih menyisakan ~0,01 cm untuk bernapas
-     * antara QR dan teks.
+     * dengan padding 0,06 cm per sisi menyisakan 1,38 cm. QR menempel padding
+     * atas dan dua baris teks di bawahnya -- SKU dan harga, masing-masing
+     * setinggi 0,15 cm = 0,30 cm total -- menempel tepi bawah dengan gap
+     * 0,03 cm. Ruang buka adalah `1,38 - QR - 0,30 - 0,03`, jadi QR terbesar
+     * yang muat = 1,05 cm.
      *
-     * Mengecilkan QR untuk dua baris menurunkan ukuran modul: dari 0,362 mm
-     * (sisi 1,05 cm, ~2,9 dot) menjadi 0,297 mm (sisi 0,86 cm, ~2,4 dot pada
-     * printer 203 dpi). Ini harga yang diterima sejak harga ikut dicetak di
-     * sini -- pemindaian sedikit lebih peka jarak, tapi isi label tidak lagi
-     * menyembunyikan harga yang bisa diperiksa ulang di rak.
+     * Hasilnya modulnya cukup besar untuk discan: 1,05 cm / 29 = 0,362 mm
+     * (~2,9 dot pada 203 dpi), di atas lantai `QR_ONLY_MIN_MODULE_MM`.
+     * Memperbesar QR melampaui ini memakan ruang baris teks -- dan di jalur
+     * TSPL, font '1' 8x16 dot tidak muat dua baris di bawah QR yang lebih
+     * besar tanpa menimpa modul, jadi 1,05 cm adalah langit-langit bersama
+     * yang masih konsisten untuk HTML dan TSPL.
      *
      * Dipakai juga sebagai plafon ketika Owner mengetik sisi QR sendiri di
      * Pengaturan. Tanpa plafon ini, satu angka yang benar untuk label 3x2 dan
      * 4x3 (misalnya 1,24 cm) akan menutupi SKU dan harga pada QR-only yang
      * halamannya cuma 15 mm -- dan kerusakannya tidak terlihat di layar.
      */
-    public const float QR_ONLY_MAX_SIDE_CM = 0.86;
+    public const float QR_ONLY_MAX_SIDE_CM = 1.05;
 
     /**
      * Ukuran font baris teks di bawah QR pada label QR-only, dalam sentimeter.
      *
      * Dipakai untuk kedua barisnya -- SKU dan harga -- supaya anggaran ruang
-     * vertikal tunggal: dua baris = 2 x 0,125 cm = 0,25 cm, dan
-     * `LabelGeometryTest` membuktikan angka itu masih muat di bawah QR-only
-     * yang sudah dikecilkan. Berada di sini, bukan di CSS, karena ruang label
-     * QR-only tinggal beberapa milimeter dan harus bisa diuji: kalau angkanya
-     * hanya hidup di `label__qr-sku`, tidak ada test yang bisa membuktikan
-     * baris itu masih muat di bawah QR yang baru saja diperkecil.
+     * vertikal tunggal: dua baris = 2 x 0,15 cm = 0,30 cm, dan
+     * `LabelGeometryTest` membuktikan angka itu masih muat di bawah QR-only.
+     * Berada di sini, bukan di CSS, karena ruang label QR-only tinggal
+     * beberapa milimeter dan harus bisa diuji: kalau angkanya hanya hidup di
+     * `label__qr-sku`, tidak ada test yang bisa membuktikan baris itu masih
+     * muat di bawah QR yang baru saja diperbesar.
      */
-    public const float QR_ONLY_SKU_FONT_CM = 0.125;
+    public const float QR_ONLY_SKU_FONT_CM = 0.15;
 
     /**
      * Lantai ukuran modul QR pada label QR-only, dalam milimeter.
      *
      * Satu modul = sisi QR dibagi 29 (21 modul + 4 quiet zone per sisi, versi
-     * 1). Dulu lantainya 0,35 mm (2,8 dot); sejak harga ikut dicetak, QR-only
-     * menyusut ke 0,86 cm = 0,297 mm (2,4 dot pada 203 dpi), jadi lantainya
-     * diturunkan ke 0,29 mm. Yang dijaga test bukan "sekecil mungkin", tapi
-     * "jangan ikut menyusut diam-diam": kalau orang mengecilkan QR sekali lagi
-     * demi baris baru, test ini merah.
+     * 1). QR-only 1,5 cm punya modul 0,362 mm (sisi 1,05 cm ~2,9 dot pada
+     * 203 dpi). Lantai di 0,29 mm. Yang dijaga test bukan "sekecil mungkin",
+     * tapi "jangan ikut menyusut diam-diam": kalau orang mengecilkan QR di
+     * bawah ambang ini demi baris baru, test ini merah.
      */
     public const float QR_ONLY_MIN_MODULE_MM = 0.29;
 
@@ -145,9 +144,10 @@ final readonly class LabelGeometry
              * 1,5 x 1,5 cm: QR dengan SKU dan harga di bawahnya.
              *
              * Label ini kecil karena teksnya dibatasi dua baris, bukan karena
-             * semuanya diperkecil. Karena itu QR masih dapat hampir seluruh
-             * label; modulnya turun ke 0,297 mm (lihat `QR_ONLY_MAX_SIDE_CM`)
-             * tapi tetap lebih besar daripada di 3x2.
+             * semuanya diperkecil. QR menempel padding atas, SKU dan harga
+             * menempel tepi bawah (lihat `QR_ONLY_MAX_SIDE_CM`), jadi QR masih
+             * dapat hampir seluruh label; modulnya 0,362 mm (~2,9 dot pada
+             * 203 dpi), lebih besar daripada di 3x2.
              *
              * Angka 1,38 cm dihitung dari payload terpanjang yang nyata
              * (`CN01-HW-001-U03`, 15 byte, QR versi 1 = 21 modul + 8 quiet zone
@@ -157,7 +157,7 @@ final readonly class LabelGeometry
              * `rows: []` adalah inti template ini: produk dan kondisi tidak
              * punya tempat di sini; yang tercetak hanya QR, satu baris SKU,
              * dan harga -- semuanya digambar renderer. SKU dan harga memakai
-             * `LabelGeometry::QR_ONLY_SKU_FONT_CM` (dua baris = 0,25 cm),
+             * `LabelGeometry::QR_ONLY_SKU_FONT_CM` (dua baris = 0,30 cm),
              * bukan lewat daftar baris. Karena itu `textWidthCm()` dan
              * `capacityFor()` tidak punya arti di sini dan tidak boleh
              * dipanggil. `LabelGeometryTest` menahan QR + padding supaya

@@ -50,6 +50,71 @@ export function registerCart(Alpine) {
         code: readTemplateSeed(UNKNOWN_TEMPLATE_ID, "code"),
     }));
 
+    /**
+     * Dialog struk yang muncul setelah pembayaran tersimpan.
+     *
+     * Komponen terpisah dari `posCart` karena body dialog dipindahkan ke popup
+     * SweetAlert2 dan `initTree()` membangunnya sebagai pohon sendiri -- pola
+     * yang sama dengan picker. Backend mengirim pratinjau struk sebagai HTML
+     * dan dua URL untuk tombol Cetak; komponen ini hanya meneruskan keduanya
+     * dari `data-*` pada pembungkusnya, dibuat lewat `strukDialogHtml()`.
+     */
+    Alpine.data("posStrukDialog", (opts) => ({
+        method: opts?.method ?? "browser",
+        paper: opts?.paper ?? "80mm",
+        thermalUrl: opts?.thermalUrl ?? "",
+        printUrl: opts?.printUrl ?? "",
+
+        get notify() {
+            return window.notify ?? null;
+        },
+
+        /**
+         * Cetak struk: thermal kalau pengaturan global menyala dan kertasnya
+         * gulungan (bukan A4), selain itu dialog cetak browser. Kalau cetak
+         * thermal gagal -- printer tidak terhubung, kertas A4, byte ditolak --
+         * jatuh ke dialog browser supaya kertas tetap keluar lewat jalan lain.
+         */
+        cetak() {
+            const canThermal =
+                this.method === "thermal" &&
+                this.paper !== "a4" &&
+                typeof window.__thermalPrint === "function";
+
+            if (canThermal) {
+                window.__thermalPrint(this.thermalUrl, {
+                    onFailed: () => this.cetakBrowser(),
+                });
+                return;
+            }
+
+            this.cetakBrowser();
+        },
+
+        /**
+         * Dialog cetak browser di tab baru. `print_url` dari server sudah
+         * menyertakan `auto=1`, jadi tab yang dibuka mencetak sendiri tanpa
+         * butuh klik lagi.
+         */
+        cetakBrowser() {
+            if (this.printUrl === "") {
+                return;
+            }
+
+            // `noopener`: tab struk tidak boleh memegang jendela kasir, supaya
+            // URL+token sesi yang dibawanya tidak bisa dibaca halaman asing.
+            window.open(this.printUrl, "_blank", "noopener");
+        },
+
+        /**
+         * Tutup dialog. Kasir yang sudah mencetak atau sama sekali tidak ingin
+         * mencetak berhenti di sini; dialog tidak pernah menutup diri sendiri.
+         */
+        selesai() {
+            this.notify?.close();
+        },
+    }));
+
     Alpine.data("posCart", (initialLots = []) => ({
         items: [],
         paymentMethod: "TUNAI",
@@ -737,6 +802,8 @@ export function registerCart(Alpine) {
                 );
 
                 this.clear();
+
+                this.openStrukDialog(data);
             } catch {
                 this.$store.toast.push(
                     "Tidak tersambung ke server. Penjualan belum tercatat, coba lagi.",
@@ -745,6 +812,75 @@ export function registerCart(Alpine) {
             } finally {
                 this.paying = false;
             }
+        },
+
+        /**
+         * Buka dialog struk setelah penjualan tersimpan.
+         *
+         * Isi dan URL datang dari jawaban `pos.transaksi.store` -- satu sumber
+         * dengan byte thermal dan halaman cetak, bukan yang disalin ke sini.
+         * Kalau balasan tidak membawa pratinjau (server lama, atau tes yang
+         * meringkas balasannya), dialog tidak dibuka: layar kasir selesai dengan
+         * toast sukses seperti sebelumnya, bukan dengan dialog kosong.
+         *
+         * `notify.modal()` tidak ditunggu. Dialog menutup dirinya lewat tombol
+         * "Selesai", dan membiarkan await di sini menahan `pay()` (dan gerakan
+         * kasir berikutnya) sampai kasir menekan tombol.
+         */
+        openStrukDialog(data) {
+            const notify = this.notify;
+
+            if (
+                notify === null ||
+                typeof data?.struk_html !== "string" ||
+                data.struk_html.trim() === ""
+            ) {
+                return;
+            }
+
+            notify.modal({
+                title: `Struk ${data.receipt_no ?? ""}`.trim(),
+                html: this.strukDialogHtml(data),
+                size: "md",
+            });
+        },
+
+        /**
+         * Rangkaian body dialog struk: pratinjau server + dua tombol.
+         *
+         * `posStrukDialog` membaca kedua URL lewat `data-*` pada pembungkus,
+         * jadi tidak ada isi yang harus di-escape sebagai string di sini --
+         * pola yang sama seperti `seedTemplate`. `struk_html` sudah dirender
+         * oleh Blade (ter-escape), dan ditanam sebagai HTML yang dipercaya.
+         */
+        strukDialogHtml(data) {
+            const host = document.createElement("div");
+
+            host.className = "space-y-4 text-left";
+            host.setAttribute("x-data", "posStrukDialog($el.dataset)");
+            Object.assign(host.dataset, {
+                method: data.print_method ?? "browser",
+                paper: data.paper ?? "80mm",
+                thermalUrl: data.thermal_url ?? "",
+                printUrl: data.print_url ?? "",
+            });
+
+            host.innerHTML = [
+                data.struk_html,
+                `<div class="flex flex-col gap-2 pt-1 sm:flex-row sm:justify-end">
+                    <button type="button" @click="cetak()"
+                            class="btn-primary inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-md px-4 text-body-sm font-semibold sm:flex-none sm:px-5">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+                        Cetak Struk
+                    </button>
+                    <button type="button" @click="selesai()"
+                            class="btn-secondary inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-md px-4 text-body-sm font-semibold sm:flex-none sm:px-5">
+                        Selesai
+                    </button>
+                </div>`,
+            ].join("");
+
+            return host.outerHTML;
         },
 
         format: { rupiah, number },

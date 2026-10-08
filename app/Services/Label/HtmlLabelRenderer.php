@@ -84,12 +84,12 @@ final class HtmlLabelRenderer implements LabelRenderer
             /*
              * SKU selalu tercetak; harga menyusul kalau toggle harga hidup.
              *
-             * Dua baris teks di bawah QR membutuhkan 2 x 0,125 cm -- font
-             * yang sama untuk SKU dan harga (lihat `QR_ONLY_SKU_FONT_CM`).
-             * Karena QR dipusatkan, teks hanya boleh memakai ruang bawah
-             * `(1,38 - QR) / 2`; 0,86 cm untuk QR menyisakan 0,26 cm, dan
-             * modulnya turun ke 0,297 mm (2,4 dot). Itu harga yang diterima
-             * sejak harga ikut tercetak di stiker ini.
+             * Dua baris teks di bawah QR membutuhkan 2 x 0,15 cm -- font yang
+             * sama untuk SKU dan harga (lihat `QR_ONLY_SKU_FONT_CM`). QR
+             * menempel padding atas, jadi teks memakai sisa tinggi penuh
+             * `1,38 - 1,05 = 0,33 cm`; 0,30 cm dipakai dua baris dan sisanya
+             * bernapas antar blok. Modulnya 0,362 mm (~2,9 dot) -- cukup
+             * besar untuk discan.
              *
              * Harga ditiadakan begitu toggle "tampilkan harga" mati, sama
              * seperti template lain: stiker yang isinya berubah perlu dicetak
@@ -101,7 +101,7 @@ final class HtmlLabelRenderer implements LabelRenderer
                 .sprintf(
                     '<div class="label__qr-sku" style="font-size:%scm">%s</div>',
                     $this->cm(LabelGeometry::QR_ONLY_SKU_FONT_CM),
-                    e($this->truncateForQrOnly($content->sku)),
+                    e($this->truncateForQrOnly($content->sku, $geometry)),
                 );
 
             if ($priceLine !== '') {
@@ -296,9 +296,13 @@ final class HtmlLabelRenderer implements LabelRenderer
         return mb_substr($value, 0, max(1, $capacity - 1)).'…';
     }
 
-    private function truncateForQrOnly(string $value): string
+    private function truncateForQrOnly(string $value, LabelGeometry $geometry): string
     {
-        $capacity = 18;
+        // Kapasitas dihitung dari font yang sama yang mengisi baris di bawah
+        // QR: lebar kolom dibagi lebar karakter mono (0,60 x ukuran font).
+        $lineWidth = $geometry->widthCm - (2 * $geometry->paddingCm);
+        $charWidth = LabelGeometry::QR_ONLY_SKU_FONT_CM * 0.60;
+        $capacity = (int) floor($lineWidth / $charWidth);
 
         if ($value === '' || mb_strlen($value) <= $capacity) {
             return $value;
@@ -314,8 +318,8 @@ final class HtmlLabelRenderer implements LabelRenderer
      *
      * **Pembulatan ke bawah, bukan terdekat.** Nilai yang ditulis ke CSS adalah
      * anggaran: `LabelGeometry` sudah menghitung sisa ruang dari angka yang sama.
-     * Kalau pembulatan menaikkan angka -- `font-size` baris SKU 0,125 cm menjadi
-     * 0,13 cm -- CSS memakai ruang lebih besar dari yang dianggarkan dan teks mulai
+     * Kalau pembulatan menaikkan angka -- `font-size` 0,504 cm menjadi 0,51 cm --
+     * CSS memakai ruang lebih besar dari yang dianggarkan dan teks mulai
      * menimpa quiet zone QR. Melemahkan yang tercetak hanya membuat label lebih
      * kecil dari rencana, jadi tidak ada risiko baru.
      *
@@ -323,8 +327,8 @@ final class HtmlLabelRenderer implements LabelRenderer
      * dua desimal -- 0,01 cm -- tidak pernah menyatakan satu dot pun secara utuh.
      * Semua angka label ini memang kelipatan satu dot, jadi membulatkan ke 0,01 cm
      * tidak menambah ketelitian, hanya memalsukan presisi yang tidak ada. Empat
-     * desimal (0,001 mm) menyimpan angka apa adanya, termasuk yang punya desimal ketiga seperti
-     * 0,125 cm dan 0,504 cm.
+     * desimal (0,001 mm) menyimpan angka apa adanya, termasuk yang punya desimal
+     * ketiga seperti 0,504 cm.
      *
      * @param  float  $value  nilai dalam sentimeter
      */

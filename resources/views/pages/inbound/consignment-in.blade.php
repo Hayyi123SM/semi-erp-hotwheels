@@ -15,8 +15,6 @@
             'discountPolicy' => $consignor->discount_policy?->value,
         ],
     ]);
-
-    $productPrices = $products->mapWithKeys(fn ($product) => [$product->id => $product->default_list_price]);
 @endphp
 
 <x-ui.page-header
@@ -65,13 +63,13 @@
         </x-ui.section-card>
     @endif
 
-<form method="POST" action="{{ route('inbound.consignment-in.store') }}"
-      class="space-y-6"
+<div
       x-data="inboundGrid({
           consignors: {{ Js::from($consignorTerms) }},
           productPrices: {{ Js::from($productPrices) }},
           isOwner: {{ auth()->user()?->isOwner() ? 'true' : 'false' }},
-          rows: {{ Js::from(old('items', [])) }},
+          lookupUrl: {{ Js::from($lookupUrl) }},
+          rows: {{ Js::from($initialRows) }},
           itemErrors: {{ Js::from($errors->getBag('default')->getMessages()) }},
           pinToken: {{ Js::from($errors->has('pin_token') ? '' : old('pin_token', '')) }},
           resumeDraftId: {{ Js::from(request()->query('draft', '')) }},
@@ -82,6 +80,12 @@
           claimedQty: {{ Js::from(old('qty_claimed', '')) }},
           varianceNote: {{ Js::from(old('variance_note', '')) }},
       })"
+      class="space-y-6"
+      @keydown.esc.window="if(pickerOpen) closePicker()"
+      @consignment-in:add-product.window="onProductPicked($event)"
+      x-effect="document.body.style.overflow = pickerOpen ? 'hidden' : ''">
+<form method="POST" action="{{ route('inbound.consignment-in.store') }}"
+      class="space-y-6"
       @submit.prevent="onSubmit($event)">
     @csrf
 
@@ -212,9 +216,9 @@
                       x-cloak>
         <div class="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-center gap-2">
-                <button type="button" class="btn-secondary" @click="addRow()">
+                <button type="button" class="btn-secondary" @click="openPicker()">
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v16m8-8H4"/></svg>
-                    Tambah Baris
+                    Tambah Produk
                 </button>
             </div>
             <p class="text-label-sm text-text-subtle">Satu baris = satu SKU. Barang serupa dengan kondisi sama boleh digabung di satu baris.</p>
@@ -243,18 +247,17 @@
                         <tr class="border-b border-border-subtle transition hover:bg-canvas"
                             :class="deviates(row) ? 'bg-warning-bg' : ''">
                             <td class="px-3 py-2">
-                                <x-ui.searchable-select placeholder="— pilih produk —" class="w-64">
-                                    <select x-model="row.product_id" :name="`items[${index}][product_id]`" class="sr-only" required @focus="openPanel()" @keydown="onSearchKeydown($event)">
-                                        <option value="">— pilih produk —</option>
-                                        @foreach ($products->groupBy(fn ($p) => $p->series?->code ?? 'Tanpa Seri') as $seriesCode => $seriesProducts)
-                                            <optgroup label="{{ $seriesCode }}">
-                                                @foreach ($seriesProducts as $product)
-                                                    <option value="{{ $product->id }}">{{ $product->name }}</option>
-                                                @endforeach
-                                            </optgroup>
-                                        @endforeach
-                                    </select>
-                                </x-ui.searchable-select>
+                                <div class="min-w-[12rem] max-w-[16rem]">
+                                    <input type="hidden" :name="`items[${index}][product_id]`" :value="row.product_id">
+                                    <div class="flex items-center gap-2">
+                                        <span class="truncate text-body-sm font-medium text-text-strong"
+                                              x-text="row.product_name || '—'"></span>
+                                        <span x-show="row.casting_code"
+                                              class="shrink-0 rounded border border-border-subtle bg-canvas px-1.5 py-0.5 font-mono text-label-sm text-text-subtle"
+                                              x-text="row.casting_code"></span>
+                                    </div>
+                                    <p class="mt-1 text-label-sm text-error-text" x-show="errorFor(index, 'product_id') !== ''" x-text="errorFor(index, 'product_id')"></p>
+                                </div>
                             </td>
 
                             <td class="px-3 py-2">
@@ -368,7 +371,7 @@
                     </template>
                     <tr x-show="rows.length === 0">
                         <td colspan="12">
-                            <x-ui.empty-state title="Belum ada baris" description="Klik Tambah Baris untuk mulai mengisi penerimaan." />
+                            <x-ui.empty-state title="Belum ada produk" description="Klik Tambah Produk untuk memilih produk dan mulai mengisi penerimaan." />
                         </td>
                     </tr>
                 </tbody>
@@ -412,7 +415,7 @@
                       }[saveState] ?? ''"></span>
                 <span class="text-label-sm text-text-subtle" x-show="saveState === 'saving'">Menyimpan draft…</span>
 
-                <button type="submit" class="btn-primary" :disabled="submitting">
+                <button type="submit" class="btn-primary" :disabled="submitting || rows.length === 0">
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
                     <span x-text="submitting ? 'Mengirim…' : 'Commit &amp; Buat Label'"></span>
                 </button>
@@ -420,3 +423,68 @@
         </div>
     </div>
 </form>
+
+    <!-- Picker: Bottom drawer mobile, Modal desktop -->
+    <div x-show="pickerOpen" x-cloak>
+        <div class="fixed inset-0 z-50">
+            <div class="absolute inset-0 bg-black/40" @click="closePicker()"></div>
+            <div
+                class="absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col rounded-t-xl bg-surface-lowest shadow-xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-h-[90vh] sm:w-full sm:max-w-3xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
+            >
+                <div class="flex flex-col">
+                    <div class="mx-auto mt-2 h-1.5 w-10 rounded-full bg-border-subtle sm:hidden"></div>
+                    <div class="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-border-subtle">
+                        <h3 class="text-title-sm font-semibold">Cari Produk</h3>
+                        <button type="button" class="btn-ghost" @click="closePicker()">Tutup</button>
+                    </div>
+                </div>
+                <div
+                    class="flex-1 min-h-0 overflow-auto px-4 py-4 sm:px-6"
+                    x-data="productPicker({ url: lookupUrl, emitEvent: 'consignment-in:add-product' })"
+                >
+                    <div class="space-y-3">
+                        <div class="relative">
+                            <input
+                                id="consignment-in-picker-search"
+                                type="text"
+                                class="input-base pl-9"
+                                placeholder="Ketik nama produk, kode casting, atau barcode..."
+                                x-model="term"
+                                @input="searchSoon()"
+                                @keydown.enter.prevent="submit()"
+                                @keydown.arrow-down.prevent="move(1)"
+                                @keydown.arrow-up.prevent="move(-1)"
+                                @keydown.esc.prevent="closePicker()"
+                            >
+                            <svg class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+                        </div>
+
+                        <div x-show="loading" class="text-body-sm text-text-muted">Mencari...</div>
+                        <div x-show="error" class="text-body-sm text-error-text" x-text="error"></div>
+                        <div x-show="!loading && searched && !hasResults" class="text-body-sm text-text-muted">Tidak ditemukan</div>
+
+                        <div x-show="hasResults" class="divide-y divide-border-subtle rounded-lg border border-border-subtle">
+                            <template x-for="(item, index) in items" :key="index">
+                                <button
+                                    type="button"
+                                    class="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-canvas"
+                                    :class="activeIndex === index ? 'bg-primary-soft' : ''"
+                                    @click="choose(item)"
+                                    @mouseenter="activeIndex = index"
+                                >
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-body-sm font-medium text-text-strong truncate" x-text="item.name"></div>
+                                        <div class="mt-0.5 flex flex-wrap items-center gap-2 text-label-sm text-text-subtle">
+                                            <span x-show="item.casting_code">Kode: <span x-text="item.casting_code"></span></span>
+                                            <span x-show="item.series">Seri: <span x-text="item.series"></span></span>
+                                        </div>
+                                    </div>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

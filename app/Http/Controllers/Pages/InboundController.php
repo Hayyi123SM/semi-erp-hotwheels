@@ -62,6 +62,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -87,7 +88,58 @@ class InboundController extends Controller
 
     public function stockInPribadi()
     {
-        return $this->page('pages.inbound.stock-in-pribadi', $this->pickerData(), 'Stock In Pribadi');
+        $oldItems = old('items', []);
+        $initialItems = [];
+
+        if (! empty($oldItems)) {
+            $productIds = array_values(array_unique(array_filter(array_map(
+                fn ($row) => isset($row['product_id']) ? (int) $row['product_id'] : null,
+                $oldItems,
+            ))));
+
+            if ($productIds !== []) {
+                $products = Product::query()
+                    ->with('series')
+                    ->whereIn('id', $productIds)
+                    ->get()
+                    ->keyBy('id');
+
+                foreach ($oldItems as $row) {
+                    $productId = isset($row['product_id']) ? (int) $row['product_id'] : null;
+                    if ($productId === null) {
+                        continue;
+                    }
+
+                    $product = $products[$productId] ?? null;
+                    if ($product === null) {
+                        continue;
+                    }
+
+                    $initialItems[] = [
+                        'id' => Str::uuid()->toString(),
+                        'product_id' => $product->id,
+                        'casting_code' => (string) ($product->casting_code ?? ''),
+                        'name' => $product->name,
+                        'series_code' => $product->series?->code ?? '',
+                        'qty' => $row['qty'] ?? 1,
+                        'cost_price' => $row['cost_price'] ?? '',
+                        'rack_id' => $row['rack_id'] ?? '',
+                        'card_condition' => $row['card_condition'] ?? '',
+                        'blister_condition' => $row['blister_condition'] ?? '',
+                    ];
+                }
+            }
+        }
+
+        $picker = $this->pickerData();
+
+        return $this->page('pages.inbound.stock-in-pribadi', [
+            'racks' => $picker['racks'],
+            'card_conditions' => $picker['card_conditions'],
+            'blister_conditions' => $picker['blister_conditions'],
+            'lookupUrl' => route('inbound.produk.cari'),
+            'initialItems' => $initialItems,
+        ], 'Stock In Pribadi');
     }
 
     public function stockInPribadiStore(StoreStockInPribadiRequest $request)
@@ -119,12 +171,42 @@ class InboundController extends Controller
 
     public function consignmentIn()
     {
+        $oldItems = old('items', []);
+        $initialRows = [];
+
+        if (! empty($oldItems)) {
+            $productIds = array_values(array_unique(array_filter(array_map(
+                fn ($row) => isset($row['product_id']) ? (int) $row['product_id'] : null,
+                $oldItems,
+            ))));
+
+            $products = $productIds === []
+                ? collect()
+                : Product::query()->whereIn('id', $productIds)->get()->keyBy('id');
+
+            foreach ($oldItems as $row) {
+                $productId = isset($row['product_id']) ? (int) $row['product_id'] : null;
+                $product = $productId === null ? null : ($products[$productId] ?? null);
+
+                $initialRows[] = [
+                    ...$row,
+                    'product_name' => $product?->name ?? '',
+                    'casting_code' => (string) ($product?->casting_code ?? ''),
+                ];
+            }
+        }
+
         return $this->page('pages.inbound.consignment-in', [
             'consignors' => Consignor::query()
                 ->where('status', ConsignorStatus::Active->value)
                 ->orderBy('name')
                 ->get(),
             'drafts' => $this->drafts->listFor(request()->user()),
+            'initialRows' => $initialRows,
+            'lookupUrl' => route('inbound.produk.cari'),
+            'productPrices' => Product::query()
+                ->where('status', ProductStatus::Active->value)
+                ->pluck('default_list_price', 'id'),
             ...$this->pickerData(),
         ], 'Consignment In');
     }
@@ -191,6 +273,11 @@ class InboundController extends Controller
      */
     private function draftPayload(Consignment $draft): array
     {
+        // Nama produk ditampilkan di grid saat draft dilanjutkan. Draft hanya
+        // menyimpan `product_id`, jadi relasinya perlu dimuat di sini -- kalau
+        // tidak, baris yang dipulihkan muncul tanpa identitas produk.
+        $draft->loadMissing('items.product');
+
         return [
             'draft_id' => $draft->draft_id,
             'saved_at' => $draft->saved_at?->toIso8601String(),
@@ -204,6 +291,8 @@ class InboundController extends Controller
             'items' => $draft->items->map(fn (ConsignmentItem $item) => [
                 'line_no' => $item->line_no,
                 'product_id' => $item->product_id,
+                'product_name' => (string) ($item->product?->name ?? ''),
+                'casting_code' => (string) ($item->product?->casting_code ?? ''),
                 'qty' => $item->qty,
                 'rack_id' => $item->rack_id,
                 'card_condition' => $item->card_condition,
@@ -635,6 +724,62 @@ class InboundController extends Controller
     }
 
     /**
+     * Perintah TSPL untuk uji cetak -- pasangan langsung dari `testPrint`.
+     *
+     * Jalur browser punya musuh yang tidak bisa dikalahkan dari CSS: margin,
+     * skala, dan pemilihan kertas di dialog cetak peramban ikut menggeser
+     * label, dan yang sedang diukur operator justru jarak antar label.
+     * Endpoint ini menyusun perintah TSPL dari label contoh yang sama
+     * (`LabelContent::sample()`), lalu halaman meneruskannya ke printer
+     * lewat WebUSB/Web Serial tanpa satu pun pengaturan peramban di tengah.
+     *
+     * Kontraknya sama persis dengan `testPrint`: TIDAK membuat
+     * `label_print_jobs`, TIDAK menaikkan `labels_printed`, TIDAK menulis
+     * audit. Penyetelan printer tidak boleh menambah cetakan palsu di
+     * laporan (lihat catatan di atas `testPrint`).
+     */
+    public function testPrintTsp(Request $request, LabelPrinterSettings $printer, TspLabelJobBuilder $builder)
+    {
+        // Validasi sama dengan `testPrint` supaya satu halaman tidak bisa
+        // meminta dua ukuran berbeda tergantung jalur mana yang ditekan.
+        $validated = $request->validate([
+            'template' => ['nullable', Rule::in($this->labelTemplateValues())],
+            'copies' => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        $template = isset($validated['template'])
+            ? LabelTemplate::parse((string) $validated['template'])
+            : $printer->defaultTemplate();
+        $copies = (int) ($validated['copies'] ?? 1);
+
+        // Mode kertas ikut pengaturan yang sedang berlaku, persis seperti
+        // `testPrint`: menguji pada kertas yang salah hanya mengukur kertas
+        // yang salah.
+        $paperLayout = $printer->layoutFor($template);
+
+        // Isi yang sama dengan jalur HTML (`forTestPrint` memakai `showPrice`
+        // default true), sehingga kedua jalur boleh dibandingkan baris per
+        // baris saat operator mencurigai hasil cetak.
+        $specs = array_fill(
+            0,
+            $copies,
+            new TspLabelSpec(LabelContent::sample(), true),
+        );
+
+        $job = $builder->build($specs, $template, $printer->qrSideCm(), $paperLayout->grid);
+
+        return response()->json([
+            'ok' => true,
+            'text' => $job->text,
+            'sheets' => $job->sheets,
+            'total' => $job->total,
+            'paper' => $paperLayout->grid === null ? 'roll' : 'sheet',
+            'columns' => $paperLayout->grid?->columns,
+            'rows' => $paperLayout->grid?->rows,
+        ]);
+    }
+
+    /**
      * @return list<string>
      */
     private function labelTemplateValues(): array
@@ -1050,15 +1195,10 @@ class InboundController extends Controller
         );
     }
 
-    /** @return array{products: Collection, racks: Collection, card_conditions: array<string,string>, blister_conditions: array<string,string>} */
+    /** @return array{racks: Collection, card_conditions: array<string,string>, blister_conditions: array<string,string>} */
     private function pickerData(): array
     {
         return [
-            'products' => Product::query()
-                ->with('series')
-                ->where('status', ProductStatus::Active->value)
-                ->orderBy('name')
-                ->get(),
             'racks' => Rack::query()
                 ->where('is_active', true)
                 ->orderBy('code')

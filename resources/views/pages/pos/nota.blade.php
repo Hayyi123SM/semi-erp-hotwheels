@@ -8,8 +8,11 @@
      * keluar dari printer -- jadi urutannya mengikuti kertas, bukan urutan kolom
      * di tabel riwayat.
      *
-     * Halaman ini tidak punya tombol sama sekali selain "Kembali". Membatalkan
-     * dan mencetak ulang menulis nota, dan keduanya layak dibicarakan terpisah.
+     * Halaman ini tidak punya tombol yang menulis. "Kembali" dan "Cetak Struk"
+     * keduanya hanya membaca, dan itu sengaja: membatalkan nota dan mencetak
+     * ulang yang menulis layak dibicarakan terpisah, dan "Cetak Struk" tidak
+     * menyimpan tanda cetak apa pun -- ia hanya membuka halaman struk yang
+     * sama dengan yang muncul setelah bayar di layar kasir.
      */
     $received = (int) $sale->payments->sum('amount');
     $device = $sale->device_id ?? Format::EMPTY;
@@ -26,6 +29,13 @@
     ]"
 >
     <x-slot:actions>
+        {{-- Cetakan ulang kasir: halaman struk yang sama dengan yang muncul
+             setelah bayar, tanpa dialog cetak otomatis -- kalau yang dibuka
+             adalah riwayat, kasir memilih sendiri kapan kertas keluar. --}}
+        <a href="{{ route('pos.struk', $sale) }}" class="btn-secondary">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+            Cetak Struk
+        </a>
         <a href="{{ route('pos.riwayat') }}" class="btn-secondary">
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5m7-7l-7 7 7 7"/></svg>
             Kembali ke Riwayat

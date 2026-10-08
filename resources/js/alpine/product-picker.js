@@ -53,6 +53,7 @@ const ADD_ITEM_EVENT = "pos:add-item";
 export function productPicker(options = {}) {
     const url = options.url ?? "";
     const notify = options.notify ?? window.notify;
+    const emitEvent = options.emitEvent ?? ADD_ITEM_EVENT;
 
     const csrf = () =>
         document.querySelector('meta[name="csrf-token"]')?.content ?? "";
@@ -65,6 +66,7 @@ export function productPicker(options = {}) {
         error: "",
         searched: false,
         timer: null,
+        emitEvent,
 
         /**
          * Hasil yang sedang disorot, atau -1 kalau tidak ada.
@@ -239,7 +241,9 @@ export function productPicker(options = {}) {
          */
         choose(item) {
             window.dispatchEvent(
-                new CustomEvent(ADD_ITEM_EVENT, { detail: { sku: item.sku } }),
+                new CustomEvent(this.emitEvent ?? ADD_ITEM_EVENT, {
+                    detail: { sku: item.sku, item },
+                }),
             );
             notify.close();
         },

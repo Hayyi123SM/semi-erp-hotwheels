@@ -179,13 +179,28 @@
      * harus terlihat mana tepi kertas dan mana yang cuma latar. Dua warna putih
      * bertumpuk tidak membandingkan apa pun.
      *
+     * `margin: 0` mereset margin bawaan browser (8px di Chrome). Tanpa ini
+     * kertas tidak benar-benar mentok di tepi atas: masih ada 8px tak
+     * terhitung yang membuat preview beda dari yang dihitung operator.
+     *
+     * Padding atas 1 mm, bukan 0: sisa setipis itu cukup untuk menampilkan
+     * tepi atas kertas beserta garis putus-putus label pertama
+     * (`outline-offset: 0.5mm`, lihat aturan `.label` di blok ini), tapi
+     * tidak cukup untuk dianggap sebagai jarak -- jarak yang menggeser label
+     * justru yang harus dicari, bukan latar.
+     *
      * Padding bawah 30 mm adalah ruang untuk bar kendali yang menempel di
      * dasar layar: tanpa itu, lembar terakhir tertutup tombol begitu halaman
      * di-scroll sampai dasar.
+     *
+     * Seluruh blok ini hanya untuk layar. Hasil cetak ditentukan
+     * `@page { margin: 0 }` di komponen dokumen dan blok `@media print`
+     * di bawah -- mengubah padding di sini tidak menggeser kertas sedikitpun.
      */
     body {
         background: #e2e8f0;
-        padding: 8mm 0 30mm;
+        margin: 0;
+        padding: 1mm 0 30mm;
     }
 
     .label-sheet {
@@ -497,20 +512,17 @@
 }
 
 /* ------------------------------------------------------ label QR + SKU
- * QR dipusatkan sendiri; SKU dan harga menempel di tepi bawah.
+ * QR menempel tepi atas; SKU dan harga menempel tepi bawah.
  *
- * `position: absolute` untuk QR, bukan `align-self: center` di dalam flow.
+ * Dulu QR dipusatkan dengan `position: absolute` supaya ruang bawahnya
+ * `(1,38 - QR) / 2` cukup untuk dua baris teks @ 0,125 cm. Hasilnya QR hanya
+ * 0,86 cm -- band atas di atas QR ikut terbuang.
  *
- * Alasannya ruangnya sempit sekali. Label 15 mm, QR 8,6 mm, dua baris teks
- * (SKU + harga) masing-masing 1,25 mm. Kalau QR dan teksnya dijadikan satu
- * grup dengan `justify-content: center` -- caranya sebelumnya -- QR-nya ikut
- * bergeser ke bawah bersama teks, dan jarak QR ke tepi bawah label hilang.
- * Scanner sering butuh beberapa milimeter ruang kosong di sekeliling simbol,
- * jadi variant itu hanya dipilih kalau tidak ada tempat lain.
- *
- * Memusatkan QR sebagai elemen mutlak membebaskan tepi bawah untuk teks;
- * dua baris setinggi 1,25 mm menyisakan ~0,1 mm antara teks dan QR (lihat
- * `QR_ONLY_MAX_SIDE_CM` di `LabelGeometry` untuk anggaran ruangnya).
+ * Sekarang QR diletakkan dalam flow (`align-items: center` dari body, tanpa
+ * absolute) dan `justify-content: space-between` menempelkannya ke padding
+ * atas, sementara teks tetap di tepi bawah. Karena band atas sudah dipakai QR,
+ * dua baris @ 0,15 cm + gap 0,03 cm memakai `1,38 - 1,05 - 0,30 - 0,03`
+ * = persis muat. Rasional anggarannya di `QR_ONLY_MAX_SIDE_CM`.
  *
  * Harga ikut tercetak di sini, diambil dari `LabelContent` (snapshot payload
  * stiker) -- jadi re-print dengan alasan perubahan harga tetap mencetak harga
@@ -518,18 +530,14 @@
  * ---------------------------------------------------------------------- */
 
 .label__body--qr-only {
-    position: relative;
     flex-direction: column;
-    justify-content: flex-end;
+    justify-content: space-between;
     align-items: center;
     gap: 0.03cm;
 }
 
 .label__body--qr-only .label__qr {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    position: static;
 }
 
 .label__qr-text {
@@ -551,7 +559,15 @@
 .label__qr-sku {
     font-family: "DejaVu Sans Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
         Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: var(--sku-font, 0.125cm);
+    font-size: var(--sku-font, 0.15cm);
+    /*
+     * SKU dan harga di kedua template lain sudah tebal (3x2 dan 4x3 memakai
+     * `weight: 700` di `LabelGeometry`). Label QR-only 1,5x1,5 menulis kedua
+     * baris ini lewat renderer, jadi ketebalannya diturunkan dari CSS, bukan
+     * dari geometry -- dengan berat yang sama supaya tiga ukuran tampil
+     * konsisten di rak.
+     */
+    font-weight: 700;
     line-height: 1;
     word-break: break-all;
 }
@@ -559,7 +575,8 @@
 .label__qr-price {
     font-family: "DejaVu Sans Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
         Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: var(--sku-font, 0.125cm);
+    font-size: var(--sku-font, 0.15cm);
+    font-weight: 700;
     line-height: 1;
     /*
      * Harga tidak boleh dipenggal: `Rp100.000.000` (13 karakter) masih muat

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Pos;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Pos\SearchProductRequest;
+use App\Http\Requests\SearchProductRequest;
 use App\Services\Pos\ProductLookup;
 use App\Services\Pos\ProductLookupResult;
 use Illuminate\Http\JsonResponse;

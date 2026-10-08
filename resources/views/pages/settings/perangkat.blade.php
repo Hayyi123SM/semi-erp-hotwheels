@@ -291,8 +291,8 @@
                                     `rows: []`, jadi baris-baris teks biasa
                                     (produk, kondisi) tidak punya tempat --
                                     SKU dan harga digambar renderer dengan
-                                    font `QR_ONLY_SKU_FONT_CM`, dan QR-nya
-                                    dikecilkan sampai 0,86 cm supaya dua baris
+                                    font `QR_ONLY_SKU_FONT_CM` (0,15 cm), dan
+                                    QR-nya sampai 1,05 cm supaya dua baris
                                     itu muat. Peringatan ini muncul begitu
                                     Owner memilihnya, sebelum disimpan, bukan
                                     setelah label pertama tercetak.
@@ -419,11 +419,13 @@
                             stiker dengan alasan yang sama seperti lebar cetak:
                             ini soal alat, bukan soal kertas. `Thermal` dipakai
                             kalibrasi & cetak label langsung dari jalur TSPL
-                            (WebUSB/agent); `Browser` memakai dialog cetak browser.
+                            (Web Bluetooth sebagai tombol utama, WebUSB sebagai
+                            tombol cadangan); `Browser` memakai dialog cetak
+                            browser.
                         --}}
                         <div class="mt-4">
                             <x-ui.field label="Cara cetak label" name="print_method"
-                                        hint="Dialog browser untuk semua printer. Langsung memakai perintah TSPL (QRCODE/TEXT) untuk printer yang terhubung via USB; kalau gagal, di halaman label ada tombol fallback ke dialog browser.">
+                                        hint="Dialog browser untuk semua printer. Langsung memakai perintah TSPL (QRCODE/TEXT): tombol utama lewat Web Bluetooth -- dialognya sudah menyaring nama printer BP-TD110BT -- dan tombol &quot;Cetak via USB&quot; lewat WebUSB untuk printer yang tersambung lewat kabel; kalau keduanya gagal, di halaman label ada tombol fallback ke dialog browser.">
                                 <select id="print_method" name="print_method"
                                         class="input-base @error('print_method') border-error-border @enderror">
                                     @foreach ($labelPrintMethods as $labelMethod)
@@ -678,7 +680,24 @@
         </x-ui.section-card>
 
         <x-ui.section-card title="Printer Struk (POS-01)">
-            <div class="space-y-5">
+            {{--
+                Satu `x-data` untuk seluruh kartu: select kertas, chip kertas,
+                dan pratinjau berbagi state `paper` yang sama, jadi Owner melihat
+                pratinjau berganti di saat yang sama dengan select -- sebelum
+                menekan Simpan. `savedPaper` dipakai badge "belum disimpan":
+                pratinjau boleh bergerak bebas, tapi kartu harus jujur kalau
+                yang tampil belum berlaku.
+
+                `|| '80mm'` di tiap ekspresi adalah bawaan ketika belum pernah
+                menyimpan (nilainya `null`): select menampilkan "Belum disimpan",
+                pratinjau tetap menunjukkan struk 80 mm sebagai default.
+            --}}
+            <div class="space-y-5"
+                 x-data="{
+                     paper: @js(old('paper', $paper?->value)),
+                     savedPaper: @js($paper?->value),
+                     method: @js(old('method', $method?->value)),
+                 }">
                 <div class="flex items-center justify-between">
                     <div>
                         {{--
@@ -714,23 +733,25 @@
                 </div>
 
                 {{--
-                    Kertas bukti terima titipan, bukan kertas struk penjualan.
+                    Kertas dokumen GLOBAL (`print.paper`), bukan milik satu
+                    halaman: kertas ini menentukan isi halaman bukti terima
+                    titipan DAN struk kasir POS, jadi pratinjau di kolom
+                    sebelah adalah struk kasir -- dokumen yang paling sering
+                    dicetak dengan kertas ini.
 
-                    Yang diatur di sini kertas bukti terima yang dipakai halaman
-                    `/bukti-terima`, dan nilai ini hanya jadi bawaan: operator
-                    tetap bisa memilih kertas lain lewat dialog print browser,
-                    karena dialog itu yang tahu kertas yang sebenarnya ada di
-                    laci printer. Yang besoin disimap hanya nilai bakanya,
+                    Nilai yang dipilih operator tetap hanya bawaan: saat membuka
+                    dialog print, browser yang tahu kertas yang benar-benar ada
+                    di laci printer. Yang disimpan di sini adalah nilai bakanya,
                     supaya halaman cetak tidak bergantung pada tebakan tiap
                     kali dibuka.
 
                     Batasannya Owner, sama seperti ukuran label: kertas ini
                     menentukan isi cetakan yang dibaca penitip.
                 --}}
+                <div class="grid gap-5 border-t border-border-subtle pt-5 lg:grid-cols-2 lg:gap-6">
                 @can('owner-only')
                     <form method="POST" action="{{ route('setting.perangkat.struk.update') }}"
-                          x-data="{ paper: @js(old('paper', $paper?->value)) }"
-                          class="space-y-3 border-t border-border-subtle pt-5">
+                          class="space-y-3">
                         @csrf
                         @method('PUT')
 
@@ -752,7 +773,7 @@
 
                         <x-ui.field label="Cara cetak" name="method"
                                     hint="Thermal mengirim data langsung ke printer tanpa dialog print; browser memakai dialog cetak bawaan perangkat.">
-                            <select id="method" name="method"
+                            <select id="method" name="method" x-model="method"
                                     class="input-base @error('method') border-error-border @enderror"
                                     required>
                                 @foreach ($methods as $methodOption)
@@ -807,7 +828,7 @@
                         </p>
                     </form>
                 @else
-                    <div class="border-t border-border-subtle pt-5 space-y-3">
+                    <div class="space-y-3">
                         <div>
                             <dt class="text-label-md text-text-muted">Ukuran kertas dokumen</dt>
                             <dd class="text-body-md font-medium text-text-strong">
@@ -830,6 +851,68 @@
                         <p class="text-label-sm text-text-subtle">Hanya Owner yang bisa mengubah pengaturan ini.</p>
                     </div>
                 @endcan
+
+                    {{--
+                        Pratinjau struk kasir: ketiga ukuran kertas sudah dirender
+                        sekali oleh server dari nota contoh, lalu ditukar oleh
+                        state `paper` yang sama dengan select di kolom sebelah.
+                        Owner bisa mengubah kertas dan langsung melihat efeknya
+                        tanpa menyimpan; Staff tidak punya hak ubah, tapi tetap
+                        bisa membaca kertas seperti apa struk yang berlaku.
+                    --}}
+                    <div class="space-y-3">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <p class="text-body-md font-medium text-text-strong">Pratinjau struk</p>
+                                <p class="text-label-sm text-text-muted">Nota contoh, bukan transaksi nyata.</p>
+                            </div>
+                            <div class="inline-flex items-center gap-0.5 rounded-lg bg-canvas p-1"
+                                 role="group" aria-label="Ukuran kertas pratinjau">
+                                @foreach ($papers as $paperOption)
+                                    <button type="button"
+                                            class="rounded-md px-3 py-1.5 text-label-md transition"
+                                            :class="(paper || '80mm') === @js($paperOption['value'])
+                                                ? 'bg-text-strong text-white shadow-sm'
+                                                : 'text-text-muted hover:text-text-strong'"
+                                            @click="paper = @js($paperOption['value'])">
+                                        {{ $paperOption['label'] }}
+                                    </button>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        <p class="text-label-sm text-warning-text"
+                           x-show="paper !== savedPaper" x-cloak>
+                            Pratinjau belum disimpan — yang sedang berlaku tetap kertas yang tersimpan.
+                        </p>
+
+                        <div class="max-h-[28rem] overflow-auto rounded-lg border border-border-strong bg-surface-lowest p-4">
+                            @foreach ($strukPreviews as $paperValue => $previewSheet)
+                                {{--
+                                    Pembungkus selebar kertas aslinya: A4 tampil
+                                    190 mm dan digulir horizontal kalau panel
+                                    sempit, bukan menyusut sampai kolomnya tidak
+                                    terbaca. Margin `auto` pada elemen yang lebih
+                                    lebar dari wadahnya menghasilkan 0, jadi tidak
+                                    ada yang terpotong di kiri.
+                                --}}
+                                <div x-show="(paper || '80mm') === @js($paperValue)" x-cloak
+                                     class="mx-auto"
+                                     style="width: {{ $previewSheet->page()['width'] }}">
+                                    @include('components.pos.struk-sheet', ['sheet' => $previewSheet, 'embedded' => false])
+                                </div>
+                            @endforeach
+                        </div>
+
+                        <div x-show="(method || 'browser') === 'thermal' && (paper || '80mm') === 'a4'" x-cloak>
+                            <x-ui.banner tone="warning">
+                                Cara cetak <strong>Thermal</strong> hanya menerima kertas struk
+                                (58/80 mm). Dengan kertas A4, halaman ini tetap tercetak lewat
+                                cetak browser.
+                            </x-ui.banner>
+                        </div>
+                    </div>
+                </div>
             </div>
         </x-ui.section-card>
     </div>

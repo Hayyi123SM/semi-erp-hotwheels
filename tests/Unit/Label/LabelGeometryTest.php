@@ -533,9 +533,9 @@ class LabelGeometryTest extends TestCase
      *
      * Kedua hal itu tarik-tarik ke arah berlawanan, jadi diuji bersama. QR
      * yang diperbesar tanpa menyisakan tempat teks berarti teksnya menimpa
-     * modul; QR yang dikecilkan untuk muat dua baris menurunkan modul dari
-     * 0,362 mm ke 0,297 mm, dan pemindaian jadi lebih peka jarak -- itu harga
-     * yang diterima supaya harga ikut tercetak di rak.
+     * modul; QR yang dikecilkan untuk muat dua baris menurunkan modulnya dan
+     * pemindaian jadi lebih peka jarak. Ukuran sekarang menjaga modul di
+     * 0,362 mm (~2,9 dot) -- di atas ambang baca pada 203 dpi.
      */
     #[Test]
     public function the_qr_only_qr_leaves_room_for_sku_and_price(): void
@@ -549,10 +549,10 @@ class LabelGeometryTest extends TestCase
          * yang lebih besar hanya berarti QR bisa dibesarkan.
          *
          * Ruang di bawah QR dihitung dari geometry yang sama dengan yang
-         * dicetak: label dikurangi dua kali padding dan QR, lalu dibagi dua
-         * karena QR dipusatkan.
+         * dicetak: label dikurangi dua kali padding dan QR, lalu tanpa dibagi
+         * dua karena QR sekarang menempel padding atas, bukan dipusatkan.
          */
-        $roomBelowQr = ($qrOnly->heightCm - (2 * $qrOnly->paddingCm) - $qrOnly->qrSideCm) / 2;
+        $roomBelowQr = $qrOnly->heightCm - (2 * $qrOnly->paddingCm) - $qrOnly->qrSideCm;
 
         $this->assertGreaterThanOrEqual(
             LabelGeometry::QR_ONLY_SKU_FONT_CM * 2,
@@ -571,10 +571,9 @@ class LabelGeometryTest extends TestCase
          *
          * Version 1 adalah 21 x 21 modul dan empat modul quiet zone di setiap
          * sisi, jadi 29 satuan total. Angka itu yang membagi sisi QR di sini.
-         * 0,297 mm per modul = 2,4 dot pada 203 dpi -- turun dari 0,362 mm
-         * sejak harga ikut tercetak, tapi masih di atas
-         * `QR_ONLY_MIN_MODULE_MM` yang menjaga QR tidak menyusut diam-diam
-         * demi baris baru.
+         * QR-only 1,05 cm = 0,362 mm per modul (~2,9 dot pada 203 dpi) -- di
+         * atas `QR_ONLY_MIN_MODULE_MM` yang menjaga QR tidak menyusut
+         * diam-diam demi baris baru.
          */
         $modulePitchMm = ($qrOnly->qrSideCm * 10) / 29;
 

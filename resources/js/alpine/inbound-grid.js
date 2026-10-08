@@ -38,6 +38,8 @@ const LOCAL_DRAFT_KEY = 'wms.consignment-in.draft.v1';
 
 const DEFAULT_ROW = () => ({
     product_id: '',
+    product_name: '',
+    casting_code: '',
     qty: 1,
     card_condition: 'MINT',
     blister_condition: 'CLEAR',
@@ -64,6 +66,7 @@ export function inboundGrid({
     pinToken = '',
     draftId = '',
     resumeDraftId = '',
+    lookupUrl = '',
     // False kalau server baru saja mengembalikan form karena validasi gagal.
     // `old()` di situ sudah berisi apa yang harus benar, dan cermin lokal bisa
     // saja lebih lama -- menimpanya berarti membatalkan perbaikan Staff.
@@ -79,10 +82,12 @@ export function inboundGrid({
         productPrices,
         isOwner,
         pinContext,
+        lookupUrl,
+        pickerOpen: false,
         // Isian yang dikembalikan server setelah validasi gagal dikembalikan ke
         // grid. Menulai dari baris kosong setiap kali form gagal berarti kasir
         // mengetik ulang seluruh dokumen hanya karena satu baris salah.
-        rows: rows && rows.length > 0 ? rows.map((row) => ({ ...DEFAULT_ROW(), ...row })) : [DEFAULT_ROW()],
+        rows: rows && rows.length > 0 ? rows.map((row) => ({ ...DEFAULT_ROW(), ...row })) : [],
         // Pesan validasi per sel, dibaca dari `items.{index}.{field}`. Tanpa ini
         // pesan dari server tidak punya tempat tampil: barisnya dirender Alpine,
         // jadi Blade tidak bisa menulis pesan itu di dalam selnya.
@@ -132,14 +137,49 @@ export function inboundGrid({
             return Object.keys(PARAMETER_FIELD);
         },
 
-        addRow() {
-            this.rows.push(DEFAULT_ROW());
+        openPicker() {
+            this.pickerOpen = true;
+
+            // Fokus lewat id, bukan `$refs`: input pencarian berada di dalam
+            // `x-data="productPicker(...)"`, jadi ref-nya terdaftar pada root
+            // komponen anak dan tidak terlihat dari scope induk ini.
+            this.$nextTick(() => {
+                document.getElementById('consignment-in-picker-search')?.focus?.();
+            });
+        },
+
+        closePicker() {
+            this.pickerOpen = false;
+        },
+
+        /**
+         * Tambahkan produk yang dipilih dari popup sebagai baris baru.
+         *
+         * Berbeda dengan Stock In Pribadi, duplikat di sini sengaja dibiarkan:
+         * `splitRow` memang memecah satu produk ke beberapa baris ketika skema
+         * atau kondisinya berbeda, jadi menolak produk yang sudah ada akan
+         * mematikan alur itu.
+         */
+        onProductPicked(event) {
+            const detail = event.detail ?? {};
+            const product = detail.item ?? detail;
+
+            if (!product || !product.product_id) {
+                return;
+            }
+
+            this.rows.push({
+                ...DEFAULT_ROW(),
+                product_id: product.product_id,
+                product_name: product.name ?? '',
+                casting_code: product.casting_code ?? '',
+            });
+
+            this.closePicker();
         },
 
         removeRow(index) {
-            if (this.rows.length > 1) {
-                this.rows.splice(index, 1);
-            }
+            this.rows.splice(index, 1);
         },
 
         /**
@@ -368,7 +408,7 @@ export function inboundGrid({
                 this.saveState = 'saved';
                 this.rows = draft.items.length > 0
                     ? draft.items.map((row) => ({ ...DEFAULT_ROW(), ...row }))
-                    : [DEFAULT_ROW()];
+                    : [];
 
                 this.syncDateInput(draft.consignment_date);
                 this.clearLocalDraft();
@@ -441,7 +481,7 @@ export function inboundGrid({
                 this.varianceNote = draft.varianceNote ?? '';
                 this.rows = Array.isArray(draft.rows) && draft.rows.length > 0
                     ? draft.rows.map((row) => ({ ...DEFAULT_ROW(), ...row }))
-                    : [DEFAULT_ROW()];
+                    : [];
 
                 if (this.draftId === '') {
                     this.saveState = 'offline';

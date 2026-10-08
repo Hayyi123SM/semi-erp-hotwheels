@@ -2,7 +2,8 @@
 
 Panduan operasional untuk menguji alur cetak thermal dari pengembangan sampai
 ke printer asli. Dua jalur: **struk** (ESC/POS + Web Bluetooth, bagian 1–9)
-dan **label** (TSPL + WebUSB, bagian Runbook Label di bawah). Segala fakta
+dan **label** (TSPL + Web Bluetooth/WebUSB, bagian Runbook Label di
+bawah). Segala fakta
 (nama rute, tombol, kunci setting, bentuk JSON) ditulis sesuai implementasi
 saat ini, bukan rencana.
 
@@ -175,9 +176,11 @@ uji ulang dengan runbook ini.
 Jalur cetak langsung untuk printer label **BP-TD110BT** (TSPL, 203 dpi,
 media 100×150 mm, 48 stiker 15×15 mm / lembar). Berbeda dari struk: label
 tidak memakai byte ESC/POS, tapi perintah teks TSPL (`SIZE`, `GAP`, `QRCODE`,
-`TEXT`, `PRINT`) yang disusun server, dan jembatan ke printer memakai
-**WebUSB** (bukan Web Bluetooth) karena printer label umumnya Bluetooth
-Classic SPP yang tidak bisa dijamah Web Bluetooth.
+`TEXT`, `PRINT`) yang disusun server. Jembatan ke printer memakai **satu klik =
+satu dialog**: tombol utama **Web Bluetooth (BLE)** dengan dialog yang
+menyaring nama printer, tombol kedua **WebUSB** untuk printer yang tersambung
+lewat kabel; `window.print()` hanya untuk kegagalan nyata, bukan untuk dialog
+yang dibatalkan pengguna.
 
 ## A. Cara kerja singkat
 
@@ -186,16 +189,24 @@ Halaman /inbound/cetak-label (pilih job → render)
   └─ POST /inbound/cetak-label/tsp  {ids}
         └─ server menyusun teks TSPL (TspLabelJobBuilder)
              └─ json {ok, text, sheets, total, paper, columns, rows}
-                  └─ resources/js/label-thermal.js → WebUSB → printer
+                  └─ resources/js/label-thermal.js
+                        ├─ tombol utama  → Web Bluetooth (filter nama BP-TD110BT)
+                        └─ "Cetak via USB" → WebUSB
+                              → gagal nyata → window.print()
 ```
 
 `text` sengaja dikirim mentah (bukan base64): TSPL murni teks ASCII tanpa
 byte kontrol, jadi tidak ada alasan menyelinapkannya ke binary. `jobIds`
-berasal dari tombol (`data-ids`), identik dengan job yang sedang tampil.
+berasal dari tombol (`data-ids`), identik dengan job yang sedang tampil;
+halaman uji cetak memakai `data-payload` (`template` + `copies`) karena tidak
+punya job.
 
-WebUSB hanya jalan di **Chromium di atas HTTPS** (sama seperti Web Bluetooth).
-Kalau gagal (tanpa WebUSB, tanpa interface vendor kelas 0xFF, tanpa endpoint
-OUT), `onFailed` dipanggil → `window.print()` → cetakan tidak pernah hilang.
+Kedua jalur membutuhkan **Chromium di atas HTTPS** (sama seperti Web
+Bluetooth pada struk). Kegagalan nyata (layanan BLE tak dikenali, tanpa
+interface vendor kelas 0xFF) memanggil `onFailed` → `window.print()` →
+cetakan tidak pernah hilang. Dialog pemilihan perangkat yang **ditutup
+pengguna** berarti "bukan sekarang": toast *"Dibatalkan."* muncul **tanpa**
+membuka dialog cetak browser dan tanpa dialog lanjutan.
 
 ## B. Persiapan setting
 
@@ -214,15 +225,27 @@ seperti `max_print_width_mm`).
 1. Siapkan lot barang (stok lot asli atau lot imajiner), lalu pilih di
    halaman `Cetak Label`.
 2. Set **Cara cetak label** = `Thermal`.
-3. Buka halaman hasil render. Kalau setting thermal aktif, muncul tombol
-   **"Cetak N label thermal"** di samping tombol *Cetak N label* biasa.
-4. Klik → Chrome memunculkan dialog WebUSB: pilih TD110BT (terhubung USB),
-   izinkan. Toast *"Cetakan terkirim ke printer label."*.
-5. Gagal apa pun → jatuh ke dialog cetak browser (fallback), jadi alur
-   browser tidak pernah rusak.
+3. Buka halaman hasil render. Kalau setting thermal aktif, muncul dua tombol
+   di samping tombol *Cetak N label* biasa: **"Cetak N label (Bluetooth)"**
+   dan **"Cetak via USB"**.
+4. Klik tombol utama → toast *"Pilih printer label di dialog Bluetooth…"*
+   lalu dialog Web Bluetooth muncul **berisi BP-TD110BT saja** (filter nama).
+   Pilih printernya dan izinkan.
+5. Sukses = toast *"Cetakan terkirim ke printer label."*
+6. Tutup dialog tanpa memilih → toast *"Dibatalkan."*, tidak ada dialog
+   lanjutan dan `window.print()` tidak dibuka. Kegagalan nyata → `onFailed`
+   → dialog cetak browser (fallback), jadi alur browser tidak pernah rusak.
+   Tombol *Cetak via USB* memakai perintah yang sama lewat dialog WebUSB,
+   untuk saat printer tersambung lewat kabel.
 
-Tombol thermal hanya muncul saat rooting punya `jobIds` dan `labelPrintMethod`
-= `thermal`; halaman uji cetak (`testPrint`) tidak punya job → tetap browser.
+Tombol thermal di halaman render muncul saat rooting punya `jobIds` **dan**
+`labelPrintMethod` = `thermal`. Halaman **uji cetak**
+(`/inbound/cetak-label/uji-cetak`) juga punya kedua tombol —
+"Cetak N label (Bluetooth)" dan "Cetak via USB" — tanpa syarat setting,
+karena halaman itu memang alat kalibrasi dan dialog browser adalah salah satu
+variabel yang sedang diukur. Tombolnya memakai `POST
+/inbound/cetak-label/uji-cetak/tsp` (`template` + `copies`) dan tidak pernah
+membuat job label atau menaikkan `labels_printed`.
 
 ## D. Perilaku endpoint
 
@@ -247,9 +270,11 @@ php -d memory_limit=-1 vendor/bin/phpunit \
   tests/Unit/Label/TspLabelRendererTest.php \
   tests/Unit/Label/TspLabelJobBuilderTest.php
 
-# Endpoint label tsp, setting print method, rendering label
+# Endpoint label tsp, uji cetak (jalur HTML + TSPL), setting print method,
+# rendering label
 php -d memory_limit=-1 vendor/bin/phpunit \
   tests/Feature/LabelTspPrintTest.php \
+  tests/Feature/LabelTestPrintTest.php \
   tests/Feature/PrinterSettingsTest.php \
   tests/Feature/LabelRenderTest.php
 
@@ -269,3 +294,84 @@ npx vitest run resources/js/label-thermal.test.js
 Bagian "kirim ke printer" (`sendTsplText`) berdiri sendiri seperti
 `sendBytes()` di jalur struk: kalau TD110BT ternyata lebih mudah lewat agent
 (QZ), yang berubah hanya transport, bukan renderer/halaman.
+
+## G. Bluetooth (Web Serial SPP) — TIDAK AKTIF di alur default
+
+Fungsi `sendTsplSerial` masih ada di `label-thermal.js` tapi **tidak dipanggil
+dari tombol mana pun**: rantai berurutan hanya membuat beberapa dialog muncul
+berturut-turut untuk satu klik, dan `open()` port SPP ditolak macOS di unit
+uji. Aktifkan kembali hanya kalau SPP terbukti di unit fisik.
+
+TD110BT generik OEM ini memakai **Bluetooth Classic SPP** untuk jalur
+serialnya -- `navigator.bluetooth` (Web Bluetooth) tidak akan pernah
+menampilkannya, karena Web Bluetooth hanya bicara BLE. Jalur SPP browser-nya
+lewat **Web Serial API**:
+
+* Chrome/Edge **desktop** 117+; **bukan** Android/browser mobile.
+* Device harus **dipairing dulu di OS** (macOS System Settings → Bluetooth,
+  PIN pabrik biasanya `0000` atau `1234`). Chrome menampilkan kanal SPP yang
+  sudah dipairing di `navigator.serial.requestPort()` tanpa perlu driver.
+* `baudRate` pada `port.open()` (9600) diabaikan OS untuk port Bluetooth
+  virtual.
+* Chrome 130+ mengecek `port.connected` sebelum `open()`: kalau `false`
+  (hanya *paired*, di luar jangkauan, atau sengaja diputus dari panel sistem)
+  pengguna langsung mendapat pesan *"…belum tersambung"* tanpa `open()` yang
+  pasti gagal.
+
+## H. Bluetooth (Web Bluetooth BLE) — jalur utama
+
+Jalur bawaan tombol utama memakai Web Bluetooth dengan pola yang sama seperti
+`thermal.js` (struk), tapi memfilter **nama**, bukan layanan:
+
+* `requestDevice({ filters: [{ namePrefix: "BP-TD110BT" }], optionalServices: [...] })`
+  — dialog hanya menawarkan printer dengan nama berawalan `BP-TD110BT`.
+  Kecocokan nama harfiah: kalau printer mengiklankan nama yang sedikit beda,
+  dialog tampil **kosong** (bisa dicek di macOS System Settings → Bluetooth).
+* Layanan yang dicoba berurutan: `18f0`, `ffe0`, `ff00`, `fff0`, Nordic UART
+  (`6e400001-…`), lalu layanan apa pun yang terbuka setelah koneksi GATT.
+* Tulisan per **20 byte** (MTU terkecil, aman tanpa negosiasi MTU), lalu
+  koneksi diputus.
+
+Catatan dual mode: sebagian printer hanya mengaktifkan **satu** mode pada satu
+waktu. Kalau SPP sedang tersambung, iklan BLE bisa hilang (dan sebaliknya) —
+kalau dialog BLE kosong, putuskan pairing SPP / matikan printer sebentar lalu
+ulangi, dan pastikan spec sheet menyebut *BLE* atau *Bluetooth 4.x BLE*.
+
+## I. Pintu masuk transport dan arti kegagalan
+
+Transport dipilih tombol, bukan oleh rantai berurutan:
+
+```
+"Cetak N label (Bluetooth)" → Web Bluetooth (filter nama BP-TD110BT)
+"Cetak via USB"             → WebUSB (filters: [], acceptAllDevices)
+keduanya gagal nyata         → window.print()
+```
+
+| Yang terjadi di dialog | Arti |
+| --- | --- |
+| Dialog ditutup pengguna (`NotFoundError`) | Bukan kegagalan: toast *"Dibatalkan."*, tidak ada dialog lanjutan, `window.print()` **tidak** dipanggil |
+| `port.open()` melempar `NetworkError` (jalur SPP, saat aktif) | OS menolak membuka port: biasanya port dipegang aplikasi lain, entri port duplikat (macOS), atau Chrome sudah usang → pesan toast menyebut langkah berikutnya |
+| Gagal nyata (mis. layanan BLE tak dikenali, tanpa interface vendor 0xFF) | Toast berisi alasan, lalu `window.print()` |
+
+Toast per langkah: *"Pilih printer label di dialog Bluetooth…"* sebelum dialog
+BLE, *"Pilih printer label di dialog USB…"* sebelum dialog WebUSB, sehingga
+kegagalan bisa ditelusuri ke jalurnya.
+
+Troubleshooting dua kegagalan yang paling sering muncul:
+
+| Gejala | Penyebab / tindakan |
+| --- | --- |
+| `Failed to read the 'filters' property from 'USBDeviceRequestOptions'` | Bug lama: `requestDevice` dipanggil tanpa `filters` wajib. Sudah diperbaiki (`{ filters: [], acceptAllDevices: true }`); kalau masih muncul, bundle JS belum dibangun ulang (`npm run build`) |
+| `Failed to execute 'open' on 'SerialPort': Failed to open serial port` | OS menolak (jalur SPP, saat aktif): tutup terminal/monitor serial/aplikasi printer, pastikan status Bluetooth **Connected** (bukan sekadar Paired), pilih entri port lain kalau muncul dua kali, dan perbarui Chrome (bug `SerialSplitDtrAndRts` diperbaiki di 139.0.7258.128) |
+| Toast *"Printer terdaftar di pilihan port tapi belum tersambung"* | `port.connected === false`: sambungkan lagi perangkat dari panel sistem, lalu ulangi |
+| Dialog BLE tampil **kosong** | Nama yang diiklankan tidak berawalan `BP-TD110BT` (cocokkan di pengaturan Bluetooth sistem), BLE sedang dipakai perangkat lain, atau sedang tersambung lewat SPP (lihat catatan dual mode) |
+| Dialog BLE tidak menampilkan printer | Printer bukan BLE, BLE-nya dipakai perangkat lain, atau sedang tersambung lewat SPP (lihat catatan dual mode) |
+
+Catatan firmware: sebagian printer TSPL-SPP memakai frame ACK `7E 01 7E` per
+job (labelife menyebutnya auto-negotiated dan bisa di-drop). Verifikasi di
+unit fisik: kirim satu job via SPP dan pastikan hasil cetak benar tanpa perlu
+membaca balasan ACK.
+
+Uji terisolasi Bluetooth (tanpa server): HP pendamping (Android/aplikasi
+cetak label) dicoba dulu untuk memastikan printer memang SPP dan PIN-nya,
+baru lanjut ke Web Serial di Chrome desktop.

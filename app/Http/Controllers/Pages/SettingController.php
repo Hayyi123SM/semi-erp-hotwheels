@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Pages;
 
 use App\Enums\LabelPaperMode;
 use App\Enums\PaperSize;
+use App\Enums\PaymentMethod;
 use App\Enums\PrintMethod;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\SaveNotificationTemplateRequest;
@@ -11,7 +12,13 @@ use App\Http\Requests\Settings\SavePosSettingsRequest;
 use App\Http\Requests\Settings\SavePrinterSettingsRequest;
 use App\Http\Requests\Settings\SaveReceiptPrinterSettingsRequest;
 use App\Models\Notification;
+use App\Models\Product;
+use App\Models\Sale;
+use App\Models\SaleItem;
+use App\Models\SalePayment;
 use App\Models\Setting;
+use App\Models\StockLot;
+use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\Consignment\ReceiptPrinterSettings;
 use App\Services\Label\LabelPrinterSettings;
@@ -20,6 +27,7 @@ use App\Services\Label\LabelTemplate;
 use App\Services\Label\SheetGrid;
 use App\Services\Notification\NotificationTemplate;
 use App\Services\Pos\PosSettings;
+use App\Services\Pos\SaleStrukSheet;
 use App\Services\Print\PrintSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -172,7 +180,97 @@ class SettingController extends Controller
              */
             'method' => $printSettings->storedMethod(),
             'methods' => PrintMethod::options(),
+
+            /**
+             * Pratinjau struk untuk ketiga ukuran kertas, dirender sekali di
+             * server dan diganti lewat Alpine di klien.
+             */
+            'strukPreviews' => $this->strukPreviewSheets(auth()->user()),
         ], 'Perangkat');
+    }
+
+    /**
+     * Tiga `SaleStrukSheet` (58/80/A4) dari satu nota contoh, tanpa menyentuh
+     * database.
+     *
+     * Owner mengubah kertas sambil melihat langsung bagaimana struknya berubah,
+     * jadi pratinjau harus ada sebelum ada transaksi nyata dan tidak boleh
+     * berubah isi setiap kali halaman dibuka -- nota contoh yang dirancang
+     * sekali lebih berguna daripada "nota terakhir", yang bisa saja berisi satu
+     * baris tanpa diskon dan membuat kartu terlihat belum selesai.
+     *
+     * Model dibuat dengan `new`, bukan `factory()->make()`: semua yang dibaca
+     * struk (angka, relasi, pembayaran) sudah di-set di sini, dan pratinjau
+     * tidak bergantung pada isi database yang bisa berubah karena seeding.
+     *
+     * @return array<string, SaleStrukSheet>
+     */
+    private function strukPreviewSheets(User $printedBy): array
+    {
+        $sale = new Sale([
+            'receipt_no' => 'HW-20261008-0042',
+            'shift_id' => 7,
+            'sold_at' => now(),
+            'subtotal' => 180_000,
+            'discount_total' => 15_000,
+            'total' => 165_000,
+        ]);
+
+        $sale->setRelation('items', collect($this->strukPreviewItems()));
+        // 200.000 tunai untuk nota 165.000: baris "Kembalian" adalah salah satu
+        // elemen yang paling mudah hilang kalau nota contoh dibuat pas-pasan.
+        $sale->setRelation('payments', collect([
+            new SalePayment(['method' => PaymentMethod::Cash, 'amount' => 200_000]),
+        ]));
+
+        return collect(PaperSize::cases())
+            ->mapWithKeys(static fn (PaperSize $paper): array => [
+                $paper->value => new SaleStrukSheet(
+                    sale: $sale,
+                    paper: $paper,
+                    printedBy: $printedBy,
+                    changeDue: 35_000,
+                ),
+            ])
+            ->all();
+    }
+
+    /**
+     * Dua baris barang untuk nota contoh: satu berdiskon, satu tidak.
+     *
+     * Nama produk menempel lewat relasi `lot -> product`, sama seperti penjualan
+     * asli: `SaleStrukSheet::lines()` membaca nama dari sana, dan nota contoh
+     * yang hanya menampilkan SKU membuat pratinjau berbeda dari struk nyata.
+     *
+     * @return list<SaleItem>
+     */
+    private function strukPreviewItems(): array
+    {
+        $fastAndFurious = new StockLot(['sku' => 'HW-FX001']);
+        $fastAndFurious->setRelation('product', new Product(['name' => 'Fast & Furious 5-Pack']));
+
+        $dragBus = new StockLot(['sku' => 'HW-TH01']);
+        $dragBus->setRelation('product', new Product(['name' => 'Treasure Hunt VW Drag Bus']));
+
+        $first = new SaleItem([
+            'sku' => 'HW-FX001',
+            'qty' => 3,
+            'list_price' => 60_000,
+            'discount' => 5_000,
+            'sell_price' => 55_000,
+        ]);
+        $first->setRelation('lot', $fastAndFurious);
+
+        $second = new SaleItem([
+            'sku' => 'HW-TH01',
+            'qty' => 1,
+            'list_price' => 25_000,
+            'discount' => 10_000,
+            'sell_price' => 15_000,
+        ]);
+        $second->setRelation('lot', $dragBus);
+
+        return [$first, $second];
     }
 
     /**
