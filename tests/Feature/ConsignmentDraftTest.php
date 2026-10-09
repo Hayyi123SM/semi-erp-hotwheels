@@ -96,14 +96,20 @@ class ConsignmentDraftTest extends TestCase
         // Form untuk membuang draft punya form sendiri, jadi tidak boleh
         // diletakkan di dalam form utama: browser akan memindahkan form anak
         // ke luar form induk dan token CSRF-nya ikut hilang.
-        $formStart = strpos($html, 'x-data="inboundGrid(');
+        //
+        // Scope `inboundGrid` sekarang membungkus form, jadi titik awalnya
+        // adalah wrapper div; form utama dicari setelahnya, dan yang diperiksa
+        // adalah isi di antara tag form utama dan penutupnya.
+        $wrapperStart = strpos($html, 'x-data="inboundGrid(');
+        $formStart = $wrapperStart === false ? false : strpos($html, '<form', $wrapperStart);
         $formEnd = strrpos($html, '</form>');
 
+        $this->assertNotFalse($wrapperStart);
         $this->assertNotFalse($formStart);
         $this->assertNotFalse($formEnd);
         $this->assertStringNotContainsString(
             '<form',
-            substr($html, $formStart, $formEnd - $formStart),
+            substr($html, $formStart + 1, $formEnd - $formStart),
             'Ada form bersarang di dalam form Consignment In.',
         );
     }

@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1 — bundel aset frontend (Vite + Tailwind)
 # ---------------------------------------------------------------------------
-FROM node:22-alpine AS assets
+FROM --platform=linux/amd64 node:22-alpine AS assets
 WORKDIR /app
 
 # package-lock.json dulu agar layer `npm ci` tetap ter-cache.
@@ -23,7 +23,7 @@ RUN npm run build
 # `install-php-extensions` meng-compile ekstensi untuk ABI yang tepat.
 # Digest dipin supaya rebuild deterministik (tag `:1.12.7` tetap mengarah ke
 # image yang sama; bila mau update, ganti digest setelah `docker manifest inspect`).
-FROM dunglas/frankenphp:1.12.7-php8.4-bookworm@sha256:4c5abb38de56af73d7110c2facde95294bd7145793af3cf00c15cd6905921f6c AS runtime
+FROM --platform=linux/amd64 dunglas/frankenphp:1.12.7-php8.4-bookworm@sha256:4c5abb38de56af73d7110c2facde95294bd7145793af3cf00c15cd6905921f6c AS runtime
 
 ENV COMPOSER_ALLOW_SUPERUSER=1 \
     COMPOSER_HOME=/tmp/composer
@@ -34,15 +34,17 @@ ENV COMPOSER_ALLOW_SUPERUSER=1 \
 # koneksi berbasis socket. pdo_sqlite, mbstring, dom, simplexml, curl, dan
 # posix sudah bawaan image.
 RUN install-php-extensions \
-        gd \
-        intl \
-        zip \
-        bcmath \
-        exif \
-        sockets \
-        pcntl \
-        pdo_mysql \
-        pdo_pgsql
+        mbstring fileinfo dom simplexml curl posix
+RUN install-php-extensions \
+        gd intl zip
+RUN install-php-extensions \
+        bcmath exif sockets
+RUN install-php-extensions \
+        pcntl
+RUN install-php-extensions \
+        pdo_mysql pdo_pgsql pdo_sqlite
+RUN install-php-extensions \
+        opcache
 
 WORKDIR /var/www/html
 

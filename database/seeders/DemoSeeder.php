@@ -66,7 +66,7 @@ class DemoSeeder extends Seeder
     private function seedSettings(): void
     {
         $settings = [
-            'store.name' => 'Semi WMS & POS Konsinyasi Hot Wheels',
+            'store.name' => '167 Diecast Shop',
             'store.address' => 'Jl. Mainan No. 1, Kota',
             'receipt.footer' => 'Terima kasih telah berbelanja!',
             'pos.label_templates' => ['3x2' => 'minimalis-solid', '4x3' => 'luas-info'],

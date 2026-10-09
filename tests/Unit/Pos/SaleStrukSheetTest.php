@@ -90,7 +90,7 @@ class SaleStrukSheetTest extends TestCase
     {
         $sale = $this->sale(User::factory()->staff()->create());
 
-        self::assertSame('Hot Wheels Store', $this->sheet($sale)->storeName());
+        self::assertSame('167 Diecast Shop', $this->sheet($sale)->storeName());
 
         Setting::set('store.name', 'Toko Mainan Andi');
 
