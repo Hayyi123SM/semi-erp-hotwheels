@@ -54,6 +54,8 @@ final readonly class ProductLookupResult
         public string $statusType,
         public bool $sellable,
         public ?string $rack,
+        public ?string $color = null,
+        public ?int $year = null,
     ) {}
 
     /**
@@ -75,6 +77,8 @@ final readonly class ProductLookupResult
             'statusType' => $this->statusType,
             'sellable' => $this->sellable,
             'rack' => $this->rack,
+            'color' => $this->color ?? '',
+            'year' => $this->year,
         ];
     }
 }

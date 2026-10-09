@@ -150,6 +150,8 @@ class ProductLookup
                 statusType: Format::statusType($lot->status),
                 sellable: $lot->isSellable(),
                 rack: $lot->rack?->code,
+                color: $lot->product?->color,
+                year: $lot->product?->year,
             ));
     }
 }

@@ -42,7 +42,7 @@ class RegistrationRoleTest extends TestCase
     #[Test]
     public function a_registered_user_becomes_staff_in_the_spelling_the_enum_reads(): void
     {
-        $this->register()->assertRedirect(route('dashboard', absolute: false));
+        $this->register()->assertRedirect(route('pos.kasir', absolute: false));
 
         $user = User::sole();
 

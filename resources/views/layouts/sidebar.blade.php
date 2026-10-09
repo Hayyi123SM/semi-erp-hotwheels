@@ -4,11 +4,13 @@
     $navigation = [
         [
             'label' => 'Dashboard',
+            'owner' => true,
             'route' => 'dashboard',
             'icon' => 'M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1h3a1 1 0 001-1V10',
         ],
         [
             'group' => 'Master Data',
+            'owner' => true,
             'items' => [
                 ['label' => 'Data Penitip', 'route' => 'master.penitip', 'icon' => 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z'],
                 ['label' => 'Katalog Produk', 'route' => 'master.katalog-produk', 'icon' => 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10'],
@@ -17,6 +19,7 @@
         ],
         [
             'group' => 'Inbound',
+            'owner' => true,
             'items' => [
                 ['label' => 'Stock In Pribadi', 'route' => 'inbound.stock-in-pribadi', 'icon' => 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z'],
                 ['label' => 'Consignment In', 'route' => 'inbound.consignment-in', 'icon' => 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z M12 12v4m0 0l-2-2m2 2l2-2'],
@@ -25,6 +28,7 @@
         ],
         [
             'group' => 'Inventory',
+            'owner' => true,
             'items' => [
                 ['label' => 'Live Stock', 'route' => 'inventory.live-stock', 'icon' => 'M4 6h16M4 10h16M4 14h16M4 18h16'],
                 ['label' => 'Karantina', 'route' => 'inventory.karantina', 'icon' => 'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z'],
@@ -42,6 +46,7 @@
         ],
         [
             'group' => 'Reports & Analisis',
+            'owner' => true,
             'items' => [
                 ['label' => 'Consignor Settlement', 'owner' => true, 'route' => 'report.settlement', 'icon' => 'M9 7h6m-6 4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z'],
                 ['label' => 'Profit Margin vs Fee', 'owner' => true, 'route' => 'report.margin', 'icon' => 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'],
@@ -51,6 +56,7 @@
         ],
         [
             'group' => 'Pengaturan',
+            'owner' => true,
             'items' => [
                 ['label' => 'Pengguna & Role', 'owner' => true, 'route' => 'setting.pengguna', 'icon' => 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z'],
                 ['label' => 'Perangkat', 'route' => 'setting.perangkat', 'icon' => 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z'],
@@ -62,13 +68,16 @@
 
     $isOwner = auth()->user()?->isOwner() ?? false;
 
-    // Item yang ditandai `owner` disembunyikan dari Staff, bukan sekadar ditolak
-    // saat diklik. Menu lain tetap muncul untuk Staff karena halamannya memang
-    // boleh dibaca: memilih penitip, mencetak label, dan membuka Stock In
-    // Pribadi yang nanti menjelaskan sendiri bagian mana yang Owner-only.
-    // Menyembunyikan semuanya hanya memindahkan frustrasi ke navigasi yang lebih
-    // dalam tanpa menutup celah yang ada. Grup yang jadi kosong ikut dibuang,
-    // supaya tidak ada judul menggantung tanpa isinya.
+    // Halaman muka mengikuti peran: Owner ke dashboard, Staff ke kasir. Logo
+    // memakai tujuan yang sama supaya tidak ada satu pun tautan navigasi yang
+    // menjatuhkan Staff ke halaman yang menolaknya.
+    $homeRoute = auth()->user()?->homeRoute() ?? 'dashboard';
+
+    // Satu batas peran: Staff hanya melihat POS. Section non-POS ditandai
+    // `owner` dan dibuang seluruhnya untuk Staff; grup POS tidak bertanda dan
+    // tetap tampil. Grup yang jadi kosong ikut dibuang supaya tidak ada judul
+    // menggantung tanpa isinya. Flag `owner` per-item tetap dipertahankan
+    // sebagai penanda halus bila nanti ada item Owner-only di dalam grup campuran.
     $navigation = array_values(array_filter(
         array_map(function (array $section) use ($isOwner): array {
             if (! isset($section['items'])) {
@@ -83,7 +92,13 @@
                 )),
             ];
         }, $navigation),
-        fn (array $section): bool => ! isset($section['items']) || $section['items'] !== [],
+        function (array $section) use ($isOwner): bool {
+            if (! $isOwner && ($section['owner'] ?? false)) {
+                return false;
+            }
+
+            return ! isset($section['items']) || $section['items'] !== [];
+        },
     ));
 
     // A section stays lit while the reader is inside it, so create and edit
@@ -117,7 +132,7 @@
        @keydown.escape.window="open && closeDrawer()">
     <div class="flex h-16 shrink-0 items-center gap-2 border-b border-border-subtle px-3 md:px-5"
          :class="isLabelled ? 'justify-between' : 'justify-center'">
-        <a href="{{ route('dashboard') }}" class="flex min-w-0 items-center gap-2.5" title="SemiERP HotWheels">
+        <a href="{{ route($homeRoute) }}" class="flex min-w-0 items-center gap-2.5" title="SemiERP HotWheels">
             <img class="w-8 ml-[5px] flex-none" src="/assets/images/167_LOGO.png"
                         alt="image" />
             <span class="sidebar-label text-headline-sm font-semibold text-text-strong" x-show="isLabelled">167 Diecast</span>
@@ -154,9 +169,9 @@
                                     <span class="sidebar-label" x-show="isLabelled">{{ $item['label'] }}</span>
                                     @if ($active === 'inventory.karantina' && $item['route'] === 'inventory.karantina')
                                         {{-- A count badge does not fit in the rail; the dot carries the same signal. --}}
-                                        <span class="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-karantina-bg px-1.5 text-label-sm text-karantina-text" x-show="isLabelled">3</span>
+                                        <span class="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-karantina-bg px-1.5 text-label-sm text-karantina-text" x-show="isLabelled">{{ $quarantine['count'] }}</span>
                                         <span class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-karantina-text" x-show="! isLabelled">
-                                            <span class="sr-only">3 barang karantina</span>
+                                            <span class="sr-only">{{ $quarantine['count'] }} barang karantina</span>
                                         </span>
                                     @endif
                                 </a>
@@ -194,16 +209,16 @@
                 </span>
                 <div class="min-w-0 text-body-sm">
                     <p class="font-semibold text-text-strong">Tersinkron</p>
-                    <p class="truncate text-label-sm text-text-muted">Shift Reguler 1 · Ahmad Fauzi</p>
+                    <p class="truncate text-label-sm text-text-muted">{{ $currentShiftLabel }} · {{ $currentUser?->name }}</p>
                 </div>
             </div>
 
-            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-canvas" x-show="! isLabelled" title="Tersinkron · Shift Reguler 1">
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-canvas" x-show="! isLabelled" title="Tersinkron · {{ $currentShiftLabel }}">
                 <span class="relative flex h-2.5 w-2.5">
                     <span class="absolute inline-flex h-full w-full rounded-full bg-success-text opacity-50"></span>
                     <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-success-text"></span>
                 </span>
-                <span class="sr-only">Tersinkron · Shift Reguler 1</span>
+                <span class="sr-only">Tersinkron · {{ $currentShiftLabel }}</span>
             </span>
 
             {{-- Rail <-> full sidebar. Pushes the content instead of overlaying it. --}}

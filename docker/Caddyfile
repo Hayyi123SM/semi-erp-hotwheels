@@ -31,7 +31,7 @@
 	}
 }
 
-{$CADDY_SERVER_SERVER_NAME} {
+:8000 {
 	log {
 		level {$CADDY_SERVER_LOG_LEVEL}
 

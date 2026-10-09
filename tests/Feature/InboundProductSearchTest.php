@@ -46,7 +46,7 @@ class InboundProductSearchTest extends TestCase
     {
         $product = $this->product('Nissan Skyline GT-R R34');
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['q' => 'skyline'])
             ->assertOk()
             ->assertJsonStructure([
@@ -68,7 +68,7 @@ class InboundProductSearchTest extends TestCase
     {
         $product = $this->product('Toyota Supra', ['casting_code' => 'HWX-42']);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['q' => 'HWX-42'])
             ->assertOk()
             ->assertJsonPath('items.0.product_id', $product->id);
@@ -79,7 +79,7 @@ class InboundProductSearchTest extends TestCase
     {
         $product = $this->product('Mazda RX-7');
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['q' => 'hot wheels'])
             ->assertOk()
             ->assertJsonPath('items.0.product_id', $product->id);
@@ -90,7 +90,7 @@ class InboundProductSearchTest extends TestCase
     {
         $this->product('Nissan Skyline GT-R R34');
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['q' => ''])
             ->assertOk()
             ->assertExactJson(['items' => []]);
@@ -104,7 +104,7 @@ class InboundProductSearchTest extends TestCase
         // "Tidak ditemukan" muncul sebelum operator selesai mengetik.
         $this->product('Nissan Skyline GT-R R34');
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['q' => 'n'])
             ->assertOk()
             ->assertExactJson(['items' => []]);
@@ -119,7 +119,7 @@ class InboundProductSearchTest extends TestCase
             'factory_barcode_ref' => '8991234567890',
         ]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['barcode' => '8991234567890'])
             ->assertOk()
             ->assertJsonPath('items.0.product_id', $product->id)
@@ -131,7 +131,7 @@ class InboundProductSearchTest extends TestCase
     {
         $product = $this->product('Toyota Supra', ['casting_code' => 'HWX-42']);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['barcode' => 'HWX-42'])
             ->assertOk()
             ->assertJsonPath('items.0.product_id', $product->id);
@@ -147,7 +147,7 @@ class InboundProductSearchTest extends TestCase
             'sku' => 'OW00-HW-001',
         ]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['barcode' => 'OW00-HW-001'])
             ->assertOk()
             ->assertJsonPath('items.0.product_id', $product->id);
@@ -158,7 +158,7 @@ class InboundProductSearchTest extends TestCase
     {
         $this->product('Nissan Skyline GT-R R34');
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['barcode' => '0000000000000'])
             ->assertOk()
             ->assertExactJson(['items' => []]);
@@ -173,7 +173,7 @@ class InboundProductSearchTest extends TestCase
 
         // Scanner yang memicu Enter dengan kolom kosong tidak boleh melihat
         // daftar semua produk sebagai hasil pindaian.
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['barcode' => ''])
             ->assertOk()
             ->assertExactJson(['items' => []]);
@@ -186,7 +186,7 @@ class InboundProductSearchTest extends TestCase
     {
         $this->product('Nissan Skyline GT-R R34', ['status' => ProductStatus::Inactive]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['q' => 'skyline'])
             ->assertOk()
             ->assertExactJson(['items' => []]);
@@ -200,7 +200,7 @@ class InboundProductSearchTest extends TestCase
             'status' => ProductStatus::Inactive,
         ]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['barcode' => '8991234567890'])
             ->assertOk()
             ->assertExactJson(['items' => []]);
@@ -220,7 +220,7 @@ class InboundProductSearchTest extends TestCase
     {
         $this->product('Nissan Skyline GT-R R34');
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.produk.cari'), ['q' => str_repeat('a', 256)])
             ->assertStatus(422)
             ->assertJsonValidationErrors('q');

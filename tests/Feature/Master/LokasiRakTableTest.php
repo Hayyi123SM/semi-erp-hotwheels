@@ -210,20 +210,17 @@ class LokasiRakTableTest extends TestCase
             ->assertSee('Aktifkan');
     }
 
+    /**
+     * Halaman lokasi rak hanya untuk Owner, jadi Staff ditolak sejak di pintu.
+     */
     #[Test]
-    public function it_hides_management_actions_and_the_create_button_from_staff(): void
+    public function staff_cannot_open_the_rack_location_table(): void
     {
         $staff = User::factory()->staff()->create();
-        $this->rack('A-01-01');
 
-        $html = $this->actingAs($staff)
+        $this->actingAs($staff)
             ->get(route('master.lokasi-rak'))
-            ->assertOk()
-            ->assertDontSee('Tambah Rak')
-            ->assertDontSee('Hapus')
-            ->getContent();
-
-        $this->assertStringNotContainsString('Nonaktifkan', $html);
+            ->assertForbidden();
     }
 
     #[Test]

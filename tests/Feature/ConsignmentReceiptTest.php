@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Enums\ConsignmentStatus;
 use App\Enums\NotificationStatus;
+use App\Http\Middleware\OwnerOnly;
 use App\Models\AuditLog;
 use App\Models\Consignment;
 use App\Models\Consignor;
@@ -51,7 +52,7 @@ class ConsignmentReceiptTest extends TestCase
     {
         parent::setUp();
 
-        $this->staff = User::factory()->staff()->create();
+        $this->staff = User::factory()->owner()->create();
         $this->actingAs($this->staff);
     }
 
@@ -337,6 +338,12 @@ class ConsignmentReceiptTest extends TestCase
     #[Test]
     public function staff_can_open_the_document_page_and_send_the_receipt(): void
     {
+        // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
+        $this->withoutMiddleware(OwnerOnly::class);
+
+        $staff = User::factory()->staff()->create();
+        $this->actingAs($staff);
+
         $this->swapTransport(FakeTransport::alwaysSucceeds());
         $consignment = $this->commitConsignment($this->consignor());
 

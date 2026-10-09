@@ -34,6 +34,9 @@ final readonly class ProductSearchResult
         public string $series,
         public string $castingCode,
         public string $barcode,
+        public ?string $color = null,
+        public ?int $defaultListPrice = null,
+        public ?int $year = null,
     ) {}
 
     /**
@@ -47,6 +50,9 @@ final readonly class ProductSearchResult
             'series' => $this->series,
             'casting_code' => $this->castingCode,
             'barcode' => $this->barcode,
+            'color' => $this->color ?? '',
+            'default_list_price' => $this->defaultListPrice ?? 0,
+            'year' => $this->year,
         ];
     }
 
@@ -59,6 +65,9 @@ final readonly class ProductSearchResult
             series: $product->series?->name ?? '',
             castingCode: (string) ($product->casting_code ?? ''),
             barcode: (string) ($product->factory_barcode_ref ?? ''),
+            color: $product->color,
+            defaultListPrice: $product->default_list_price,
+            year: $product->year,
         );
     }
 }

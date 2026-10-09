@@ -164,54 +164,92 @@ final class OpnameService
             ]);
         }
 
-        return DB::transaction(function () use ($opname, $line, $qty, $actor): OpnameLine {
+        return DB::transaction(fn () => $this->applyCount($opname, $line, $qty, $actor), self::TX_ATTEMPTS);
+    }
+
+    /**
+     * Tambah satu ke hitungan fisik, dipanggil oleh pindai SKU.
+     *
+     * Penambahan dihitung server (`counted_qty + 1`) di atas baris yang
+     * terkunci, bukan di peramban, supaya dua pindai cepat untuk SKU yang sama
+     * berujung dua angka -- permintaan beruntun diantre oleh database, dan
+     * kenaikannya tidak pernah ditimpa angka yang kedaluwarsa.
+     *
+     * @throws ValidationException
+     */
+    public function increment(Opname $opname, OpnameLine $line, ?User $actor = null): OpnameLine
+    {
+        return DB::transaction(function () use ($opname, $line, $actor): OpnameLine {
             $fresh = OpnameLine::query()->lockForUpdate()->findOrFail($line->getKey());
 
-            // Dibaca ulang, diperiksa ulang: di antara permintaan ini dan baris
-            // di atas, sesi bisa saja sudah diajukan oleh orang lain.
-            $session = Opname::query()->lockForUpdate()->findOrFail($opname->getKey());
+            $next = ((int) $fresh->counted_qty) + 1;
 
-            $this->guardCountable($session, $fresh);
-
-            $lot = StockLot::query()->lockForUpdate()->findOrFail($fresh->lot_id);
-
-            $expected = $this->expectedQty($session, $fresh);
-
-            // Ledger dan stok wajib sepakat. Bila tidak, angka yang akan
-            // dibandingkan dengan hitungan fisik bukan angka yang dipakai POS
-            // saat menjual, dan menghitung di atasnya hanya menumpuk selisih
-            // yang salah sasangan.
-            if ($expected !== $lot->qty_on_hand) {
+            if ($next > self::MAX_COUNTED_QTY) {
                 throw ValidationException::withMessages([
-                    'counted_qty' => sprintf(
-                        'Pergerakan stok lot %s tidak tercatat lengkap (ekspektasi %d, stok sistem %d). Hubungi Owner sebelum menghitung baris ini.',
-                        $lot->sku,
-                        $expected,
-                        $lot->qty_on_hand,
-                    ),
+                    'counted_qty' => 'Jumlah terhitung melebihi batas ('.self::MAX_COUNTED_QTY.'). Periksa kembali.',
                 ]);
             }
 
-            $diff = $qty - $expected;
-
-            $fresh->update([
-                'counted_qty' => $qty,
-                'diff_qty' => $diff,
-                'counted_at' => now(),
-                // Tanda air per lot: gerakan dengan id lebih besar dari ini
-                // berarti stok berubah setelah angka ini dimasukkan.
-                'counted_movement_id' => $this->lastMovementId($lot),
-                'counted_by' => $actor?->id,
-                'status' => $diff === 0 ? OpnameLineStatus::Ok : OpnameLineStatus::Counted,
-                // Menghitung ulang menghapus keputusan lama: alasan dan
-                // persetujuan yang melekat pada angka sebelumnya tidak lagi
-                // menjelaskan angka yang sekarang.
-                'reason' => null,
-                'approved_by' => null,
-            ]);
-
-            return $fresh->refresh();
+            return $this->applyCount($opname, $fresh, $next, $actor);
         }, self::TX_ATTEMPTS);
+    }
+
+    /**
+     * Terapkan satu angka ke satu baris, sekali jalan.
+     *
+     * Baris dan sesi dikunci di sini (dan dibaca ulang, karena di antara
+     * permintaan ini dan baris di atas sesi bisa saja sudah diajukan oleh orang
+     * lain), lalu ledger dicocokkan dengan stok sebelum angka yang dibandingkan
+     * dengan hitungan fisik ditulis beserta tanda airnya.
+     *
+     * @throws ValidationException
+     */
+    private function applyCount(Opname $opname, OpnameLine $line, int $qty, ?User $actor): OpnameLine
+    {
+        $fresh = OpnameLine::query()->lockForUpdate()->findOrFail($line->getKey());
+
+        $session = Opname::query()->lockForUpdate()->findOrFail($opname->getKey());
+
+        $this->guardCountable($session, $fresh);
+
+        $lot = StockLot::query()->lockForUpdate()->findOrFail($fresh->lot_id);
+
+        $expected = $this->expectedQty($session, $fresh);
+
+        // Ledger dan stok wajib sepakat. Bila tidak, angka yang akan
+        // dibandingkan dengan hitungan fisik bukan angka yang dipakai POS
+        // saat menjual, dan menghitung di atasnya hanya menumpuk selisih
+        // yang salah sasangan.
+        if ($expected !== $lot->qty_on_hand) {
+            throw ValidationException::withMessages([
+                'counted_qty' => sprintf(
+                    'Pergerakan stok lot %s tidak tercatat lengkap (ekspektasi %d, stok sistem %d). Hubungi Owner sebelum menghitung baris ini.',
+                    $lot->sku,
+                    $expected,
+                    $lot->qty_on_hand,
+                ),
+            ]);
+        }
+
+        $diff = $qty - $expected;
+
+        $fresh->update([
+            'counted_qty' => $qty,
+            'diff_qty' => $diff,
+            'counted_at' => now(),
+            // Tanda air per lot: gerakan dengan id lebih besar dari ini
+            // berarti stok berubah setelah angka ini dimasukkan.
+            'counted_movement_id' => $this->lastMovementId($lot),
+            'counted_by' => $actor?->id,
+            'status' => $diff === 0 ? OpnameLineStatus::Ok : OpnameLineStatus::Counted,
+            // Menghitung ulang menghapus keputusan lama: alasan dan
+            // persetujuan yang melekat pada angka sebelumnya tidak lagi
+            // menjelaskan angka yang sekarang.
+            'reason' => null,
+            'approved_by' => null,
+        ]);
+
+        return $fresh->refresh();
     }
 
     /**

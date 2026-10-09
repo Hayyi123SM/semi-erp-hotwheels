@@ -12,7 +12,12 @@
 </x-ui.page-header>
 
 <div class="space-y-6">
-    <div class="grid gap-6 lg:grid-cols-2">
+    {{--
+        Satu kolom, bukan dua: kartu label dan kartu struk sama-sama penuh
+        lebar. Pratinjau struk butuh lebar kertas A4 (190 mm) yang tidak muat
+        kalau ia hanya menempati separuh halaman.
+    --}}
+    <div class="grid gap-6">
         <x-ui.section-card title="Printer Label (WMS-01)">
             <div class="space-y-5">
                 <div class="flex items-center justify-between">
@@ -735,8 +740,8 @@
                 {{--
                     Kertas dokumen GLOBAL (`print.paper`), bukan milik satu
                     halaman: kertas ini menentukan isi halaman bukti terima
-                    titipan DAN struk kasir POS, jadi pratinjau di kolom
-                    sebelah adalah struk kasir -- dokumen yang paling sering
+                    titipan DAN struk kasir POS, jadi pratinjau di bawah
+                    adalah struk kasir -- dokumen yang paling sering
                     dicetak dengan kertas ini.
 
                     Nilai yang dipilih operator tetap hanya bawaan: saat membuka
@@ -748,10 +753,10 @@
                     Batasannya Owner, sama seperti ukuran label: kertas ini
                     menentukan isi cetakan yang dibaca penitip.
                 --}}
-                <div class="grid gap-5 border-t border-border-subtle pt-5 lg:grid-cols-2 lg:gap-6">
+                <div class="space-y-6 border-t border-border-subtle pt-5">
                 @can('owner-only')
                     <form method="POST" action="{{ route('setting.perangkat.struk.update') }}"
-                          class="space-y-3">
+                          class="max-w-2xl space-y-3">
                         @csrf
                         @method('PUT')
 
@@ -828,7 +833,7 @@
                         </p>
                     </form>
                 @else
-                    <div class="space-y-3">
+                    <div class="max-w-2xl space-y-3">
                         <div>
                             <dt class="text-label-md text-text-muted">Ukuran kertas dokumen</dt>
                             <dd class="text-body-md font-medium text-text-strong">
@@ -855,7 +860,7 @@
                     {{--
                         Pratinjau struk kasir: ketiga ukuran kertas sudah dirender
                         sekali oleh server dari nota contoh, lalu ditukar oleh
-                        state `paper` yang sama dengan select di kolom sebelah.
+                        state `paper` yang sama dengan select di atas.
                         Owner bisa mengubah kertas dan langsung melihat efeknya
                         tanpa menyimpan; Staff tidak punya hak ubah, tapi tetap
                         bisa membaca kertas seperti apa struk yang berlaku.
@@ -886,7 +891,7 @@
                             Pratinjau belum disimpan — yang sedang berlaku tetap kertas yang tersimpan.
                         </p>
 
-                        <div class="max-h-[28rem] overflow-auto rounded-lg border border-border-strong bg-surface-lowest p-4">
+                        <div class="max-h-[70vh] overflow-auto rounded-lg border border-border-strong bg-surface-lowest p-4 sm:p-6">
                             @foreach ($strukPreviews as $paperValue => $previewSheet)
                                 {{--
                                     Pembungkus selebar kertas aslinya: A4 tampil

@@ -1,0 +1,23 @@
+{
+  "Username": "Nama Pengguna",
+  "Password": "Kata Sandi",
+  "Remember me": "Ingat saya",
+  "Forgot your password?": "Lupa kata sandi?",
+  "Log in": "Masuk",
+  "Login": "Masuk",
+  "Register": "Daftar",
+  "Name": "Nama",
+  "Email": "Alamat Email",
+  "Email (optional)": "Alamat Email (opsional)",
+  "Confirm Password": "Konfirmasi Kata Sandi",
+  "Already registered?": "Sudah terdaftar?",
+  "Confirm": "Konfirmasi",
+  "Forgot your password? No problem. Just let us know your email address and we will email you a password reset link that will allow you to choose a new one.": "Lupa kata sandi? Tidak masalah. Cukup beritahu alamat email Anda dan kami akan mengirimkan tautan pengaturan ulang kata sandi melalui email.",
+  "Email Password Reset Link": "Kirim Tautan Pengaturan Ulang Kata Sandi",
+  "Reset Password": "Atur Ulang Kata Sandi",
+  "This is a secure area of the application. Please confirm your password before continuing.": "Ini adalah area aman aplikasi. Silakan konfirmasi kata sandi Anda sebelum melanjutkan.",
+  "Thanks for signing up! Before getting started, could you verify your email address by clicking on the link we just emailed to you? If you didn't receive the email, we will gladly send you another.": "Terima kasih telah mendaftar! Sebelum memulai, silakan verifikasi alamat email Anda dengan mengklik tautan yang baru saja kami kirimkan. Jika Anda tidak menerima email tersebut, kami akan mengirimkan kembali dengan senang hati.",
+  "A new verification link has been sent to the email address you provided during registration.": "Tautan verifikasi baru telah dikirim ke alamat email yang Anda berikan saat pendaftaran.",
+  "Resend Verification Email": "Kirim Ulang Email Verifikasi",
+  "Log Out": "Keluar"
+}

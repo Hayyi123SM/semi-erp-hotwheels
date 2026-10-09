@@ -41,17 +41,16 @@ class LabelTestPrintTest extends TestCase
         ];
     }
 
+    /**
+     * Halaman uji cetak bukan rute POS, jadi STAFF ditolak middleware owner.
+     */
     #[Test]
     #[DataProvider('templates')]
-    public function staff_can_open_the_test_print_page(string $template): void
+    public function staff_cannot_open_the_test_print_page(string $template): void
     {
         $this->actingAs(User::factory()->staff()->create())
             ->get(route('inbound.cetak-label.test-print', ['template' => $template]))
-            ->assertOk()
-            ->assertViewIs('pages.inbound.label-print')
-            ->assertViewHas('isTestPrint', true)
-            ->assertSee('Uji cetak', escape: false)
-            ->assertSee(LabelContent::sample()->sku, escape: false);
+            ->assertForbidden();
     }
 
     #[Test]
@@ -67,7 +66,7 @@ class LabelTestPrintTest extends TestCase
     #[Test]
     public function the_test_print_page_has_a_default_template(): void
     {
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print'))
             ->assertOk()
             ->assertViewHas('total', 1);
@@ -78,7 +77,7 @@ class LabelTestPrintTest extends TestCase
     {
         // Label barang selalu ber-QR, jadi uji cetak harus menunjukkan QR-nya
         // juga: tanpa itu ukuran QR tidak ikut terkalibrasi.
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print', ['template' => '3x2']))
             ->assertSee('label__qr', escape: false)
             ->assertSee('HW-2024-000123X', escape: false);
@@ -87,7 +86,7 @@ class LabelTestPrintTest extends TestCase
     #[Test]
     public function an_unknown_template_is_rejected(): void
     {
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print', ['template' => '10x10']))
             ->assertSessionHasErrors('template');
     }
@@ -95,7 +94,7 @@ class LabelTestPrintTest extends TestCase
     #[Test]
     public function zero_copies_are_rejected(): void
     {
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print', ['copies' => 0]))
             ->assertSessionHasErrors('copies');
     }
@@ -108,7 +107,7 @@ class LabelTestPrintTest extends TestCase
     #[Test]
     public function copies_multiply_the_test_labels(): void
     {
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print', ['template' => '3x2', 'copies' => 5]));
 
         $response->assertOk()->assertViewHas('total', 5);
@@ -128,7 +127,7 @@ class LabelTestPrintTest extends TestCase
 
         $before = $lot->only(['labels_printed', 'reprint_count', 'qty_on_hand']);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print'))
             ->assertOk();
 
@@ -149,7 +148,7 @@ class LabelTestPrintTest extends TestCase
     #[Test]
     public function the_tspl_endpoint_returns_commands_for_the_sample_label(): void
     {
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.test-print-tsp'), ['template' => '3x2', 'copies' => 2])
             ->assertOk()
             ->json();
@@ -184,7 +183,7 @@ class LabelTestPrintTest extends TestCase
 
         $before = $lot->only(['labels_printed', 'reprint_count', 'qty_on_hand']);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.test-print-tsp'))
             ->assertOk();
 
@@ -200,14 +199,14 @@ class LabelTestPrintTest extends TestCase
     #[Test]
     public function the_tspl_test_print_rejects_invalid_input(): void
     {
-        $staff = User::factory()->staff()->create();
+        $owner = User::factory()->owner()->create();
 
-        $this->actingAs($staff)
+        $this->actingAs($owner)
             ->postJson(route('inbound.cetak-label.test-print-tsp'), ['copies' => 0])
             ->assertStatus(422)
             ->assertJsonValidationErrors('copies');
 
-        $this->actingAs($staff)
+        $this->actingAs($owner)
             ->postJson(route('inbound.cetak-label.test-print-tsp'), ['template' => '10x10'])
             ->assertStatus(422)
             ->assertJsonValidationErrors('template');
@@ -228,7 +227,7 @@ class LabelTestPrintTest extends TestCase
     #[Test]
     public function the_test_print_page_offers_the_direct_thermal_path(): void
     {
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print', ['template' => '3x2', 'copies' => 2]))
             ->assertOk()
             ->assertSee('data-thermal-label', escape: false)

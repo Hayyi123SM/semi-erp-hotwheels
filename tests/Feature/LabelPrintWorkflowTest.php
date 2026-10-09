@@ -34,7 +34,7 @@ class LabelPrintWorkflowTest extends TestCase
     {
         parent::setUp();
 
-        $this->operator = User::factory()->staff()->create();
+        $this->operator = User::factory()->owner()->create();
     }
 
     private function lot(int $qty = 12): StockLot

@@ -4,6 +4,7 @@ import { createNotify, registerToast } from './notify';
 import './thermal';
 import * as format from './format';
 import { sidebarLayout } from './alpine/sidebar';
+import { registerNetwork } from './alpine/network';
 import { rowConfirm } from './alpine/row-confirm';
 import { dataTable } from './alpine/data-table';
 import { dataTableForm } from './alpine/data-table-form';
@@ -24,6 +25,7 @@ import { labelQueue } from './alpine/label-queue';
 import { reprintForm } from './alpine/reprint-form';
 import { shiftCloseForm } from './alpine/shift-close-form';
 import { importDropzone } from './alpine/import-dropzone';
+import { stokOpname } from './alpine/stok-opname';
 
 window.Alpine = Alpine;
 
@@ -45,6 +47,7 @@ document.addEventListener('alpine:init', () => {
     const toast = registerToast(Alpine, notify);
 
     registerScrollLock(Alpine);
+    registerNetwork(Alpine);
 
     // Read before Alpine renders, so a message that survived a redirect is in
     // the first paint rather than arriving a frame later.
@@ -62,6 +65,7 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('reprintForm', reprintForm);
     Alpine.data('shiftCloseForm', shiftCloseForm);
     Alpine.data('importDropzone', importDropzone);
+    Alpine.data('stokOpname', stokOpname);
     // The URL is passed in rather than read from the markup: the panel is lifted
     // into a dialog, so the route has to reach it as an argument.
     Alpine.data('productPicker', productPicker);

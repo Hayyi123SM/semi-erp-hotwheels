@@ -30,11 +30,11 @@ function fakeNotify() {
                 return false;
             }
 
-            // SweetAlert2 memanggil preConfirm dengan dirinya sebagai receiver,
-            // dan receiver itu yang tahu popup yang aktif.
-            state.preConfirmResult = await options.onConfirm.call({
-                getPopup: () => state.popup,
-            });
+            // SweetAlert2 memanggil preConfirm tanpa receiver, jadi produksi tidak
+            // bisa mengandalkan `this`. Popup yang dipakai dibaca dari `getPopup`
+            // yang di-inject di `pinDialog`; stub cukup memanggil `onConfirm`
+            // polos dan membiarkan klausa itu yang menunjuk popup aktif.
+            state.preConfirmResult = await options.onConfirm();
 
             return state.preConfirmResult;
         },
@@ -81,7 +81,12 @@ function mount({ answer = undefined, run = true } = {}) {
     notify.state.run = run;
 
     return {
-        dialog: pinDialog({ notify, Alpine, url: '/pin/verify' }),
+        dialog: pinDialog({
+            notify,
+            Alpine,
+            url: '/pin/verify',
+            getPopup: () => notify.state.popup,
+        }),
         notify,
         form,
         element,
@@ -384,6 +389,41 @@ describe('pinDialog.request', () => {
 
         // A PIN left in a field is a PIN left on screen for the next reader of
         // that terminal, and for the next dialog that opens on the same page.
+        expect(form.pin).toBe('');
+    });
+
+    it('reads the form off the popup the injected getPopup names', async () => {
+        vi.stubGlobal('fetch', respondWith(grant));
+        const notify = fakeNotify();
+        const Alpine = fakeAlpine();
+        const empty = document.createElement('div');
+        const popup = document.createElement('div');
+        const element = document.createElement('form');
+
+        element.setAttribute('data-pin-form', '');
+        popup.appendChild(element);
+        document.body.appendChild(empty);
+        document.body.appendChild(popup);
+
+        const form = Alpine.bind(element, pinDialogForm());
+
+        form.pin = '123456';
+        notify.state.popup = popup;
+        notify.state.run = true;
+
+        const dialog = pinDialog({
+            notify,
+            Alpine,
+            url: '/pin/verify',
+            getPopup: () => notify.state.popup,
+        });
+
+        expect(await dialog.request({ context: 'x' })).toEqual({
+            token: grant.token,
+            expiresAt: grant.expires_at,
+            owner: grant.owner,
+            context: grant.context,
+        });
         expect(form.pin).toBe('');
     });
 

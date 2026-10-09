@@ -27,7 +27,17 @@ class AuthenticationTest extends TestCase
         ]);
 
         $this->assertAuthenticated();
-        $response->assertRedirect(route('dashboard', absolute: false));
+        $response->assertRedirect(route('pos.kasir', absolute: false));
+    }
+
+    public function test_an_owner_authenticates_into_the_dashboard(): void
+    {
+        $user = User::factory()->owner()->create();
+
+        $this->post('/login', [
+            'username' => $user->username,
+            'password' => 'password',
+        ])->assertRedirect(route('dashboard', absolute: false));
     }
 
     public function test_users_cannot_authenticate_with_invalid_password(): void

@@ -67,6 +67,7 @@ class DemoSeeder extends Seeder
     {
         $settings = [
             'store.name' => '167 Diecast Shop',
+            'store.branch' => 'Cassiopeia Plaza',
             'store.address' => 'Jl. Mainan No. 1, Kota',
             'receipt.footer' => 'Terima kasih telah berbelanja!',
             'pos.label_templates' => ['3x2' => 'minimalis-solid', '4x3' => 'luas-info'],

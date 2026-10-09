@@ -14,6 +14,7 @@ use App\Models\Opname;
 use App\Models\OpnameLine;
 use App\Models\Rack;
 use App\Services\Inventory\OpnameService;
+use App\Support\Format;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 
@@ -113,6 +114,41 @@ class OpnameController extends Controller
             'message' => sprintf(
                 'Hitungan tersimpan: %d unit untuk %s.',
                 $request->countedQty(),
+                $line->lot?->sku ?? ('#'.$line->lot_id),
+            ),
+        ]);
+    }
+
+    /**
+     * Tambah satu ke hitungan fisik, dipanggil oleh pindai SKU di layar
+     * (FR-IC-20).
+     *
+     * Panggilan lewat fetch (JSON) memakai balasan ringkas: qty terbaru dan
+     * status baris, supaya peramban hanya mengganti dua sel yang berubah tanpa
+     * memuat ulang halaman. Balasan itu tetap tidak memuat ekspektasi ataupun
+     * selisih -- sesi masih menghitung, dan aturan blind count berlaku untuk
+     * setiap respons yang dikirim selama sesi menghitung, bukan hanya respons
+     * halaman penuh.
+     */
+    public function tambah(Opname $opname, OpnameLine $line, Request $request, OpnameService $service)
+    {
+        $line = $service->increment($opname, $line, $request->user());
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'line_id' => $line->getKey(),
+                'counted_qty' => $line->counted_qty,
+                'status' => $line->status->value,
+                'status_label' => $line->status->label(),
+                'status_type' => Format::statusType($line->status->value),
+            ]);
+        }
+
+        return back()->with('toast', [
+            'type' => 'success',
+            'message' => sprintf(
+                'Hitungan bertambah: %d unit untuk %s.',
+                $line->counted_qty,
                 $line->lot?->sku ?? ('#'.$line->lot_id),
             ),
         ]);

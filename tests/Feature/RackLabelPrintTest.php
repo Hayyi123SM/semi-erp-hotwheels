@@ -36,16 +36,17 @@ class RackLabelPrintTest extends TestCase
         ]);
     }
 
+    /**
+     * Cetak label rak kini khusus Owner; Staff hanya boleh memakai POS.
+     */
     #[Test]
-    public function staff_can_open_the_rack_label_form(): void
+    public function staff_cannot_open_the_rack_label_form(): void
     {
         Rack::factory()->create(['code' => 'A-01-03']);
 
         $this->actingAs(User::factory()->staff()->create())
             ->get(route('master.lokasi-rak.label-form'))
-            ->assertOk()
-            ->assertSee('Cetak Label Rak')
-            ->assertSee('RK:A-01-03', escape: false);
+            ->assertForbidden();
     }
 
     /**
@@ -57,7 +58,7 @@ class RackLabelPrintTest extends TestCase
         Rack::factory()->create(['code' => 'A-01-01']);
         Rack::factory()->inactive()->create(['code' => 'Z-99-99']);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('master.lokasi-rak.label-form'))
             ->assertSee('RK:A-01-01', escape: false)
             ->assertDontSee('RK:Z-99-99', escape: false);
@@ -69,23 +70,23 @@ class RackLabelPrintTest extends TestCase
     #[Test]
     public function the_rack_list_links_to_the_label_form(): void
     {
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('master.lokasi-rak'))
             ->assertOk()
             ->assertSee(route('master.lokasi-rak.label-form'), escape: false);
     }
 
+    /**
+     * Staff tidak boleh mencetak label rak sama sekali (kebijakan POS-only).
+     */
     #[Test]
-    public function staff_can_print_rack_labels(): void
+    public function staff_cannot_print_rack_labels(): void
     {
         $rack = Rack::factory()->create(['code' => 'A-01-03']);
 
         $this->actingAs(User::factory()->staff()->create())
             ->printLabels([$rack->id])
-            ->assertOk()
-            ->assertViewIs('pages.inbound.label-print')
-            ->assertViewHas('total', 1)
-            ->assertSee('RK:A-01-03', escape: false);
+            ->assertForbidden();
     }
 
     #[Test]
@@ -111,7 +112,7 @@ class RackLabelPrintTest extends TestCase
     {
         $rack = Rack::factory()->create(['code' => 'A-01-03']);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id], template: '4x3')
             ->assertSee('label__qr', escape: false)
             ->assertSee('RK:A-01-03', escape: false);
@@ -126,7 +127,7 @@ class RackLabelPrintTest extends TestCase
     {
         $rack = Rack::factory()->create(['code' => 'A-01-03']);
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id], template: '3x2');
 
         $response->assertSee('RK:A-01-03', escape: false);
@@ -146,7 +147,7 @@ class RackLabelPrintTest extends TestCase
             ['code' => 'A-01-03'],
         ]);
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->printLabels($racks->pluck('id')->all());
 
         $response->assertViewHas('total', 3);
@@ -168,7 +169,7 @@ class RackLabelPrintTest extends TestCase
         // Dipilih terbalik dari urutan id, persis seperti operator yang mulai
         // dari rak paling dekat. Kalau urutan cetak ikut ikutan id, label keluar
         // dari sheet dengan urutan yang tidak diminta.
-        $html = (string) $this->actingAs(User::factory()->staff()->create())
+        $html = (string) $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$second->id, $first->id])
             ->getContent();
 
@@ -183,7 +184,7 @@ class RackLabelPrintTest extends TestCase
     {
         $rack = Rack::factory()->create(['code' => 'A-01-03']);
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id], copies: 4);
 
         $response->assertViewHas('total', 4);
@@ -208,7 +209,7 @@ class RackLabelPrintTest extends TestCase
             'code' => str_repeat('X', $capacity + 1),
         ]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id], template: '3x2')
             ->assertSessionHasErrors('rack_ids');
 
@@ -238,7 +239,7 @@ class RackLabelPrintTest extends TestCase
         // kalau yang dihitung kode rak tanpa prefiks.
         $rack = Rack::factory()->create(['code' => str_repeat('A', $capacity)]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id], template: '3x2')
             ->assertSessionHasErrors('rack_ids');
     }
@@ -258,7 +259,7 @@ class RackLabelPrintTest extends TestCase
             'code' => str_repeat('A', $capacity - strlen(RackCode::PREFIX)),
         ]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id], template: '3x2')
             ->assertOk()
             ->assertSessionHasNoErrors();
@@ -269,7 +270,7 @@ class RackLabelPrintTest extends TestCase
     #[Test]
     public function at_least_one_rack_must_be_picked(): void
     {
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->printLabels([])
             ->assertSessionHasErrors('rack_ids');
     }
@@ -277,7 +278,7 @@ class RackLabelPrintTest extends TestCase
     #[Test]
     public function an_unknown_rack_is_rejected(): void
     {
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->printLabels([999_999])
             ->assertSessionHasErrors('rack_ids.0');
     }
@@ -287,7 +288,7 @@ class RackLabelPrintTest extends TestCase
     {
         $rack = Rack::factory()->create();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id], template: '10x10')
             ->assertSessionHasErrors('template');
     }
@@ -297,7 +298,7 @@ class RackLabelPrintTest extends TestCase
     {
         $rack = Rack::factory()->create();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id], copies: 0)
             ->assertSessionHasErrors('copies');
     }
@@ -312,12 +313,12 @@ class RackLabelPrintTest extends TestCase
     {
         $rack = Rack::factory()->create(['code' => 'A-01-03']);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('master.lokasi-rak.label-form'))
             ->assertOk()
             ->assertSee('value="1.5x1.5"', escape: false);
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id], template: '1.5x1.5');
 
         $response->assertSee('label--qr-only', escape: false)
@@ -333,7 +334,7 @@ class RackLabelPrintTest extends TestCase
 
         $before = $lot->only(['qty_on_hand', 'labels_printed', 'rack_id']);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->printLabels([$rack->id])
             ->assertOk();
 

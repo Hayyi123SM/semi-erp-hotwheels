@@ -71,7 +71,7 @@ class LabelStickerSheetTest extends TestCase
     {
         $job = $this->job($copies);
 
-        return $this->actingAs(User::factory()->staff()->create())
+        return $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertOk()
             ->getContent();
@@ -370,7 +370,7 @@ class LabelStickerSheetTest extends TestCase
 
         $rack = Rack::factory()->create(['code' => 'A-01-03']);
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->post(route('master.lokasi-rak.print-labels'), [
                 'rack_ids' => [$rack->id],
                 'template' => '1.5x1.5',
@@ -396,7 +396,7 @@ class LabelStickerSheetTest extends TestCase
 
         $rack = Rack::factory()->create(['code' => 'A-01-04']);
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->post(route('master.lokasi-rak.print-labels'), [
                 'rack_ids' => [$rack->id],
                 'template' => '4x3',
@@ -420,7 +420,7 @@ class LabelStickerSheetTest extends TestCase
     {
         $this->useStickerSheet();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$this->job(601)->id]])
             ->assertStatus(500);
     }
@@ -653,7 +653,7 @@ class LabelStickerSheetTest extends TestCase
     {
         $this->useStickerSheet();
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print', ['template' => '1.5x1.5']))
             ->assertOk()
             ->getContent();

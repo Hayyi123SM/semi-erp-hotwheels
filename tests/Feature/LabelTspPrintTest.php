@@ -71,7 +71,7 @@ class LabelTspPrintTest extends TestCase
     {
         $job = $this->job(copies: 2);
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.tsp'), ['ids' => [$job->id]])
             ->assertOk()
             ->json();
@@ -90,7 +90,7 @@ class LabelTspPrintTest extends TestCase
         $first = $this->job($this->lot(sku: 'CN01-HW-001-U01'), copies: 1);
         $second = $this->job($this->lot(sku: 'CN01-HW-002-U02'), copies: 1);
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.tsp'), ['ids' => [$second->id, $first->id]])
             ->assertOk()
             ->json();
@@ -107,7 +107,7 @@ class LabelTspPrintTest extends TestCase
     {
         $job = $this->job();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.tsp'), ['ids' => [$job->id]])
             ->assertOk();
 
@@ -121,7 +121,7 @@ class LabelTspPrintTest extends TestCase
         $lot = $this->lot(price: 50_000);
         $job = $this->job($lot);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.tsp'), ['ids' => [$job->id]])
             ->assertOk();
 
@@ -137,7 +137,7 @@ class LabelTspPrintTest extends TestCase
     {
         $job = $this->job($this->lot(price: 87_000), showPrice: false);
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.tsp'), ['ids' => [$job->id]])
             ->assertOk()
             ->json();
@@ -157,7 +157,7 @@ class LabelTspPrintTest extends TestCase
 
         $job = $this->job();
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.tsp'), ['ids' => [$job->id]])
             ->assertOk()
             ->json();
@@ -178,7 +178,7 @@ class LabelTspPrintTest extends TestCase
 
         $job = $this->job(copies: 2);
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.tsp'), ['ids' => [$job->id]])
             ->assertOk()
             ->json();
@@ -197,7 +197,7 @@ class LabelTspPrintTest extends TestCase
     {
         // RenderLabelsRequest menolak id yang tidak ada sebelum endpoint
         // dipanggil -- jalur html menerima perlindungan yang sama.
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.tsp'), ['ids' => [9_999_999]])
             ->assertStatus(422);
     }
@@ -215,7 +215,7 @@ class LabelTspPrintTest extends TestCase
             ]),
         );
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->postJson(route('inbound.cetak-label.tsp'), ['ids' => $jobs->pluck('id')->all()])
             ->assertStatus(422);
     }

@@ -321,32 +321,14 @@ class PrinterSettingsTest extends TestCase
     }
 
     /**
-     * Staff tetap boleh melihat ukuran yang aktif: dia perlu tahu kertas apa
-     * yang diroll, cuma tidak boleh mengubahnya.
+     * Staff tidak boleh membuka halaman pengaturan perangkat.
      */
     #[Test]
-    public function staff_can_read_the_current_size_but_get_no_save_form(): void
+    public function staff_cannot_read_the_printer_settings(): void
     {
-        $this->actingAs(User::factory()->owner()->create())
-            ->save(['default_template' => '4x3', 'qr_side_cm' => null])
-            ->assertSessionHasNoErrors();
-
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->staff()->create())
             ->get(route('setting.perangkat'))
-            ->assertOk()
-            ->getContent();
-
-        $this->assertStringContainsString('4 x 3 cm', $html, 'Staff harus melihat ukuran yang aktif.');
-        $this->assertStringNotContainsString(
-            'Simpan Pengaturan Label',
-            $html,
-            'Staff tidak boleh diberi form yang pasti ditolak.',
-        );
-        $this->assertStringNotContainsString(
-            'name="default_template"',
-            $html,
-            'Field yang tidak bisa disimpan jangan ikut dikirim ke layar Staff.',
-        );
+            ->assertForbidden();
     }
 
     /**
@@ -438,26 +420,25 @@ class PrinterSettingsTest extends TestCase
         $this->assertStringContainsString('previewErrorList()', $html);
     }
 
+    /**
+     * Staff tidak boleh membuka halaman pengaturan perangkat.
+     */
     #[Test]
-    public function staff_sees_the_qr_only_warning_for_the_active_setting(): void
+    public function staff_cannot_see_the_qr_only_warning(): void
     {
-        $this->actingAs(User::factory()->owner()->create())
-            ->save(['default_template' => '1.5x1.5'])
-            ->assertSessionHasNoErrors();
-
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->staff()->create())
             ->get(route('setting.perangkat'))
-            ->assertOk()
-            ->getContent();
-
-        // Staff tidak punya form, jadi tidak mungkin salah memilih -- tapi tetap
-        // perlu tahu label aktifnya cuma QR sebelum dia menyuruh orang scan.
-        $this->assertQrOnlyWarning($html, 'Staff harus tahu ukuran aktifnya hanya QR, SKU, dan harga.');
+            ->assertForbidden();
     }
 
     #[Test]
     public function no_qr_only_warning_is_shown_for_a_label_that_carries_text(): void
     {
+        // Tampilan form Owner selalu memuat banner peringatan di sumbernya
+        // (hanya disembunyikan Alpine), jadi halaman harus dibaca lewat
+        // tampilan Staff yang bebas middleware OwnerOnly.
+        $this->withoutMiddleware(\App\Http\Middleware\OwnerOnly::class);
+
         $this->actingAs(User::factory()->owner()->create())
             ->save(['default_template' => '3x2'])
             ->assertSessionHasNoErrors();
@@ -573,7 +554,7 @@ class PrinterSettingsTest extends TestCase
             ->save(['default_template' => '1.5x1.5', 'qr_side_cm' => null])
             ->assertSessionHasNoErrors();
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print'))
             ->assertOk()
             ->getContent();
@@ -597,7 +578,7 @@ class PrinterSettingsTest extends TestCase
             ->save(['default_template' => '4x3', 'qr_side_cm' => '1.45'])
             ->assertSessionHasNoErrors();
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print', ['template' => '4x3']))
             ->assertOk()
             ->getContent();
@@ -687,7 +668,7 @@ class PrinterSettingsTest extends TestCase
 
         $rack = Rack::factory()->create(['code' => 'A-01-03']);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('master.lokasi-rak.print-labels'), [
                 'rack_ids' => [$rack->id],
                 'template' => '3x2',
@@ -725,7 +706,7 @@ class PrinterSettingsTest extends TestCase
             ->save(['default_template' => '1.5x1.5', 'qr_side_cm' => null])
             ->assertSessionHasNoErrors();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print'))
             ->assertOk()
             ->assertSee('label--qr-only', escape: false);
@@ -751,7 +732,7 @@ class PrinterSettingsTest extends TestCase
         $this->assertSame(LabelPaperMode::Sheet, $printer->paperMode());
         $this->assertSame(StickerSheet::BpTd110BtA6, $printer->stickerSheet());
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print'))
             ->assertOk()
             ->assertSee('size: 100mm 150mm', escape: false);
@@ -787,7 +768,7 @@ class PrinterSettingsTest extends TestCase
         $this->assertSame(18, $grid->labelsPerSheet());
 
         // Dan angka itu yang benar-benar dipakai printer.
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.cetak-label.test-print'))
             ->assertOk()
             ->assertSee('size: 100mm 150mm', escape: false);
@@ -939,56 +920,25 @@ class PrinterSettingsTest extends TestCase
     }
 
     /**
-     * Staff boleh membaca mode dan ukuran kertas yang aktif, tapi tidak boleh
-     * mengubahnya.
-     *
-     * Yang tampil adalah ukuran kertas dan celah yang benar-benar berlaku,
-     * termasuk yang Owner ketik sendiri. Installasi lama yang masih menyimpan
-     * blueprint harus tetap terbaca: angkanya diturunkan dari preset itu, jadi
-     * Staff tidak melihat "Stiker 100 x 150 mm" yang hilang begitu saja saat
-     * form Owner mengubah cara memorinya.
+     * Staff tidak boleh membuka halaman pengaturan perangkat.
      */
     #[Test]
-    public function staff_can_read_the_active_paper_mode_but_get_no_save_form(): void
+    public function staff_cannot_read_the_active_paper_mode(): void
     {
-        Setting::set(LabelPrinterSettings::PAPER_MODE_KEY, LabelPaperMode::Sheet->value);
-        Setting::set(LabelPrinterSettings::STICKER_SHEET_KEY, StickerSheet::BpTd110BtA6->value);
-
         $this->actingAs(User::factory()->staff()->create())
             ->get(route('setting.perangkat'))
-            ->assertOk()
-            ->assertSee('100 x 150 mm, celah 2 mm')
-            ->assertDontSee('name="paper_mode"', escape: false);
+            ->assertForbidden();
     }
 
     /**
-     * Ukuran yang Owner ketik sendiri, bukan yang diturunkan dari preset, yang
-     * tampil ke Staff.
-     *
-     * Ini bentuk yang akan dibaca setiap orang yang memecah kertas stiker, jadi
-     * angkanya harus berasal dari sumber yang sama dengan halaman cetak. Kalau
-     * preset lama ikut diprioritaskan di sini, Staff akan memecah kertas
-     * berdasarkan ukuran yang sudah tidak berlaku.
+     * Staff tidak boleh membuka halaman pengaturan perangkat.
      */
     #[Test]
-    public function staff_sees_the_paper_size_the_owner_typed(): void
+    public function staff_cannot_see_the_paper_size_the_owner_typed(): void
     {
-        $this->actingAs(User::factory()->owner()->create())
-            ->save([
-                'default_template' => '1.5x1.5',
-                'paper_mode' => LabelPaperMode::Sheet->value,
-                'sheet_media_width_mm' => '120',
-                'sheet_media_height_mm' => '180',
-                'sheet_has_gap' => '0',
-                'sheet_gap_mm' => '2',
-                'max_print_width_mm' => '216',
-            ])
-            ->assertSessionHasNoErrors();
-
         $this->actingAs(User::factory()->staff()->create())
             ->get(route('setting.perangkat'))
-            ->assertOk()
-            ->assertSee('120 x 180 mm, tanpa celah');
+            ->assertForbidden();
     }
 
     /**
@@ -1009,7 +959,7 @@ class PrinterSettingsTest extends TestCase
             ])
             ->assertSessionHasNoErrors();
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->get(route('setting.perangkat'))
             ->assertOk()
             ->getContent();

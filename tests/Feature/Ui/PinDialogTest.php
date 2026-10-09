@@ -28,7 +28,7 @@ class PinDialogTest extends TestCase
         // `array_keys` akan memberi label dataset ("master penitip"), bukan
         // address-nya; yang mau/request itu kolom pertama tiap baris.
         foreach (array_column(self::pages(), 0) as $route) {
-            $html = $this->actingAs($this->staff())->get($route)->assertOk()->content();
+            $html = $this->actingAs($this->owner())->get($route)->assertOk()->content();
 
             $this->assertSame(
                 1,
@@ -41,7 +41,7 @@ class PinDialogTest extends TestCase
     #[Test]
     public function the_dialog_is_a_template_and_not_rendered_markup(): void
     {
-        $html = $this->actingAs($this->staff())->get('/inbound/consignment-in')->content();
+        $html = $this->actingAs($this->owner())->get('/inbound/consignment-in')->content();
 
         $start = strpos($html, '<template id="pin-dialog">');
 
@@ -74,7 +74,7 @@ class PinDialogTest extends TestCase
     #[Test]
     public function the_dialog_body_is_reachable_from_the_helper_by_data_attribute(): void
     {
-        $html = $this->actingAs($this->staff())->get('/inbound/consignment-in')->content();
+        $html = $this->actingAs($this->owner())->get('/inbound/consignment-in')->content();
 
         // `Alpine.$data` is handed the element carrying this attribute, and the
         // attribute is the only thing that ties the scope in the template to the
@@ -86,7 +86,7 @@ class PinDialogTest extends TestCase
     #[Test]
     public function the_dialog_carries_a_csrf_token_source(): void
     {
-        $html = $this->actingAs($this->staff())->get('/inbound/consignment-in')->content();
+        $html = $this->actingAs($this->owner())->get('/inbound/consignment-in')->content();
 
         // The helper reads the meta tag to send the PIN. Without it the endpoint
         // answers 419 and the cashier is told the PIN was wrong.
@@ -125,7 +125,7 @@ class PinDialogTest extends TestCase
     #[Test]
     public function the_overlay_ships_no_token_before_it_is_asked_for(): void
     {
-        $html = $this->actingAs($this->staff())->get('/inventory/stok-opname')->assertOk()->content();
+        $html = $this->actingAs($this->owner())->get('/inventory/stok-opname')->assertOk()->content();
 
         // A page that arrived with an authorised token would mean authorisation
         // was decided by the server render rather than by the Owner at the moment
@@ -162,7 +162,7 @@ class PinDialogTest extends TestCase
             'master penitip' => ['/master/penitip'],
             'inbound consignment' => ['/inbound/consignment-in'],
             'inbound stock sendiri' => ['/inbound/stock-in-pribadi'],
-            'stok opname (pakai overlay)' => ['/inventory/stok-opname'],
+            'stok opname' => ['/inventory/stok-opname'],
             'retur rtv (pakai overlay)' => ['/inventory/retur-rtv'],
             'audit log' => ['/reports/audit-log'],
         ];
@@ -172,15 +172,15 @@ class PinDialogTest extends TestCase
     #[Test]
     public function the_pin_endpoint_is_not_rendered_into_the_page(string $route): void
     {
-        $html = $this->actingAs($this->staff())->get($route)->assertOk()->content();
+        $html = $this->actingAs($this->owner())->get($route)->assertOk()->content();
 
         // The endpoint address belongs to the helper, not to the markup. A page
         // carrying its own copy is a page that can be pointed somewhere else.
         $this->assertStringNotContainsString('post(\'/pin/verify\'', $html);
     }
 
-    private function staff(): User
+    private function owner(): User
     {
-        return User::factory()->staff()->create();
+        return User::factory()->owner()->create();
     }
 }

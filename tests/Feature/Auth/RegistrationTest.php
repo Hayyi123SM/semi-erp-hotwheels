@@ -26,7 +26,7 @@ class RegistrationTest extends TestCase
         ]);
 
         $this->assertAuthenticated();
-        $response->assertRedirect(route('dashboard', absolute: false));
+        $response->assertRedirect(route('pos.kasir', absolute: false));
 
         $this->assertDatabaseHas('users', [
             'username' => 'testuser',

@@ -48,7 +48,7 @@ class LabelRenderTest extends TestCase
     {
         $job = $this->job(copies: 3);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertOk()
             ->assertSee('CN01-HW-001-U03')
@@ -61,7 +61,7 @@ class LabelRenderTest extends TestCase
     {
         $job = $this->job();
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertOk()
             ->getContent();
@@ -92,7 +92,7 @@ class LabelRenderTest extends TestCase
     {
         $job = $this->job();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertOk();
 
@@ -107,7 +107,7 @@ class LabelRenderTest extends TestCase
 
         $this->assertNull($job->payload);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertOk();
 
@@ -130,7 +130,7 @@ class LabelRenderTest extends TestCase
     {
         $job = $this->job($this->lot(price: 50_000));
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertOk();
 
@@ -138,7 +138,7 @@ class LabelRenderTest extends TestCase
         $job->lot->update(['list_price' => 90_000]);
         $firstSnapshot = $job->refresh()->payload;
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertOk()
             ->assertSee('Rp50.000')
@@ -152,7 +152,7 @@ class LabelRenderTest extends TestCase
     {
         $job = $this->job();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertOk();
 
@@ -173,7 +173,7 @@ class LabelRenderTest extends TestCase
         $second = $this->job($this->lot(price: 20_000, sku: 'CN01-HW-001-U02'), copies: 1);
         $third = $this->job($this->lot(price: 30_000, sku: 'CN01-HW-001-U03'), copies: 1);
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$third->id, $first->id, $second->id]])
             ->assertOk()
             ->getContent();
@@ -194,7 +194,7 @@ class LabelRenderTest extends TestCase
     #[Test]
     public function a_job_id_that_does_not_exist_is_refused(): void
     {
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [999999]])
             ->assertSessionHasErrors('ids.0');
     }
@@ -202,7 +202,7 @@ class LabelRenderTest extends TestCase
     #[Test]
     public function selecting_nothing_is_refused(): void
     {
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => []])
             ->assertSessionHasErrors('ids');
     }
@@ -238,7 +238,7 @@ class LabelRenderTest extends TestCase
         $stale = $this->job();
         $stale->update(['template' => LabelTemplate::QrOnly->value]);
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$stale->id]])
             ->assertOk()
             ->getContent();
@@ -272,7 +272,7 @@ class LabelRenderTest extends TestCase
         $job = $this->job();
         $job->update(['template' => '10x20']);
 
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertOk()
             ->getContent();
@@ -290,7 +290,7 @@ class LabelRenderTest extends TestCase
     {
         $job = $this->job(copies: LabelPage::MAX_LABELS_PER_PAGE + 1);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.cetak-label.render'), ['ids' => [$job->id]])
             ->assertStatus(500);
     }

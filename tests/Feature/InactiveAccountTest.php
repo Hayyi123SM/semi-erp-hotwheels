@@ -111,13 +111,13 @@ class InactiveAccountTest extends TestCase
         $user = User::factory()->staff()->create();
 
         // Masuk seperti biasa, jadi sesinya sah dan akunnya masih bisa dipakai.
-        $this->actingAs($user)->get(route('dashboard'))->assertOk();
+        $this->actingAs($user)->get(route('pos.kasir'))->assertOk();
 
         // Owner menonaktifkan akun itu selagi sesinya masih terbuka.
         $user->forceFill(['is_active' => false])->save();
 
         $this->actingAs($user)
-            ->get(route('dashboard'))
+            ->get(route('pos.kasir'))
             ->assertRedirect(route('login'));
 
         $this->assertGuest();
@@ -132,11 +132,11 @@ class InactiveAccountTest extends TestCase
         $user = User::factory()->staff()->create();
         $before = session()->getId();
 
-        $this->actingAs($user)->get(route('dashboard'))->assertOk();
+        $this->actingAs($user)->get(route('pos.kasir'))->assertOk();
 
         $user->forceFill(['is_active' => false])->save();
 
-        $this->actingAs($user)->get(route('dashboard'))->assertRedirect(route('login'));
+        $this->actingAs($user)->get(route('pos.kasir'))->assertRedirect(route('login'));
 
         $this->assertNotSame($before, session()->getId());
     }
@@ -164,8 +164,8 @@ class InactiveAccountTest extends TestCase
         // middleware yang kini berjalan di setiap request.
         $user = User::factory()->staff()->create();
 
-        $this->actingAs($user)->get(route('dashboard'))->assertOk();
-        $this->actingAs($user)->get(route('dashboard'))->assertOk();
+        $this->actingAs($user)->get(route('pos.kasir'))->assertOk();
+        $this->actingAs($user)->get(route('pos.kasir'))->assertOk();
 
         $this->assertAuthenticatedAs($user);
     }

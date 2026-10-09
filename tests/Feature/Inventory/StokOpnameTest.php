@@ -17,7 +17,7 @@ use App\Models\Rack;
 use App\Models\StockLot;
 use App\Models\StockMovement;
 use App\Models\User;
-use App\Services\Auth\PinService;
+use App\Services\Inventory\OpnameService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\Test;
@@ -37,8 +37,9 @@ use Tests\TestCase;
  *    yang sudah basi karena stok bergerak tidak dipakai diam-diam.
  * 3. **Keputusan mengubah stok sekali.** Menerima menulis gerakan penyesuaian
  *    dan mengubah qty; menolak tidak menyentuh apa pun.
- * 4. **PIN adalah milik aksinya.** Token untuk aksi lain, atau tanpa token
- *    sama sekali, tidak membuka pintu ini.
+ * 4. **Modul ini Owner-only.** Staff hanya memegang POS, jadi seluruh route
+ *    stok-opname -- termasuk halaman dan keputusan review -- menolak Staff
+ *    dengan 403 lewat grup `['auth', 'owner']`.
  */
 class StokOpnameTest extends TestCase
 {
@@ -59,11 +60,6 @@ class StokOpnameTest extends TestCase
                 'qty_received' => $qty,
             ])
             ->create();
-    }
-
-    private function staff(): User
-    {
-        return User::factory()->staff()->create();
     }
 
     private function owner(): User
@@ -103,30 +99,20 @@ class StokOpnameTest extends TestCase
         OpnameLine $line,
         string $decision,
         ?AdjustmentReason $reason = null,
-        ?string $token = null,
     ): TestResponse {
         return $this->actingAs($actor)
             ->from(route('inventory.stok-opname'))
             ->post(route('inventory.stok-opname.review', [$opname, $line]), array_filter([
                 'decision' => $decision,
                 'reason' => $reason?->value,
-                'pin_token' => $token,
             ], fn ($value) => $value !== null));
     }
 
-    /**
-     * Token PIN untuk konteks tertentu, diterbitkan atas nama Staff.
-     *
-     * Owner PIN-nya '123456' di pabrik user, dan penerbitan butuh Owner yang
-     * PIN-nya cocok -- itu sebabnya satu baris dibuat lebih dulu: tanpanya
-     * penerbitan sendiri yang gagal, dan test-nya akan "lulus" karena alasan
-     * yang salah kalau tidak ada yang memeriksa.
-     */
-    private function tokenFor(User $actor, string $context): string
+    /** Pindai satu SKU lewat fetch, seperti bar-scan di halaman (JSON). */
+    private function scanLine(User $actor, Opname $opname, OpnameLine $line): TestResponse
     {
-        $this->owner();
-
-        return app(PinService::class)->issue($actor, '123456', $context)->token;
+        return $this->actingAs($actor)
+            ->postJson(route('inventory.stok-opname.tambah', [$opname, $line]));
     }
 
     #[Test]
@@ -138,7 +124,7 @@ class StokOpnameTest extends TestCase
     #[Test]
     public function starting_a_session_snapshots_every_lot_and_keeps_the_numbers_off_the_page(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $rack = $this->rack();
 
         // 41 dipilih supaya angkanya mudah dicari di HTML: ia tidak mungkin
@@ -146,7 +132,7 @@ class StokOpnameTest extends TestCase
         $this->lot($rack, 41, 'CN01-HW-001');
         $this->lot($rack, 7, 'CN01-HW-002');
 
-        $this->start($staff)->assertRedirect(route('inventory.stok-opname'))->assertSessionHas('toast');
+        $this->start($actor)->assertRedirect(route('inventory.stok-opname'))->assertSessionHas('toast');
 
         $opname = Opname::sole();
         $this->assertSame(OpnameStatus::Counting, $opname->status);
@@ -157,7 +143,7 @@ class StokOpnameTest extends TestCase
         $this->assertSame([41, 7], $lines->pluck('system_qty')->all());
         $this->assertSame(OpnameLineStatus::Pending, $lines->first()->status);
 
-        $html = $this->actingAs($staff)->get(route('inventory.stok-opname'))->assertOk()->content();
+        $html = $this->actingAs($actor)->get(route('inventory.stok-opname'))->assertOk()->content();
 
         $this->assertStringContainsString('CN01-HW-001', $html);
         $this->assertStringContainsString('CN01-HW-002', $html);
@@ -170,21 +156,21 @@ class StokOpnameTest extends TestCase
         // Sekarang sesi diajukan: angka yang sama muncul, bukti bahwa
         // ketidakhadirannya di atas memang karena blind, bukan karena
         // kolomnya tidak pernah ada.
-        $lines->each(fn (OpnameLine $line) => $this->countLine($staff, $opname, $line, (int) $line->system_qty));
-        $this->submit($staff, $opname)->assertSessionMissing('errors');
+        $lines->each(fn (OpnameLine $line) => $this->countLine($actor, $opname, $line, (int) $line->system_qty));
+        $this->submit($actor, $opname)->assertSessionMissing('errors');
 
-        $html = $this->actingAs($staff)->get(route('inventory.stok-opname'))->assertOk()->content();
+        $html = $this->actingAs($actor)->get(route('inventory.stok-opname'))->assertOk()->content();
         $this->assertMatchesRegularExpression('/>\s*41\s*</', $html);
     }
 
     #[Test]
     public function a_second_session_is_refused_while_one_is_still_open(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $this->lot($this->rack(), 3, 'CN01-HW-001');
 
-        $this->start($staff)->assertSessionMissing('errors');
-        $this->start($staff)->assertSessionHasErrors('scope');
+        $this->start($actor)->assertSessionMissing('errors');
+        $this->start($actor)->assertSessionHasErrors('scope');
 
         $this->assertSame(1, Opname::query()->count());
     }
@@ -192,13 +178,13 @@ class StokOpnameTest extends TestCase
     #[Test]
     public function a_session_for_a_rack_or_a_sku_only_counts_what_is_in_scope(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $rackA = $this->rack();
         $rackB = $this->rack();
         $inA = $this->lot($rackA, 4, 'CN01-HW-001');
         $inB = $this->lot($rackB, 5, 'CN01-HW-002');
 
-        $this->start($staff, ['scope' => OpnameScope::Rack->value, 'rack_id' => $rackA->id])
+        $this->start($actor, ['scope' => OpnameScope::Rack->value, 'rack_id' => $rackA->id])
             ->assertSessionMissing('errors');
 
         $opname = Opname::sole();
@@ -207,11 +193,11 @@ class StokOpnameTest extends TestCase
 
         // Sesi kedua harus kalah; cakupan SKU diuji lewat sesi yang sudah
         // ditutup, supaya tesnya menguji cakupan, bukan penjaga sesi ganda.
-        $this->actingAs($staff)
+        $this->actingAs($actor)
             ->post(route('inventory.stok-opname.batal', $opname))
             ->assertSessionHas('toast');
 
-        $this->start($staff, ['scope' => OpnameScope::Sku->value, 'sku' => 'cn01-hw-002'])
+        $this->start($actor, ['scope' => OpnameScope::Sku->value, 'sku' => 'cn01-hw-002'])
             ->assertSessionMissing('errors');
 
         $opname = Opname::query()->latest('id')->first();
@@ -222,27 +208,27 @@ class StokOpnameTest extends TestCase
     #[Test]
     public function a_count_is_recorded_and_can_be_replaced_by_a_recount(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $rack = $this->rack();
         $this->lot($rack, 5, 'CN01-HW-001');
 
-        $this->start($staff)->assertSessionMissing('errors');
+        $this->start($actor)->assertSessionMissing('errors');
         $opname = Opname::sole();
         $line = $opname->lines()->sole();
 
-        $this->countLine($staff, $opname, $line, 4)->assertSessionHas('toast');
+        $this->countLine($actor, $opname, $line, 4)->assertSessionHas('toast');
 
         $line->refresh();
         $this->assertSame(4, $line->counted_qty);
         $this->assertSame(-1, $line->diff_qty);
         $this->assertSame(OpnameLineStatus::Counted, $line->status);
-        $this->assertSame($staff->id, $line->counted_by);
+        $this->assertSame($actor->id, $line->counted_by);
         $this->assertNotNull($line->counted_at);
         $this->assertNotNull($line->counted_movement_id);
 
         // Menghitung ulang menggantikan angka lama, bukan menumpuknya: diff
         // dihitung ulang terhadap snapshot, dan keputusan lama ikut hilang.
-        $this->countLine($staff, $opname, $line, 5)->assertSessionHas('toast');
+        $this->countLine($actor, $opname, $line, 5)->assertSessionHas('toast');
 
         $line->refresh();
         $this->assertSame(5, $line->counted_qty);
@@ -254,13 +240,13 @@ class StokOpnameTest extends TestCase
     #[Test]
     public function a_count_zero_means_the_lot_is_empty_not_the_input_was_ignored(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $this->lot($this->rack(), 5, 'CN01-HW-001');
 
-        $this->start($staff);
+        $this->start($actor);
         $opname = Opname::sole();
 
-        $this->countLine($staff, $opname, $opname->lines()->sole(), 0)->assertSessionHas('toast');
+        $this->countLine($actor, $opname, $opname->lines()->sole(), 0)->assertSessionHas('toast');
 
         $line = $opname->lines()->sole();
         $this->assertSame(0, $line->counted_qty);
@@ -271,34 +257,134 @@ class StokOpnameTest extends TestCase
     #[Test]
     public function a_negative_or_absurd_count_is_refused_by_the_form(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $this->lot($this->rack(), 5, 'CN01-HW-001');
 
-        $this->start($staff);
+        $this->start($actor);
         $opname = Opname::sole();
         $line = $opname->lines()->sole();
 
-        $this->countLine($staff, $opname, $line, -1)->assertSessionHasErrors('counted_qty');
-        $this->countLine($staff, $opname, $line, 1_000_000)->assertSessionHasErrors('counted_qty');
+        $this->countLine($actor, $opname, $line, -1)->assertSessionHasErrors('counted_qty');
+        $this->countLine($actor, $opname, $line, 1_000_000)->assertSessionHasErrors('counted_qty');
 
         $this->assertSame(OpnameLineStatus::Pending, $line->refresh()->status);
     }
 
     #[Test]
-    public function submitting_is_refused_until_every_line_is_counted(): void
+    public function a_scan_increment_adds_one_to_the_recorded_count(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
+        $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($actor);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+
+        // Balasan JSON hanya memuat yang boleh keluar selama blind count:
+        // qty terhitung dan status baris, tanpa angka sistem maupun selisih.
+        $this->scanLine($actor, $opname, $line)
+            ->assertOk()
+            ->assertJson([
+                'line_id' => $line->id,
+                'counted_qty' => 1,
+                'status' => OpnameLineStatus::Counted->value,
+                'status_label' => OpnameLineStatus::Counted->label(),
+                'status_type' => 'warning',
+            ]);
+
+        $line->refresh();
+        $this->assertSame(1, $line->counted_qty);
+        $this->assertSame(-4, $line->diff_qty);
+        $this->assertSame(OpnameLineStatus::Counted, $line->status);
+        $this->assertSame($actor->id, $line->counted_by);
+        $this->assertNotNull($line->counted_at);
+        $this->assertNotNull($line->counted_movement_id);
+
+        // Dua pindai cepat untuk lot yang sama = dua kenaikan, bukan satu
+        // angka yang ditimpa angka kedaluwarsa.
+        $this->scanLine($actor, $opname, $opname->lines()->sole())
+            ->assertOk()
+            ->assertJson(['counted_qty' => 2]);
+
+        $this->assertSame(2, $opname->lines()->sole()->refresh()->counted_qty);
+    }
+
+    #[Test]
+    public function a_scan_increment_is_refused_once_the_session_leaves_counting(): void
+    {
+        $actor = $this->owner();
+        $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($actor);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+
+        $this->countLine($actor, $opname, $line, 5);
+        $this->submit($actor, $opname);
+
+        $this->scanLine($actor, $opname, $line)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('counted_qty');
+
+        $this->assertSame(5, $line->refresh()->counted_qty);
+    }
+
+    #[Test]
+    public function a_scan_increment_is_refused_beyond_the_cap(): void
+    {
+        $actor = $this->owner();
+        $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($actor);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+        $this->countLine($actor, $opname, $line, OpnameService::MAX_COUNTED_QTY);
+
+        $this->scanLine($actor, $opname, $line)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('counted_qty');
+
+        $this->assertSame(OpnameService::MAX_COUNTED_QTY, $line->refresh()->counted_qty);
+    }
+
+    #[Test]
+    public function a_scan_increment_for_a_line_of_another_session_is_not_found(): void
+    {
+        $actor = $this->owner();
         $rack = $this->rack();
         $this->lot($rack, 5, 'CN01-HW-001');
         $this->lot($rack, 3, 'CN01-HW-002');
 
-        $this->start($staff);
+        $this->start($actor);
+        $first = Opname::sole();
+        $foreignLine = $first->lines()->orderBy('lot_id')->first();
+
+        $this->actingAs($actor)->post(route('inventory.stok-opname.batal', $first));
+        $this->start($actor);
+        $second = Opname::query()->latest('id')->first();
+
+        // Pengikatan baris terhadap sesinya juga berlaku untuk pindai: baris
+        // sesi lama tidak bisa ditambah lewat URL sesi yang sedang berjalan.
+        $this->actingAs($actor)
+            ->postJson(route('inventory.stok-opname.tambah', [$second, $foreignLine]))
+            ->assertNotFound();
+    }
+
+    #[Test]
+    public function submitting_is_refused_until_every_line_is_counted(): void
+    {
+        $actor = $this->owner();
+        $rack = $this->rack();
+        $this->lot($rack, 5, 'CN01-HW-001');
+        $this->lot($rack, 3, 'CN01-HW-002');
+
+        $this->start($actor);
         $opname = Opname::sole();
 
         $first = $opname->lines()->orderBy('lot_id')->first();
-        $this->countLine($staff, $opname, $first, 5);
+        $this->countLine($actor, $opname, $first, 5);
 
-        $this->submit($staff, $opname)->assertSessionHasErrors('opname');
+        $this->submit($actor, $opname)->assertSessionHasErrors('opname');
 
         $this->assertSame(OpnameStatus::Counting, $opname->refresh()->status);
         $this->assertNull($opname->submitted_at);
@@ -307,14 +393,14 @@ class StokOpnameTest extends TestCase
     #[Test]
     public function submitting_is_refused_when_the_stock_moved_after_the_count(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $lot = $this->lot($this->rack(), 5, 'CN01-HW-001');
 
-        $this->start($staff);
+        $this->start($actor);
         $opname = Opname::sole();
         $line = $opname->lines()->sole();
 
-        $this->countLine($staff, $opname, $line, 5);
+        $this->countLine($actor, $opname, $line, 5);
 
         // Sebuah penjualan di antara hitung dan ajukan: angka lima sudah tidak
         // menggambarkan isi rak, jadi sesi yang memakainya akan menutup selisih
@@ -327,17 +413,17 @@ class StokOpnameTest extends TestCase
         ]);
         $lot->update(['qty_on_hand' => 4]);
 
-        $this->submit($staff, $opname)->assertSessionHasErrors('opname');
+        $this->submit($actor, $opname)->assertSessionHasErrors('opname');
         $this->assertSame(OpnameStatus::Counting, $opname->refresh()->status);
     }
 
     #[Test]
     public function a_count_is_refused_when_the_ledger_and_the_stock_disagree(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $lot = $this->lot($this->rack(), 5, 'CN01-HW-001');
 
-        $this->start($staff);
+        $this->start($actor);
         $opname = Opname::sole();
 
         // Gerakan tanpa perubahan qty: ekspektasi baris naik, stok tidak.
@@ -350,7 +436,7 @@ class StokOpnameTest extends TestCase
             'balance_after' => 5,
         ]);
 
-        $this->countLine($staff, $opname, $opname->lines()->sole(), 5)
+        $this->countLine($actor, $opname, $opname->lines()->sole(), 5)
             ->assertSessionHasErrors('counted_qty');
 
         $this->assertSame(OpnameLineStatus::Pending, $opname->lines()->sole()->status);
@@ -359,25 +445,25 @@ class StokOpnameTest extends TestCase
     #[Test]
     public function submitting_puts_the_session_up_for_review_and_then_shows_the_diff(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $rack = $this->rack();
         $this->lot($rack, 5, 'CN01-HW-001');
         $this->lot($rack, 3, 'CN01-HW-002');
 
-        $this->start($staff);
+        $this->start($actor);
         $opname = Opname::sole();
 
         foreach ($opname->lines()->orderBy('lot_id')->get() as $line) {
-            $this->countLine($staff, $opname, $line, (int) $line->system_qty - 1);
+            $this->countLine($actor, $opname, $line, (int) $line->system_qty - 1);
         }
 
-        $this->submit($staff, $opname)->assertSessionHas('toast');
+        $this->submit($actor, $opname)->assertSessionHas('toast');
 
         $opname->refresh();
         $this->assertSame(OpnameStatus::PendingApproval, $opname->status);
         $this->assertNotNull($opname->submitted_at);
 
-        $html = $this->actingAs($staff)->get(route('inventory.stok-opname'))->assertOk()->content();
+        $html = $this->actingAs($actor)->get(route('inventory.stok-opname'))->assertOk()->content();
 
         // Sekarang selisih memang layak ditampilkan: sesi sudah diajukan,
         // penghitung tidak lagi menghitung angka yang bisa ia ubah.
@@ -388,7 +474,7 @@ class StokOpnameTest extends TestCase
         $this->assertStringContainsString('Qty Sistem', $html);
         $this->assertMatchesRegularExpression('/>\s*-1\s*</', $html);
 
-        $html = $this->actingAs($owner = $this->owner())->get(route('inventory.stok-opname'))->assertOk()->content();
+        $html = $this->actingAs($actor)->get(route('inventory.stok-opname'))->assertOk()->content();
         $this->assertMatchesRegularExpression('/>\s*4\s*</', $html);
         $this->assertMatchesRegularExpression('/>\s*-1\s*</', $html);
     }
@@ -501,53 +587,25 @@ class StokOpnameTest extends TestCase
     }
 
     #[Test]
-    public function staff_need_an_owner_pin_to_decide_a_line(): void
+    public function staff_cannot_decide_a_line(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $this->lot($this->rack(), 5, 'CN01-HW-001');
 
-        $this->start($staff);
+        $this->start($actor);
         $opname = Opname::sole();
         $line = $opname->lines()->sole();
-        $this->countLine($staff, $opname, $line, 4);
-        $this->submit($staff, $opname);
+        $this->countLine($actor, $opname, $line, 4);
+        $this->submit($actor, $opname);
 
-        $this->review($staff, $opname, $line, 'APPROVE', AdjustmentReason::Lost)
-            ->assertSessionHasErrors('pin_token');
-
-        $this->assertSame(5, StockLot::sole()->qty_on_hand);
-
-        $token = $this->tokenFor($staff, 'inventory.opname-approve');
-
-        $this->review($staff, $opname, $line, 'APPROVE', AdjustmentReason::Lost, $token)
-            ->assertSessionMissing('errors');
-
-        $this->assertSame(4, StockLot::sole()->qty_on_hand);
-        $this->assertSame(OpnameLineStatus::Approved, $line->refresh()->status);
-    }
-
-    #[Test]
-    public function a_token_issued_for_another_action_does_not_open_this_one(): void
-    {
-        $staff = $this->staff();
-        $this->lot($this->rack(), 5, 'CN01-HW-001');
-
-        $this->start($staff);
-        $opname = Opname::sole();
-        $line = $opname->lines()->sole();
-        $this->countLine($staff, $opname, $line, 4);
-        $this->submit($staff, $opname);
-
-        $this->review(
-            $staff,
-            $opname,
-            $line,
-            'APPROVE',
-            AdjustmentReason::Lost,
-            $this->tokenFor($staff, 'consignment.scheme-override'),
-        )->assertSessionHasErrors('pin_token');
+        // Keputusan selisih mengubah stok lewat satu penilai yang sah, dan
+        // Staff memang di luar batas modul ini: POST langsung pun berakhir
+        // dengan 403 sebelum request sempat menjalankan apa pun.
+        $this->review(User::factory()->staff()->create(), $opname, $line, 'APPROVE', AdjustmentReason::Lost)
+            ->assertForbidden();
 
         $this->assertSame(5, StockLot::sole()->qty_on_hand);
+        $this->assertSame(OpnameLineStatus::Counted, $line->refresh()->status);
     }
 
     #[Test]
@@ -573,19 +631,19 @@ class StokOpnameTest extends TestCase
     #[Test]
     public function counting_and_cancelling_follow_the_session_state(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $this->lot($this->rack(), 5, 'CN01-HW-001');
 
-        $this->start($staff);
+        $this->start($actor);
         $opname = Opname::sole();
         $line = $opname->lines()->sole();
-        $this->countLine($staff, $opname, $line, 4);
+        $this->countLine($actor, $opname, $line, 4);
 
         // Selama menghitung, pembatalan menutup sesi tanpa menyentuh baris
         // maupun angkanya: riwayatnya boleh hilang dari layar, tetapi jejak
         // siapa menghitung apa tidak dihapus -- belum ada keputusan yang bisa
         // dibatalkan, dan tidak ada alasan untuk menghapus data.
-        $this->actingAs($staff)
+        $this->actingAs($actor)
             ->post(route('inventory.stok-opname.batal', $opname))
             ->assertSessionHas('toast');
 
@@ -596,29 +654,29 @@ class StokOpnameTest extends TestCase
 
         // Sesi yang sudah ditutup tidak bisa diajukan lagi: tombol ajukan
         // memang tidak pernah ditawarkan untuk status ini.
-        $this->submit($staff, $opname)->assertSessionHasErrors('opname');
+        $this->submit($actor, $opname)->assertSessionHasErrors('opname');
         $this->assertNull($opname->refresh()->submitted_at);
     }
 
     #[Test]
     public function a_line_belonging_to_another_session_is_not_found(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $rack = $this->rack();
         $this->lot($rack, 5, 'CN01-HW-001');
         $this->lot($rack, 3, 'CN01-HW-002');
 
-        $this->start($staff);
+        $this->start($actor);
         $first = Opname::sole();
         $foreignLine = $first->lines()->orderBy('lot_id')->first();
 
-        $this->actingAs($staff)->post(route('inventory.stok-opname.batal', $first));
-        $this->start($staff);
+        $this->actingAs($actor)->post(route('inventory.stok-opname.batal', $first));
+        $this->start($actor);
         $second = Opname::query()->latest('id')->first();
 
         // Pengikatan baris terhadap sesinya: baris sesi lama tidak bisa
         // dihitung lewat URL sesi yang sedang berjalan, apa pun urutan angkanya.
-        $this->actingAs($staff)
+        $this->actingAs($actor)
             ->post(route('inventory.stok-opname.hitung', [$second, $foreignLine]), ['counted_qty' => 5])
             ->assertNotFound();
     }
@@ -626,19 +684,21 @@ class StokOpnameTest extends TestCase
     #[Test]
     public function a_counted_line_survives_a_page_reload_without_leaking_the_system_number(): void
     {
-        $staff = $this->staff();
+        $actor = $this->owner();
         $this->lot($this->rack(), 41, 'CN01-HW-001');
 
-        $this->start($staff);
+        $this->start($actor);
         $opname = Opname::sole();
         $line = $opname->lines()->sole();
-        $this->countLine($staff, $opname, $line, 40);
+        $this->countLine($actor, $opname, $line, 40);
 
-        $html = $this->actingAs($staff)->get(route('inventory.stok-opname'))->assertOk()->content();
+        $html = $this->actingAs($actor)->get(route('inventory.stok-opname'))->assertOk()->content();
 
-        // Angka yang diketik orang tetap terlihat miliknya; angka sistem tetap
-        // tidak ada, termasuk setelah barisnya berstatus terhitung.
-        $this->assertStringContainsString('qty: 40', $html);
+        // Angka yang diketik orang tetap terlihat miliknya -- kini lewat
+        // state pindai yang turut tercetak di markup (nilai `value` pada
+        // input); angka sistem tetap tidak ada, termasuk setelah barisnya
+        // berstatus terhitung.
+        $this->assertStringContainsString('value="40"', $html);
         $this->assertStringNotContainsString('Qty Sistem', $html);
         $this->assertDoesNotMatchRegularExpression('/>\s*41\s*</', $html);
 

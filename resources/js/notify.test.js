@@ -890,7 +890,7 @@ describe("notify: a dialog with a body of our own markup", () => {
         expect(fire.calls[0].showCancelButton).toBe(false);
     });
 
-    it("carries a description through", async () => {
+    it("carries a description through as SweetAlert2's text", async () => {
         const fire = fakeFire();
         const notify = await modalNotify({ fire });
 
@@ -899,9 +899,10 @@ describe("notify: a dialog with a body of our own markup", () => {
             description: "Tambah, ubah, atau hapus seri.",
         });
 
-        expect(fire.calls[0].description).toBe(
+        expect(fire.calls[0].text).toBe(
             "Tambah, ubah, atau hapus seri.",
         );
+        expect(fire.calls[0].description).toBeUndefined();
     });
 });
 

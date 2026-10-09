@@ -259,11 +259,33 @@
                                     @click="choose(item)"
                                     @mouseenter="activeIndex = index"
                                 >
-                                    <div class="flex-1 min-w-0">
-                                        <div class="text-body-sm font-medium text-text-strong truncate" x-text="item.name"></div>
-                                        <div class="mt-0.5 flex flex-wrap items-center gap-2 text-label-sm text-text-subtle">
-                                            <span x-show="item.casting_code">Kode: <span x-text="item.casting_code"></span></span>
-                                            <span x-show="item.series">Seri: <span x-text="item.series"></span></span>
+                                    <div class="flex-1 min-w-0 space-y-1">
+                                        <div class="text-body-sm font-medium text-text-strong" x-text="item.name"></div>
+                                        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-label-sm text-text-subtle sm:grid-cols-3">
+                                            <div x-show="item.series" class="flex flex-col">
+                                                <span class="text-text-muted">Seri</span>
+                                                <span class="font-medium text-text-strong truncate" x-text="item.series"></span>
+                                            </div>
+                                            <div x-show="item.color" class="flex flex-col">
+                                                <span class="text-text-muted">Warna</span>
+                                                <span class="font-medium text-text-strong truncate" x-text="item.color"></span>
+                                            </div>
+                                            <div x-show="item.year" class="flex flex-col">
+                                                <span class="text-text-muted">Tahun</span>
+                                                <span class="font-medium text-text-strong" x-text="item.year"></span>
+                                            </div>
+                                            <div x-show="item.casting_code" class="flex flex-col">
+                                                <span class="text-text-muted">Kode Casting</span>
+                                                <span class="font-medium text-text-strong truncate" x-text="item.casting_code"></span>
+                                            </div>
+                                            <div x-show="item.default_list_price" class="flex flex-col">
+                                                <span class="text-text-muted">Harga Jual (Rp)</span>
+                                                <span class="font-medium text-text-strong" x-text="formatRupiah(item.default_list_price)"></span>
+                                            </div>
+                                            <div x-show="item.barcode" class="flex flex-col sm:col-span-1">
+                                                <span class="text-text-muted">Barcode Pabrik</span>
+                                                <span class="font-medium text-text-strong truncate" x-text="item.barcode"></span>
+                                            </div>
                                         </div>
                                     </div>
                                 </button>

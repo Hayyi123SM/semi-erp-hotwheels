@@ -18,20 +18,32 @@
     </x-slot:actions>
 </x-ui.page-header>
 
+@php
+    // State yang di-seed ke komponen halaman. Empat daftar ini datang dari
+    // server karena semuanya sudah ada di memori sesi; peramban hanya dipakai
+    // untuk mengubah dua hal: qty terhitung dan status baris, keduanya lewat
+    // balasan tidak memuat ulang. Tidak ada angka sistem di daftar ini, dan
+    // `counts`/`statuses` yang di-*seed* di sini justru yang bergerak saat
+    // pindai -- bukan nilai yang ditulis ulang dari HTML.
+    $opnameRows = $open === null ? [] : $open->rows->map(fn ($row) => ['id' => $row->id, 'sku' => $row->lot?->sku ?? ''])->values()->all();
+    $opnameCounts = $open === null ? [] : $open->rows->mapWithKeys(fn ($row) => [$row->id => $row->counted_qty])->all();
+    $opnameStatuses = $open === null ? [] : $open->rows->mapWithKeys(fn ($row) => [
+        $row->id => [
+            'label' => $row->status->label(),
+            'type' => Format::statusType($row->status->value),
+        ],
+    ])->all();
+    $opnameUrls = $open === null ? [] : $open->rows->mapWithKeys(fn ($row) => [$row->id => route('inventory.stok-opname.tambah', [$open, $row])])->all();
+@endphp
+
 <div class="space-y-6"
-     x-data="{
-         review: null,
-         scope: 'ALL',
-         q: '',
-         // Pencarian SKU di sisi klien, bukan lewat query string: yang dicari
-         // adalah baris sesi yang sedang terbuka, bukan sesi lain. Kerja
-         // penghitung adalah memindai label lalu menemukan barisnya -- bukan
-         // memuat ulang halaman yang sudah berisi hitungannya.
-         matches(sku) {
-             const q = this.q.trim().toUpperCase();
-             return q === '' || sku.toUpperCase().includes(q);
-         },
-     }"
+     x-data="stokOpname({
+         rows: @js($opnameRows),
+         counts: @js($opnameCounts),
+         statuses: @js($opnameStatuses),
+         urls: @js($opnameUrls),
+         csrf: @js(csrf_token()),
+     })"
      @opname:review.window="review = $event.detail; $dispatch('open-modal', 'review-baris')">
 
     {{-- Galat validasi dari empat form di halaman ini. Semuanya mengirim lewat
@@ -48,9 +60,9 @@
         @endphp
 
         {{-- Kartu sesi berjalan. Tombolnya mengikuti keadaan sesi, bukan siapa
-             yang melihat: Staff boleh menghitung dan mengajukan, pembatalan
-             juga -- yang tidak pernah mereka punya di sini adalah pintu
-             persetujuan, karena pintu itu ada di dalam tiap baris selisih. --}}
+             yang melihat: seluruh modul ini Owner-only, jadi orang yang membuka
+             halaman selalu Owner yang bisa menghitung, mengajukan, membatalkan,
+             dan memutuskan selisih. --}}
         <div class="card p-6">
             <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                 <div class="flex items-start gap-4">
@@ -60,9 +72,10 @@
                             <circle cx="32" cy="32" r="28" class="fill-none stroke-primary stroke-8"
                                     stroke-dasharray="175.9"
                                     stroke-dashoffset="{{ number_format(175.9 * (1 - $percent / 100), 2, '.', '') }}"
+                                    :stroke-dashoffset="ringOffset"
                                     stroke-linecap="round"/>
                         </svg>
-                        <span class="absolute inset-0 flex items-center justify-center text-body-md font-bold text-text-strong tabular-nums">{{ $percent }}%</span>
+                        <span class="absolute inset-0 flex items-center justify-center text-body-md font-bold text-text-strong tabular-nums" x-text="progressPercent + '%'">{{ $percent }}%</span>
                     </div>
                     <div>
                         <div class="flex flex-wrap items-center gap-2">
@@ -72,7 +85,7 @@
                             </x-ui.badge-status>
                         </div>
                         <p class="mt-1 text-label-sm text-text-muted">
-                            {{ $counted }} dari {{ $total }} lot terhitung · {{ $open->scope->label() }}@if ($open->scope === OpnameScope::Rack && $open->rack)
+                            <span x-text="progressCounted">{{ $counted }}</span> dari {{ $total }} lot terhitung · {{ $open->scope->label() }}@if ($open->scope === OpnameScope::Rack && $open->rack)
                                 · rak {{ $open->rack->code }}@elseif ($open->scope === OpnameScope::Sku)
                                 · {{ $open->scope_value }}@endif
                             · dimulai {{ Format::datetime($open->started_at) }} oleh {{ $open->creator?->name ?? '—' }}
@@ -91,11 +104,11 @@
                     @if ($blind)
                         <form method="POST" action="{{ route('inventory.stok-opname.ajukan', $open) }}">
                             @csrf
-                            {{-- Tombol mati sampai semua baris terhitung: aturan
-                                 submit adalah aturan sesi, bukan per baris, jadi
-                                 ia dihitung sekali di server dan tampil mati
-                                 di sini supaya tidak menggoda. --}}
-                            <button type="submit" class="btn-primary" @disabled($counted < $total)>
+                            {{-- Tombol mati sampai semua baris terhitung: aturan submit adalah aturan
+                                     sesi, bukan per baris. `countingDone` dihitung dari state pindai
+                                     (semua baris sudah punya nilai), supaya tombol ikut hidup di tempat
+                                     ia mati saat baris terakhir terisi lewat pindai tanpa reload. --}}
+                            <button type="submit" class="btn-primary" :disabled="!countingDone">
                                 Ajukan ke Owner
                             </button>
                         </form>
@@ -115,17 +128,42 @@
 
         <x-ui.section-card :title="$blind ? 'Hitung Fisik' : 'Selisih Menunggu Keputusan'">
             <x-slot:actions>
-                <div class="relative w-full sm:w-64">
-                    <svg class="pointer-events-none absolute left-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-text-subtle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
-                    </svg>
-                    <input type="search" x-model.debounce.150ms="q"
-                           placeholder="Pindai atau cari SKU..."
-                           aria-label="Cari SKU pada sesi ini"
-                           data-allow-focus
-                           class="input-base h-9 pl-10 text-body-sm">
-                </div>
+                @if ($blind)
+                    {{-- Saat menghitung, kotak ini adalah bar pindai: SKU yang
+                         tidak dikenal menampilkan galat, lalu lah ternyata masih
+                         mengetik sebuah SKU yang lama dipindai masuk sesi itu --
+                         `x-scan` menjaga fokus tetap di sini. --}}
+                    <div class="relative w-full sm:w-64">
+                        <svg class="pointer-events-none absolute left-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-text-subtle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
+                        </svg>
+                        <input type="search"
+                               x-model.debounce.150ms="q"
+                               x-scan="addBySku($event)"
+                               placeholder="Pindai atau cari SKU (Enter menambah 1)..."
+                               aria-label="Pindai atau cari SKU pada sesi ini"
+                               data-allow-focus
+                               class="input-base h-9 pl-10 text-body-sm">
+                    </div>
+                @else
+                    {{-- Saat review, cari tetap tersedia tapi tidak lagi berfokus
+                         ulang (`x-scan` diambil): fokus harus berpindah ke tombol
+                         Review, bukan ditarik kembali ke kotak cari. --}}
+                    <div class="relative w-full sm:w-64">
+                        <svg class="pointer-events-none absolute left-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-text-subtle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
+                        </svg>
+                        <input type="search" x-model.debounce.150ms="q"
+                               placeholder="Cari SKU..."
+                               aria-label="Cari SKU pada sesi ini"
+                               data-allow-focus
+                               class="input-base h-9 pl-10 text-body-sm">
+                    </div>
+                @endif
             </x-slot:actions>
+            @if ($blind)
+                <p class="mb-3 text-body-sm text-error-text" x-show="scanError" x-text="scanError" x-cloak role="alert"></p>
+            @endif
             @if ($open->rows->isEmpty())
                 <p class="text-body-sm text-text-muted">
                     Tidak ada lot dalam cakupan ini -- tidak ada stok yang cocok dengan rak atau SKU yang dipilih.
@@ -178,8 +216,28 @@
                                             <form method="POST" action="{{ route('inventory.stok-opname.hitung', [$open, $row]) }}"
                                                   class="flex items-center justify-center gap-2">
                                                 @csrf
-                                                <x-ui.qty-stepper :min="0" :max="999" :value="$row->counted_qty ?? 0" field="counted_qty"/>
-                                                <button type="submit" class="btn-secondary h-9 px-3">Simpan</button>
+                                                <div class="inline-flex items-center rounded-lg border border-border-strong bg-surface-lowest" data-allow-focus>
+                                                    <button type="button" data-allow-focus
+                                                            @click="counts[{{ $row->id }}] = Math.max(0, (counts[{{ $row->id }}] ?? 0) - 1)"
+                                                            class="flex h-9 w-9 items-center justify-center rounded-l-lg text-text-muted transition hover:bg-canvas hover:text-text-strong"
+                                                            aria-label="Kurangi satu">
+                                                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+                                                    </button>
+                                                    <input type="number" name="counted_qty" inputmode="numeric"
+                                                           min="0" max="99999" data-allow-focus
+                                                           :value="counts[{{ $row->id }}] ?? 0"
+                                                           value="{{ $row->counted_qty ?? 0 }}"
+                                                           @input="counts[{{ $row->id }}] = Math.max(0, Math.min(99999, Number($event.target.value) || 0))"
+                                                           class="h-9 w-12 border-x border-border-subtle bg-transparent text-center text-body-md font-semibold text-text-strong outline-none focus:bg-canvas"
+                                                           aria-label="Qty terhitung">
+                                                    <button type="button" data-allow-focus
+                                                            @click="counts[{{ $row->id }}] = Math.min(99999, (counts[{{ $row->id }}] ?? 0) + 1)"
+                                                            class="flex h-9 w-9 items-center justify-center rounded-r-lg text-text-muted transition hover:bg-canvas hover:text-text-strong"
+                                                            aria-label="Tambah satu">
+                                                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                                                    </button>
+                                                </div>
+                                                <button type="submit" class="btn-secondary h-9 px-3" data-allow-focus>Simpan</button>
                                             </form>
                                         @else
                                             <div class="flex flex-col items-center gap-0.5">
@@ -197,13 +255,31 @@
                                     @endunless
 
                                     <td class="px-6 py-3">
-                                        <x-ui.badge-status :type="Format::statusType($row->status->value)">
-                                            {{ $row->status->label() }}
-                                        </x-ui.badge-status>
+                                        @if ($blind)
+                                            {{-- Selama menghitung, badge ikut bergerak saat pindai selesai
+                                                 (status baris bisa berubah di balasan `/tambah`). Sel manis
+                                                 memakai `rowStatus*` yang membaca `statuses` hasil pindai,
+                                                 bukan nilai yang ditulis sekali saat halaman dimuat. --}}
+                                            <span class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-label-md"
+                                                  :class="rowStatusClass(@js($row->id))">
+                                                <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path :d="rowStatusIcon(@js($row->id))"/>
+                                                </svg>
+                                                <span x-text="rowStatusLabel(@js($row->id))">{{ $row->status->label() }}</span>
+                                            </span>
+                                        @else
+                                            <x-ui.badge-status :type="Format::statusType($row->status->value)">
+                                                {{ $row->status->label() }}
+                                            </x-ui.badge-status>
+                                        @endif
                                     </td>
 
                                     @unless ($blind)
                                         <td class="px-6 py-3 text-right">
+                                            {{-- Keputusan selisih adalah pekerjaan Owner, dan seluruh modul ini
+                                                 memang hanya sampai ke Owner (grup `['auth', 'owner']` di
+                                                 `routes/web.php`). Baris yang sudah terhitung selalu bisa
+                                                 direview oleh orang yang membuka halaman. --}}
                                             @if ($row->status === \App\Enums\OpnameLineStatus::Counted)
                                                 <button type="button" class="btn-secondary h-9 px-3"
                                                         @click="review = {
@@ -408,12 +484,11 @@
                         </p>
                     </div>
 
-                    <x-ui.pin-overlay
-                        action="inventory.opname-approve"
-                        context="Setujui atau tolak selisih opname dan tutup barisnya."
-                        confirmText="Minta PIN"
-                    />
-
+                    {{-- Keputusan selisih tidak lagi meminta PIN Owner: baris ini hanya
+                         tampil untuk Owner (seluruh modul Inventory berada di
+                         grup `['auth', 'owner']`), jadi memintanya lagi hanya
+                         menambah satu langkah tanpa menambah pengaman. Alasan
+                         tetap wajib diisi untuk persetujuan. --}}
                     @if ($errors->any())
                         <x-ui.banner tone="error">{{ $errors->first() }}</x-ui.banner>
                     @endif

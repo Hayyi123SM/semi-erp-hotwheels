@@ -39,7 +39,7 @@ class LabelReprintTest extends TestCase
     {
         parent::setUp();
 
-        $this->operator = User::factory()->staff()->create();
+        $this->operator = User::factory()->owner()->create();
     }
 
     private function lot(array $attributes = [], string $sku = 'CN01-HW-001-U03'): StockLot

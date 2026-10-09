@@ -172,18 +172,17 @@ class KatalogProdukTableTest extends TestCase
             ->assertSee('12 unit');
     }
 
+    /**
+     * Halaman katalog hanya untuk Owner, jadi Staff ditolak sejak di pintu.
+     */
     #[Test]
-    public function it_hides_row_actions_from_staff(): void
+    public function staff_cannot_open_the_product_catalog(): void
     {
         $staff = User::factory()->staff()->create();
-        $this->product('Produk Staff');
 
         $this->actingAs($staff)
             ->get(route('master.katalog-produk'))
-            ->assertOk()
-            ->assertSee('Lihat saja')
-            ->assertDontSee('>Edit<', false)
-            ->assertDontSee('>Hapus<', false);
+            ->assertForbidden();
     }
 
     #[Test]
@@ -258,17 +257,16 @@ class KatalogProdukTableTest extends TestCase
         $this->assertStringNotContainsString('$store.modal', $html);
     }
 
+    /**
+     * Pengelola seri hanya untuk Owner, jadi Staff ditolak di pintu yang sama.
+     */
     #[Test]
-    public function it_hides_the_series_manager_and_its_trigger_from_staff(): void
+    public function staff_cannot_open_the_series_manager(): void
     {
         $staff = User::factory()->staff()->create();
 
-        $html = $this->actingAs($staff)
+        $this->actingAs($staff)
             ->get(route('master.katalog-produk'))
-            ->assertOk()
-            ->getContent();
-
-        $this->assertStringNotContainsString('seri-panel', $html);
-        $this->assertStringNotContainsString('Kelola Seri', $html);
+            ->assertForbidden();
     }
 }

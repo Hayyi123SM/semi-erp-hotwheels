@@ -38,7 +38,8 @@ class PenitipWhatsappTest extends TestCase
     {
         parent::setUp();
 
-        $this->staff = User::factory()->staff()->create();
+        // Form dan aksi penitip (konsinyor) hanya boleh diakses Owner.
+        $this->staff = User::factory()->owner()->create();
         $this->actingAs($this->staff);
     }
 
@@ -81,6 +82,8 @@ class PenitipWhatsappTest extends TestCase
             'consignor_code' => 'CN01',
             'name' => 'Budi',
             'wa_number' => '+62 812-3456-7890',
+            'scheme_type' => 'PERCENTAGE',
+            'scheme_rate' => '10',
             'status' => 'ACTIVE',
         ])->assertSessionHasNoErrors();
 
@@ -199,12 +202,16 @@ class PenitipWhatsappTest extends TestCase
             'consignor_code' => 'CN01',
             'name' => 'Budi',
             'wa_number' => 'bukan nomor',
+            'scheme_type' => 'PERCENTAGE',
+            'scheme_rate' => '10',
             'status' => 'ACTIVE',
         ])->assertSessionHasErrors('wa_number');
 
         $this->post('/master/penitip', [
             'consignor_code' => 'CN02',
             'name' => 'Sari',
+            'scheme_type' => 'PERCENTAGE',
+            'scheme_rate' => '10',
             'status' => 'ACTIVE',
         ])->assertSessionHasNoErrors();
     }

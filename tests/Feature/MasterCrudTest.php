@@ -54,8 +54,11 @@ class MasterCrudTest extends TestCase
         $this->assertDatabaseCount('audit_logs', 1);
     }
 
+    /**
+     * Pembuatan penitip kini di balik middleware Owner; staff ditolak 403.
+     */
     #[Test]
-    public function staff_can_create_consignor_but_sensitive_fields_are_masked(): void
+    public function staff_cannot_create_consignor(): void
     {
         $staff = User::factory()->staff()->create();
 
@@ -67,16 +70,7 @@ class MasterCrudTest extends TestCase
             'bank_name' => 'BNI',
             'bank_account' => '999888777',
             'bank_holder' => 'Siti',
-        ])->assertRedirect(route('master.penitip'));
-
-        $consignor = Consignor::where('name', 'Siti Aminah')->firstOrFail();
-        $this->assertSame('CN01', $consignor->consignor_code);
-        $this->assertSame('PERCENTAGE', $consignor->scheme_type->value);
-        $this->assertNull($consignor->scheme_rate);
-        $this->assertNull($consignor->scheme_amount);
-        $this->assertNull($consignor->bank_name);
-        $this->assertNull($consignor->bank_account);
-        $this->assertNull($consignor->bank_holder);
+        ])->assertForbidden();
     }
 
     #[Test]
@@ -156,28 +150,29 @@ class MasterCrudTest extends TestCase
         $this->assertSame(75000, $product->default_list_price);
     }
 
+    /**
+     * Pembuatan produk kini di balik middleware Owner; staff ditolak 403.
+     */
     #[Test]
-    public function staff_created_product_requires_review(): void
+    public function staff_cannot_create_product(): void
     {
         $staff = User::factory()->staff()->create();
 
         $this->actingAs($staff)->post('/master/katalog-produk', [
             'name' => 'Lambo Countach',
             'default_list_price' => '150000',
-        ])->assertRedirect(route('master.katalog-produk'));
-
-        $this->assertTrue(Product::where('name', 'Lambo Countach')->firstOrFail()->needs_review);
+        ])->assertForbidden();
     }
 
     #[Test]
     public function duplicate_product_name_is_blocked(): void
     {
-        $staff = User::factory()->staff()->create();
+        $owner = User::factory()->owner()->create();
 
         $payload = ['name' => 'Mini GT', 'default_list_price' => '200000'];
-        $this->actingAs($staff)->post('/master/katalog-produk', $payload)->assertRedirect(route('master.katalog-produk'));
+        $this->actingAs($owner)->post('/master/katalog-produk', $payload)->assertRedirect(route('master.katalog-produk'));
 
-        $this->actingAs($staff)
+        $this->actingAs($owner)
             ->from('/master/katalog-produk/create')
             ->post('/master/katalog-produk', ['name' => 'mini gt', 'default_list_price' => '300000'])
             ->assertSessionHasErrors('name');
@@ -423,13 +418,16 @@ class MasterCrudTest extends TestCase
         }
     }
 
+    /**
+     * Seluruh halaman create Master/Pengguna kini di balik middleware Owner.
+     */
     #[Test]
-    public function staff_access_to_management_create_pages_is_limited(): void
+    public function staff_cannot_open_management_create_pages(): void
     {
         $staff = User::factory()->staff()->create();
 
-        $this->actingAs($staff)->get('/master/penitip/create')->assertOk();
-        $this->actingAs($staff)->get('/master/katalog-produk/create')->assertOk();
+        $this->actingAs($staff)->get('/master/penitip/create')->assertForbidden();
+        $this->actingAs($staff)->get('/master/katalog-produk/create')->assertForbidden();
         $this->actingAs($staff)->get('/master/lokasi-rak/create')->assertForbidden();
         $this->actingAs($staff)->get('/settings/pengguna-role/create')->assertForbidden();
     }

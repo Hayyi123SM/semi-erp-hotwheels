@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Enums\DiscountPolicy;
 use App\Enums\SchemeType;
+use App\Http\Middleware\OwnerOnly;
 use App\Models\Consignment;
 use App\Models\Consignor;
 use App\Models\Product;
@@ -63,6 +64,9 @@ class ConsignmentTermsTest extends TestCase
     #[Test]
     public function staff_may_commit_the_consignor_default_without_a_pin(): void
     {
+        // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $staff = User::factory()->staff()->create();
         $consignor = Consignor::factory()->percentage(20)->create();
 
@@ -74,6 +78,9 @@ class ConsignmentTermsTest extends TestCase
     #[Test]
     public function staff_restating_the_default_verbatim_is_not_treated_as_an_override(): void
     {
+        // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Bentuk form yang wajar: setelah memilih penitip, Staff mengetik angka
         // yang memang sudah tertulis di kontrak. Perlakukan ini sebagai "memakai
         // default", bukan "mengubah default", atau PIN Owner akan diminta untuk
@@ -91,8 +98,11 @@ class ConsignmentTermsTest extends TestCase
         $this->assertDatabaseCount('stock_lots', 1);
     }
 
+    /**
+     * Rute commit consignment kini Owner-only; Staff ditolak di gerbang otorisasi.
+     */
     #[Test]
-    public function staff_overriding_the_scheme_is_refused_without_a_token(): void
+    public function overriding_the_scheme_is_forbidden_for_staff(): void
     {
         $staff = User::factory()->staff()->create();
         $consignor = Consignor::factory()->percentage(20)->create();
@@ -102,17 +112,15 @@ class ConsignmentTermsTest extends TestCase
             'qty' => '1',
             'scheme_type' => 'FLAT',
             'scheme_amount' => '8000',
-        ]])
-            ->assertSessionHasErrors('pin_token');
-
-        $this->assertDatabaseCount('stock_lots', 0);
+        ]])->assertForbidden();
     }
 
+    /**
+     * Rute commit consignment kini Owner-only; Staff ditolak di gerbang otorisasi.
+     */
     #[Test]
-    public function staff_overriding_the_rate_is_refused_without_a_token(): void
+    public function overriding_the_rate_is_forbidden_for_staff(): void
     {
-        // Skema sama, angkanya beda. Menghapus `scheme_type` dari perbandingan akan
-        // membiarkan perubahan ini lewat, padahal fee penitip berubah 15 poin.
         $staff = User::factory()->staff()->create();
         $consignor = Consignor::factory()->percentage(20)->create();
 
@@ -121,13 +129,14 @@ class ConsignmentTermsTest extends TestCase
             'qty' => '1',
             'scheme_type' => 'PERCENTAGE',
             'scheme_rate' => '5',
-        ]])->assertSessionHasErrors('pin_token');
-
-        $this->assertDatabaseCount('stock_lots', 0);
+        ]])->assertForbidden();
     }
 
+    /**
+     * Rute commit consignment kini Owner-only; Staff ditolak di gerbang otorisasi.
+     */
     #[Test]
-    public function staff_overriding_the_price_is_refused_without_a_token(): void
+    public function overriding_the_price_is_forbidden_for_staff(): void
     {
         $staff = User::factory()->staff()->create();
         $consignor = Consignor::factory()->percentage(20)->create();
@@ -136,14 +145,15 @@ class ConsignmentTermsTest extends TestCase
             'product_id' => $this->product->id,
             'qty' => '1',
             'list_price' => '35000',
-        ]])->assertSessionHasErrors('pin_token');
-
-        $this->assertDatabaseCount('stock_lots', 0);
+        ]])->assertForbidden();
     }
 
     #[Test]
     public function a_valid_owner_token_lets_the_override_through(): void
     {
+        // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $staff = User::factory()->staff()->create();
         $consignor = Consignor::factory()->percentage(20)->create();
 
@@ -170,6 +180,9 @@ class ConsignmentTermsTest extends TestCase
     #[Test]
     public function a_token_minted_for_another_action_does_not_authorise_this_one(): void
     {
+        // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Dialog PIN global/issues token per konteks. Kalau konteksnya tidak ikut
         // dibandingkan, satu token yang bocor untuk "tambah stok sendiri" juga
         // akan berlaku untuk "ubah skema penitip".
@@ -209,6 +222,9 @@ class ConsignmentTermsTest extends TestCase
     #[Test]
     public function one_token_covers_every_overriding_line_in_one_commit(): void
     {
+        // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Dialog PIN dipanggil sekali saat commit. Kalau tiap baris menagih
         // tokennya sendiri, Staff yang mengubah lima baris akan diminta PIN
         // lima kali untuk satu dokumen.
@@ -259,6 +275,9 @@ class ConsignmentTermsTest extends TestCase
         $this->assertDatabaseCount('stock_lots', 0);
     }
 
+    /**
+     * Rute commit consignment kini Owner-only; Staff ditolak di gerbang otorisasi.
+     */
     #[Test]
     public function staff_cannot_open_a_negative_margin_line(): void
     {
@@ -275,9 +294,7 @@ class ConsignmentTermsTest extends TestCase
             'list_price' => '40.000',
             'scheme_type' => 'NETT',
             'scheme_amount' => '40.000',
-        ]], ['pin_token' => $token])->assertSessionHasErrors('items.0.scheme_amount');
-
-        $this->assertDatabaseCount('stock_lots', 0);
+        ]], ['pin_token' => $token])->assertForbidden();
     }
 
     #[Test]
@@ -361,6 +378,9 @@ class ConsignmentTermsTest extends TestCase
     #[Test]
     public function a_rejected_commit_hands_the_token_back_so_it_is_not_asked_for_twice(): void
     {
+        // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Server menolak commit ini karena satu sel, bukan karena tokennya. Halaman
         // dimuat ulang, jadi kalau token tidak ikut dikembalikan, kasir mengetik
         // PIN kedua untuk dokumen yang sama -- padahal yang pertama masih sah
@@ -400,6 +420,9 @@ class ConsignmentTermsTest extends TestCase
     #[Test]
     public function a_refused_token_is_not_handed_back(): void
     {
+        // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Token yang ditolak harus dibuang, bukan disimpan. Memakainya lagi akan
         // membuat commit berikutnya ditolak dengan alasan yang sama, tanpa dialog
         // pernah terbuka, dan formnya tidak akan bisa dikirim sama sekali.

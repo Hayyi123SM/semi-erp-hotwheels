@@ -485,6 +485,7 @@ export function createNotify(options = {}) {
          *
          * @param {object} params
          * @param {string} params.html server-rendered markup, trusted
+         * @param {string} [params.description] shown under the title
          */
         async modal({
             title = "",
@@ -501,7 +502,10 @@ export function createNotify(options = {}) {
             return fire({
                 ...DIALOG_BASE,
                 title,
-                description,
+                // `description` is the word this helper uses everywhere else, but
+                // SweetAlert2 only knows `text`/`html`. It warns on the former and
+                // shows nothing, which reads as a dialog that failed to open.
+                text: description,
                 html,
                 width: MODAL_WIDTHS[size] ?? MODAL_WIDTHS.md,
                 showConfirmButton,

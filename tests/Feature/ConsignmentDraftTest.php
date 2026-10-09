@@ -45,7 +45,7 @@ class ConsignmentDraftTest extends TestCase
     {
         parent::setUp();
 
-        $this->staff = User::factory()->staff()->create();
+        $this->staff = User::factory()->owner()->create();
         $this->consignor = Consignor::factory()->percentage(20)->create();
         $this->product = Product::factory()->create(['default_list_price' => 40_000]);
     }
@@ -141,39 +141,36 @@ class ConsignmentDraftTest extends TestCase
         $this->assertSame(0, StockMovement::count());
     }
 
+    /**
+     * Rute draft consignment kini Owner-only; Staff ditolak di gerbang otorisasi.
+     */
     #[Test]
-    public function a_resumed_draft_is_visible_to_the_staff_who_made_it(): void
+    public function resuming_a_draft_is_forbidden_for_staff(): void
     {
         $draft = $this->startDraft($this->line(quantity: 2, schemeRate: '12.5'));
 
-        $resumed = $this->actingAs($this->staff)
-            ->getJson("/inbound/consignment-in/drafts/{$draft->draft_id}");
+        $staff = User::factory()->staff()->create();
 
-        $resumed->assertOk();
-        $resumed->assertJsonPath('draft.draft_id', $draft->draft_id);
-        $resumed->assertJsonPath('draft.items.0.qty', 2);
-        // Nama produk ikut dipulihkan supaya grid yang dilanjutkan menampilkan
-        // identitas barang, bukan baris tanpa nama. Draft hanya menyimpan
-        // `product_id`, jadi nama dihidrasi controller lewat relasi produk.
-        $resumed->assertJsonPath('draft.items.0.product_name', $this->product->name);
-        $resumed->assertJsonPath('draft.items.0.scheme_type', SchemeType::Percentage->value);
-        // Rate desimal harus kembali sebagai angka desimal, bukan "12" atau
-        // "12.50" yang nanti bikin kolom rate gagal di-isi ulang.
-        $resumed->assertJsonPath('draft.items.0.scheme_rate', 12.5);
+        $this->actingAs($staff)
+            ->getJson("/inbound/consignment-in/drafts/{$draft->draft_id}")
+            ->assertForbidden();
     }
 
+    /**
+     * Rute draft consignment kini Owner-only; Staff ditolak di gerbang otorisasi.
+     */
     #[Test]
-    public function a_draft_belongs_to_the_staff_who_made_it(): void
+    public function a_draft_is_forbidden_for_staff(): void
     {
         $draft = $this->startDraft($this->line(quantity: 2));
 
-        $other = User::factory()->staff()->create();
+        $staff = User::factory()->staff()->create();
 
         // Draft memuat harga dan skema penitip, jadi draft orang lain bukan
         // sekadar tidak berguna -- ia membocorkan harga konsinyasi orang tersebut.
-        $this->actingAs($other)
+        $this->actingAs($staff)
             ->getJson("/inbound/consignment-in/drafts/{$draft->draft_id}")
-            ->assertNotFound();
+            ->assertForbidden();
     }
 
     #[Test]

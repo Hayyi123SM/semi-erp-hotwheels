@@ -11,6 +11,7 @@ use App\Enums\OpnameLineStatus;
 use App\Enums\OpnameStatus;
 use App\Enums\OwnerType;
 use App\Enums\RtvStatus;
+use App\Http\Middleware\OwnerOnly;
 use App\Models\Consignor;
 use App\Models\Opname;
 use App\Models\OpnameLine;
@@ -172,7 +173,7 @@ class RtvTest extends TestCase
     #[Test]
     public function the_page_starts_empty_and_asks_for_a_consignor(): void
     {
-        $html = $this->actingAs($this->staff())
+        $html = $this->actingAs($this->owner())
             ->get(route('inventory.retur-rtv'))
             ->assertOk()
             ->assertSee('Pilih penitip lebih dulu')
@@ -187,14 +188,14 @@ class RtvTest extends TestCase
     #[Test]
     public function picking_a_consignor_lists_only_its_own_lots(): void
     {
-        $staff = $this->staff();
+        $owner = $this->owner();
         $consignor = $this->consignor();
         $other = $this->consignor();
 
         $this->lot($consignor, 4, 'CN01-HW-001');
         $this->lot($other, 9, 'CN02-HW-009');
 
-        $html = $this->actingAs($staff)
+        $html = $this->actingAs($owner)
             ->get(route('inventory.retur-rtv', ['penitip' => $consignor->id]))
             ->assertOk()
             ->assertSee('Qty Kembali')
@@ -207,7 +208,7 @@ class RtvTest extends TestCase
     #[Test]
     public function creating_a_session_keeps_only_the_rows_that_have_a_qty(): void
     {
-        $staff = $this->staff();
+        $owner = $this->owner();
         $consignor = $this->consignor();
 
         $chosen = $this->lot($consignor, 5, 'CN01-HW-001');
@@ -215,7 +216,7 @@ class RtvTest extends TestCase
 
         // Nol berarti "tidak ikut": form mengirim seluruh baris tabel, dan
         // kolom yang dibiarkan kosong harus gugur tanpa menolak formulirnya.
-        $this->create($staff, $consignor, [$chosen->id => 2, $skipped->id => 0], 'Tidak laku')
+        $this->create($owner, $consignor, [$chosen->id => 2, $skipped->id => 0], 'Tidak laku')
             ->assertRedirect(route('inventory.retur-rtv'))
             ->assertSessionHas('toast');
 
@@ -224,7 +225,7 @@ class RtvTest extends TestCase
         $this->assertSame(RtvStatus::Draft, $note->status);
         $this->assertSame('RTV-'.now()->format('Ymd').'-001', $note->rtv_no);
         $this->assertSame('Tidak laku', $note->reason);
-        $this->assertSame($staff->id, $note->created_by);
+        $this->assertSame($owner->id, $note->created_by);
         $this->assertSame(1, $note->lines()->count());
         $this->assertSame(2, $note->lines()->sole()->qty);
         $this->assertSame(0, $note->lines()->sole()->verified_qty);
@@ -234,7 +235,7 @@ class RtvTest extends TestCase
             'action' => AuditAction::RtvCreate->value,
             'entity' => RtvNote::class,
             'entity_id' => $note->id,
-            'user_id' => $staff->id,
+            'user_id' => $owner->id,
         ]);
     }
 
@@ -244,7 +245,7 @@ class RtvTest extends TestCase
         $consignor = $this->consignor();
         $lot = $this->lot($consignor, 2, 'CN01-HW-001');
 
-        $this->create($this->staff(), $consignor, [$lot->id => 3])
+        $this->create($this->owner(), $consignor, [$lot->id => 3])
             ->assertSessionHasErrors('qty');
 
         $this->assertSame(0, RtvNote::count());
@@ -253,7 +254,7 @@ class RtvTest extends TestCase
     #[Test]
     public function stock_owned_by_the_store_cannot_be_returned(): void
     {
-        $staff = $this->staff();
+        $owner = $this->owner();
         $consignor = $this->consignor();
 
         $own = StockLot::factory()
@@ -261,7 +262,7 @@ class RtvTest extends TestCase
             ->state(['sku' => 'OW00-HW-001', 'qty_on_hand' => 4, 'qty_received' => 4])
             ->create();
 
-        $this->create($staff, $consignor, [$own->id => 1])
+        $this->create($owner, $consignor, [$own->id => 1])
             ->assertSessionHasErrors('qty');
 
         $this->assertSame(0, RtvNote::count());
@@ -275,7 +276,7 @@ class RtvTest extends TestCase
         $stranger = $this->consignor();
         $lot = $this->lot($stranger, 4, 'CN02-HW-002');
 
-        $this->create($this->staff(), $consignor, [$lot->id => 1])
+        $this->create($this->owner(), $consignor, [$lot->id => 1])
             ->assertSessionHasErrors('qty');
 
         $this->assertSame(0, RtvNote::count());
@@ -289,7 +290,7 @@ class RtvTest extends TestCase
 
         $opname = $this->openOpnameFor($lot);
 
-        $this->create($this->staff(), $consignor, [$lot->id => 1])
+        $this->create($this->owner(), $consignor, [$lot->id => 1])
             ->assertSessionHasErrors('qty');
 
         $this->assertSame(0, RtvNote::count());
@@ -304,7 +305,7 @@ class RtvTest extends TestCase
 
         QuarantineCase::factory()->assigned($lot)->create();
 
-        $this->create($this->staff(), $consignor, [$lot->id => 1])
+        $this->create($this->owner(), $consignor, [$lot->id => 1])
             ->assertSessionHasErrors('qty');
 
         $this->assertSame(0, RtvNote::count());
@@ -313,14 +314,14 @@ class RtvTest extends TestCase
     #[Test]
     public function only_one_session_may_be_open_at_a_time(): void
     {
-        $staff = $this->staff();
+        $owner = $this->owner();
         $consignor = $this->consignor();
         $first = $this->lot($consignor, 4, 'CN01-HW-001');
         $second = $this->lot($consignor, 4, 'CN01-HW-002');
 
-        $this->create($staff, $consignor, [$first->id => 1])->assertSessionHasNoErrors();
+        $this->create($owner, $consignor, [$first->id => 1])->assertSessionHasNoErrors();
 
-        $this->create($staff, $consignor, [$second->id => 1])
+        $this->create($owner, $consignor, [$second->id => 1])
             ->assertSessionHasErrors('consignor_id');
 
         $this->assertSame(1, RtvNote::count());
@@ -332,7 +333,7 @@ class RtvTest extends TestCase
         $consignor = $this->consignor();
         $this->lot($consignor, 4, 'CN01-HW-001');
 
-        $this->create($this->staff(), $consignor, [])
+        $this->create($this->owner(), $consignor, [])
             ->assertSessionHasErrors('qty');
 
         $this->assertSame(0, RtvNote::count());
@@ -341,17 +342,17 @@ class RtvTest extends TestCase
     #[Test]
     public function staging_moves_every_line_to_the_staging_rack(): void
     {
-        $staff = $this->staff();
+        $owner = $this->owner();
         $consignor = $this->consignor();
         $staging = $this->stagingRack();
 
         $lot = $this->lot($consignor, 5, 'CN01-HW-001');
 
-        $this->create($staff, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
+        $this->create($owner, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
 
         $note = RtvNote::sole();
 
-        $this->staging($staff, $note)->assertSessionHasNoErrors();
+        $this->staging($owner, $note)->assertSessionHasNoErrors();
 
         $this->assertSame(RtvStatus::Verifying, $note->fresh()->status);
         $this->assertSame($staging->id, $lot->fresh()->rack_id);
@@ -375,20 +376,20 @@ class RtvTest extends TestCase
     #[Test]
     public function staging_is_refused_when_an_opname_session_opens_after_the_document_is_made(): void
     {
-        $staff = $this->staff();
+        $owner = $this->owner();
         $consignor = $this->consignor();
         $staging = $this->stagingRack();
 
         $lot = $this->lot($consignor, 5, 'CN01-HW-001');
 
-        $this->create($staff, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
+        $this->create($owner, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
 
         // Sesi opname lahir sesudah dokumen: barangnya masih di rak asal dan
         // sedang dihitung orang, jadi memindahkannya akan mengeluarkan unit
         // dari penghitungan yang sedang berlangsung.
         $this->openOpnameFor($lot);
 
-        $this->staging($staff, RtvNote::sole())->assertSessionHasErrors('rtv');
+        $this->staging($owner, RtvNote::sole())->assertSessionHasErrors('rtv');
 
         $this->assertSame(RtvStatus::Draft, RtvNote::sole()->fresh()->status);
         $this->assertSame($lot->rack_id, $lot->fresh()->rack_id);
@@ -398,13 +399,13 @@ class RtvTest extends TestCase
     #[Test]
     public function scanning_is_refused_before_the_goods_are_moved(): void
     {
-        $staff = $this->staff();
+        $owner = $this->owner();
         $consignor = $this->consignor();
         $lot = $this->lot($consignor, 5, 'CN01-HW-001');
 
-        $this->create($staff, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
+        $this->create($owner, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
 
-        $this->scan($staff, RtvNote::sole(), 'CN01-HW-001')->assertSessionHasErrors('sku');
+        $this->scan($owner, RtvNote::sole(), 'CN01-HW-001')->assertSessionHasErrors('sku');
 
         $this->assertSame(0, RtvNote::sole()->lines()->sole()->verified_qty);
     }
@@ -412,29 +413,29 @@ class RtvTest extends TestCase
     #[Test]
     public function each_scan_adds_one_unit_and_refuses_to_go_past_the_planned_qty(): void
     {
-        $staff = $this->staff();
+        $owner = $this->owner();
         $consignor = $this->consignor();
         $this->stagingRack();
 
         $lot = $this->lot($consignor, 5, 'CN01-HW-001');
 
-        $this->create($staff, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
+        $this->create($owner, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
         $note = RtvNote::sole();
 
-        $this->staging($staff, $note)->assertSessionHasNoErrors();
+        $this->staging($owner, $note)->assertSessionHasNoErrors();
 
         // Pemindai mengirim huruf kecil dan spasi ujung: label memang begitu
         // cara dicetaknya, dan menolaknya akan terdengar seperti barang asing.
-        $this->scan($staff, $note, '  cn01-hw-001 ')->assertSessionHasNoErrors();
-        $this->scan($staff, $note, 'CN01-HW-001')->assertSessionHasNoErrors();
+        $this->scan($owner, $note, '  cn01-hw-001 ')->assertSessionHasNoErrors();
+        $this->scan($owner, $note, 'CN01-HW-001')->assertSessionHasNoErrors();
 
         $this->assertSame(2, $note->lines()->sole()->fresh()->verified_qty);
-        $this->assertSame($staff->id, $note->lines()->sole()->fresh()->verified_by);
+        $this->assertSame($owner->id, $note->lines()->sole()->fresh()->verified_by);
 
-        $this->scan($staff, $note, 'CN01-HW-001')->assertSessionHasErrors('sku');
+        $this->scan($owner, $note, 'CN01-HW-001')->assertSessionHasErrors('sku');
         $this->assertSame(2, $note->lines()->sole()->fresh()->verified_qty);
 
-        $this->scan($staff, $note, 'CN01-HW-999')->assertSessionHasErrors('sku');
+        $this->scan($owner, $note, 'CN01-HW-999')->assertSessionHasErrors('sku');
     }
 
     #[Test]
@@ -465,6 +466,9 @@ class RtvTest extends TestCase
     #[Test]
     public function approval_is_refused_without_owner_authorization(): void
     {
+        // Uji PIN ini butuh aktor non-owner; rute RTV sendiri kini khusus Owner.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $staff = $this->staff();
         $consignor = $this->consignor();
         $this->stagingRack();
@@ -492,6 +496,9 @@ class RtvTest extends TestCase
     #[Test]
     public function staff_may_execute_with_a_token_issued_for_this_action(): void
     {
+        // Uji PIN ini butuh aktor non-owner; rute RTV sendiri kini khusus Owner.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $staff = $this->staff();
         $consignor = $this->consignor();
         $this->stagingRack();

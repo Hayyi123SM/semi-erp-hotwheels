@@ -21,6 +21,8 @@
  * stack listeners.
  */
 
+import Swal from 'sweetalert2';
+
 const TEMPLATE_ID = 'pin-dialog';
 const VERIFY_URL = '/pin/verify';
 const PIN_LENGTH = 6;
@@ -93,12 +95,16 @@ export function pinDialogForm() {
  * @param {object} [options.notify] the shared dialog helper
  * @param {object} [options.Alpine]   for reading the body scope off the popup
  * @param {string} [options.url]      override for the verify endpoint
+ * @param {Function} [options.getPopup]
+ *        returns the current SweetAlert2 popup, for reading the form scope off
+ *        it; defaults to `Swal.getPopup()`
  */
 export function pinDialog(options = {}) {
     return new PinDialog(
         options.notify ?? window.notify,
         options.Alpine ?? window.Alpine,
         options.url ?? VERIFY_URL,
+        options.getPopup ?? (() => Swal.getPopup()),
     );
 }
 
@@ -111,11 +117,13 @@ class PinDialog {
     #notify;
     #Alpine;
     #url;
+    #getPopup;
 
-    constructor(notify, Alpine, url) {
+    constructor(notify, Alpine, url, getPopup) {
         this.#notify = notify;
         this.#Alpine = Alpine;
         this.#url = url;
+        this.#getPopup = getPopup;
     }
 
     /**
@@ -146,11 +154,11 @@ class PinDialog {
             showConfirmButton: true,
             confirmText: confirmText ?? 'Konfirmasi',
             cancelText: 'Batal',
-            // Not an arrow: SweetAlert2 runs `preConfirm` with its own instance
-            // as the receiver, and that instance is the only thing that knows
-            // which popup this is now.
+            // SweetAlert2 invokes `preConfirm` unbound, so `this` inside a
+            // method here is never this instance. The current popup is fetched
+            // through an injected `getPopup` instead of assuming a receiver.
             onConfirm() {
-                return dialog.exchange(action, this.getPopup());
+                return dialog.exchange(action, dialog.#getPopup());
             },
         });
 

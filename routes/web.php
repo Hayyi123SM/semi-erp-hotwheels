@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Auth\PinController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\HomeController;
 use App\Http\Controllers\Inbound\ProductSearchController;
 use App\Http\Controllers\Master\ConsignorController;
 use App\Http\Controllers\Master\ImportController;
@@ -20,12 +21,15 @@ use App\Http\Controllers\Pos\ProductLookupController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
-// Pengalihan ke dashboard memakai `Route::redirect`, bukan closure. Route
-// berbentuk closure tidak bisa diserialisasi sehingga `route:cache` — yang
-// dipasang entrypoint container produksi — akan gagal.
-Route::redirect('/', '/dashboard');
+// Halaman muka meneruskan Owner ke dashboard dan Staff ke kasir. Dipisah
+// sebagai controller invokable, bukan closure, karena `route:cache` — yang
+// dipasang entrypoint container produksi — menolak route berbentuk closure.
+Route::get('/', HomeController::class)->middleware('auth')->name('home');
 
-Route::middleware('auth')->group(function () {
+// Satu-satunya batas peran di aplikasi ini: Owner memegang semua modul, Staff
+// hanya POS. Karena itu setiap section non-POS dibungkus middleware `owner` di
+// sini, bukan ditempel per-route, supaya jawabannya terbaca di satu tempat.
+Route::middleware(['auth', 'owner'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     // ===== 1. Master Data =====
@@ -52,20 +56,20 @@ Route::middleware('auth')->group(function () {
     Route::put('/master/lokasi-rak/{rack}', [RackController::class, 'update'])->name('master.lokasi-rak.update');
     Route::patch('/master/lokasi-rak/{rack}/toggle', [RackController::class, 'toggleActive'])->name('master.lokasi-rak.toggle');
     Route::delete('/master/lokasi-rak/{rack}', [RackController::class, 'destroy'])->name('master.lokasi-rak.destroy');
-    // Label rak tidak butuh hak Owner: Staff yang menyusun rak juga yang
-    // memasang labelnya (FR-MD-21). Form dipisah dari daftar supaya pencarian
-    // tabel tidak ikut menyaring daftar rak yang bisa dicetak.
+    // Form label rak dipisah dari daftar supaya pencarian tabel tidak ikut
+    // menyaring daftar rak yang bisa dicetak. Modul Master Data kini Owner-only,
+    // jadi label rak ikut di dalam batas itu.
     Route::get('/master/lokasi-rak/cetak-label', [RackController::class, 'labelForm'])->name('master.lokasi-rak.label-form');
     Route::post('/master/lokasi-rak/cetak-label', [RackController::class, 'printLabels'])->name('master.lokasi-rak.print-labels');
 
     // Seri produk (dipakai modal Kelola Seri di halaman Katalog)
     Route::get('/master/seri', [ProductSeriesController::class, 'index'])->name('master.seri.index');
-    Route::post('/master/seri', [ProductSeriesController::class, 'store'])->name('master.seri.store')->middleware('owner');
-    Route::put('/master/seri/{series}', [ProductSeriesController::class, 'update'])->name('master.seri.update')->middleware('owner');
-    Route::delete('/master/seri/{series}', [ProductSeriesController::class, 'destroy'])->name('master.seri.destroy')->middleware('owner');
+    Route::post('/master/seri', [ProductSeriesController::class, 'store'])->name('master.seri.store');
+    Route::put('/master/seri/{series}', [ProductSeriesController::class, 'update'])->name('master.seri.update');
+    Route::delete('/master/seri/{series}', [ProductSeriesController::class, 'destroy'])->name('master.seri.destroy');
 
-    // Impor massal (Owner-only)
-    Route::prefix('/master/import')->middleware('owner')->name('master.import.')->group(function () {
+    // Impor massal
+    Route::prefix('/master/import')->name('master.import.')->group(function () {
         // `template` WAJIB lebih dulu dari `{token}`. Keduanya GET dengan empat
         // segmen dan sama-sama punya satu parameter di posisi ketiga, jadi
         // tanpa urutan ini wildcard `{token}` akan menelan permintaan template
@@ -113,9 +117,9 @@ Route::middleware('auth')->group(function () {
     Route::delete('/inbound/consignment-in/drafts/{draftId}', [InboundController::class, 'draftDestroy'])->name('inbound.consignment-in.drafts.destroy');
     Route::get('/inbound/consignment-in/riwayat', [InboundController::class, 'consignmentHistory'])->name('inbound.consignment-in.riwayat');
     Route::get('/inbound/consignment-in/{consignment}', [InboundController::class, 'consignmentDetail'])->name('inbound.consignment-in.detail');
-    // E-receipt WA (FR-IB-16). Kirim ulang tidak butuh hak Owner: yang menekan
-    // biasanya Staff yang menerima barang, dan-notifikasi ini tidak mengubah
-    // stok maupun dokumen.
+    // E-receipt WA (FR-IB-16). Kirim ulang hanya mengulang notifikasi dan tidak
+    // mengubah stok maupun dokumen, tetapi modul Inbound kini Owner-only, jadi
+    // route ini ikut di dalam batas itu.
     /**
      * Bukti terima titipan yang dicetak dan ditandatangani penitip.
      *
@@ -186,12 +190,17 @@ Route::middleware('auth')->group(function () {
     // pengguna lewat tombol kembali peramban.
     Route::get('/inventory/stok-opname', [OpnameController::class, 'index'])->name('inventory.stok-opname');
     Route::post('/inventory/stok-opname', [OpnameController::class, 'store'])->name('inventory.stok-opname.store');
-    // `scopeBindings()` pada dua route bersarang: tanpanya `{line}` diambil
+    // `scopeBindings()` pada tiga route bersarang: tanpanya `{line}` diambil
     // dari `opname_lines` mana pun yang id-nya cocok, sehingga baris sesi lama
-    // bisa dihitung atau diputuskan lewat URL sesi yang sedang berjalan. Dengan
-    // scoping, baris hanya ditemukan bila ia memang milik `{opname}` di URL.
+    // bisa dihitung, ditambah, atau diputuskan lewat URL sesi yang sedang
+    // berjalan. Dengan scoping, baris hanya ditemukan bila ia memang milik
+    // `{opname}` di URL.
     Route::post('/inventory/stok-opname/{opname}/baris/{line}/hitung', [OpnameController::class, 'hitung'])->scopeBindings()->name('inventory.stok-opname.hitung');
+    Route::post('/inventory/stok-opname/{opname}/baris/{line}/tambah', [OpnameController::class, 'tambah'])->scopeBindings()->name('inventory.stok-opname.tambah');
     Route::post('/inventory/stok-opname/{opname}/ajukan', [OpnameController::class, 'ajukan'])->name('inventory.stok-opname.ajukan');
+    // Rute review tidak perlu middleware `owner` sendiri: seluruh modul
+    // Inventory sudah berada di dalam grup `['auth', 'owner']` di atas, jadi
+    // memutuskan selisih memang hanya sampai ke Owner.
     Route::post('/inventory/stok-opname/{opname}/baris/{line}/review', [OpnameController::class, 'review'])->scopeBindings()->name('inventory.stok-opname.review');
     Route::post('/inventory/stok-opname/{opname}/batal', [OpnameController::class, 'batal'])->name('inventory.stok-opname.batal');
     Route::get('/inventory/retur-rtv', [RtvController::class, 'index'])->name('inventory.retur-rtv');
@@ -200,7 +209,12 @@ Route::middleware('auth')->group(function () {
     Route::post('/inventory/retur-rtv/{rtv}/scan', [RtvController::class, 'scan'])->name('inventory.retur-rtv.scan');
     Route::post('/inventory/retur-rtv/{rtv}/setujui', [RtvController::class, 'approve'])->name('inventory.retur-rtv.approve');
     Route::post('/inventory/retur-rtv/{rtv}/batal', [RtvController::class, 'batal'])->name('inventory.retur-rtv.batal');
+});
 
+// POS / Kasir: Owner dan Staff. Batasnya bukan peran melainkan kepemilikan
+// shift atau PIN Owner, karena menerima uang dan menutup shift adalah
+// pekerjaan kasir.
+Route::middleware('auth')->group(function () {
     // ===== 4. POS / Kasir =====
     Route::get('/pos/kasir', [PosController::class, 'kasir'])->name('pos.kasir');
     Route::get('/pos/riwayat-transaksi', [PosController::class, 'riwayat'])->name('pos.riwayat');
@@ -293,14 +307,19 @@ Route::middleware('auth')->group(function () {
     Route::post('/pos/produk/cari', ProductLookupController::class)
         ->middleware('throttle:120,1')
         ->name('pos.produk.cari');
+});
 
+// Reports & Analisis dan Pengaturan: Owner saja, sama seperti section non-POS
+// lain. Endpoint ekspor tetap punya penjaga sendiri di controller karena bisa
+// dipanggil langsung tanpa melewati halaman.
+Route::middleware(['auth', 'owner'])->group(function () {
     // ===== 5. Reports & Analisis =====
     // Settlement dan Margin membeberkan uang toko (saldo hak penitip, HPP,
     // laba), jadi Owner-only. Pembatasan di controller juga dibuat untuk
     // melindungi endpoint ekspor -- middleware di route melindungi halaman,
     // `abort_unless` di controller menahan unduhan yang dipanggil langsung.
-    Route::get('/reports/consignor-settlement', [ReportController::class, 'settlement'])->middleware('owner')->name('report.settlement');
-    Route::get('/reports/profit-margin', [ReportController::class, 'margin'])->middleware('owner')->name('report.margin');
+    Route::get('/reports/consignor-settlement', [ReportController::class, 'settlement'])->name('report.settlement');
+    Route::get('/reports/profit-margin', [ReportController::class, 'margin'])->name('report.margin');
     Route::get('/reports/laporan-penjualan-stok', [ReportController::class, 'laporan'])->name('report.laporan');
     Route::get('/reports/audit-log', [ReportController::class, 'auditLog'])->name('report.audit-log');
 
@@ -312,7 +331,7 @@ Route::middleware('auth')->group(function () {
     // and role by typing the URL. The whole group is wrapped so the answer is
     // readable in one place instead of per-method `abort_unless` calls that
     // can be forgotten.
-    Route::prefix('/settings/pengguna-role')->middleware('owner')->group(function (): void {
+    Route::prefix('/settings/pengguna-role')->group(function (): void {
         Route::get('/', [UserManagementController::class, 'index'])->name('setting.pengguna');
         Route::get('/create', [UserManagementController::class, 'create'])->name('setting.pengguna.create');
         Route::post('/', [UserManagementController::class, 'store'])->name('setting.pengguna.store');
@@ -326,13 +345,10 @@ Route::middleware('auth')->group(function () {
     /**
      * Menyimpan pengaturan printer label. Owner saja.
      *
-     * `GET` di halaman Perangkat tidak memakai middleware owner karena Staff
-     * boleh membuka halaman itu untuk melihat printer yang sedang dipakai.
-     * Menyimpan setelan berbeda: ukuran label menentukan isi setiap label yang
-     * keluar dari printer, jadi harus dipegang Owner.
+     * Ukuran label menentukan isi setiap label yang keluar dari printer, dan
+     * seluruh modul Pengaturan memang Owner-only.
      */
     Route::put('/settings/perangkat/label', [SettingController::class, 'savePrinterSettings'])
-        ->middleware('owner')
         ->name('setting.perangkat.label.update');
 
     /**
@@ -352,7 +368,6 @@ Route::middleware('auth')->group(function () {
      * log akses dan jadi terlalu panjang untuk dibaca.
      */
     Route::post('/settings/perangkat/label/preview', [SettingController::class, 'previewPrinterLabel'])
-        ->middleware('owner')
         ->name('setting.perangkat.label.preview');
 
     /**
@@ -363,7 +378,6 @@ Route::middleware('auth')->group(function () {
      * jalur simpanannya dipisah supaya izinnya tidak ikut mewarisi route label.
      */
     Route::put('/settings/perangkat/struk', [SettingController::class, 'saveReceiptPrinterSettings'])
-        ->middleware('owner')
         ->name('setting.perangkat.struk.update');
 
     Route::get('/settings/wa-template', [SettingController::class, 'waTemplate'])->name('setting.wa-template');
@@ -377,15 +391,15 @@ Route::middleware('auth')->group(function () {
      * dipakai semua orang -- batas diskon yang dilihat kasir saat memotong harga,
      * dan ambang selisih kas yang menentukan apakah tutup shift perlu PIN Owner.
      * Nilai yang boleh diubah Staff sendiri akan jadi nilai yang tidak dipercaya.
-     *
-     * Halaman `GET` tetap terbuka untuk semua orang karena isinya hanya hak akses
-     * dan batas nominal, bukan data bisnis. Yang dipegang Owner adalah jalur
-     * simpanannya.
+     * Halaman `GET`-nya ikut Owner-only bersama seluruh modul Pengaturan.
      */
     Route::put('/settings/parameter', [SettingController::class, 'savePosSettings'])
-        ->middleware('owner')
         ->name('setting.parameter.update');
+});
 
+// Profil dan PIN: milik semua role. Staff mengganti password sendiri dan
+// menutup shift memakai PIN Owner, jadi keduanya tidak boleh Owner-only.
+Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');

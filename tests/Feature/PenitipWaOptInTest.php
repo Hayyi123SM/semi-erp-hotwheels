@@ -35,7 +35,8 @@ class PenitipWaOptInTest extends TestCase
     {
         parent::setUp();
 
-        $this->staff = User::factory()->staff()->create();
+        // Halaman dan aksi penitip (konsinyor) hanya boleh diakses Owner.
+        $this->staff = User::factory()->owner()->create();
         $this->actingAs($this->staff);
     }
 
@@ -66,6 +67,8 @@ class PenitipWaOptInTest extends TestCase
             'name' => 'Budi Santoso',
             'wa_number' => '+62 812-3456-7890',
             'wa_opt_in' => '1',
+            'scheme_type' => 'PERCENTAGE',
+            'scheme_rate' => '10',
             'status' => 'ACTIVE',
         ])->assertSessionHasNoErrors();
 
@@ -84,6 +87,8 @@ class PenitipWaOptInTest extends TestCase
         $this->post('/master/penitip', [
             'name' => 'Budi Santoso',
             'wa_number' => '+62 812-3456-7890',
+            'scheme_type' => 'PERCENTAGE',
+            'scheme_rate' => '10',
             'status' => 'ACTIVE',
         ])->assertSessionHasNoErrors();
 
@@ -140,6 +145,8 @@ class PenitipWaOptInTest extends TestCase
             'name' => 'Budi Santoso',
             'wa_number' => '+62 812-3456-7890',
             'wa_opt_in' => '1',
+            'scheme_type' => 'PERCENTAGE',
+            'scheme_rate' => '10',
             'status' => 'ACTIVE',
         ])->assertSessionHasNoErrors();
 

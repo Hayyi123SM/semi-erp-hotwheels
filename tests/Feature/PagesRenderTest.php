@@ -90,7 +90,7 @@ class PagesRenderTest extends TestCase
     #[Test]
     public function the_toast_carries_a_control_that_dismisses_it(): void
     {
-        $response = $this->actingAs(User::factory()->create())->get('/dashboard');
+        $response = $this->actingAs(User::factory()->owner()->create())->get('/dashboard');
 
         $response->assertSee('$store.toast.dismiss(t.id)', false);
         $response->assertSee('Tutup notifikasi', false);
@@ -103,7 +103,7 @@ class PagesRenderTest extends TestCase
     #[Test]
     public function the_toast_pauses_its_clock_while_it_is_hovered(): void
     {
-        $response = $this->actingAs(User::factory()->create())->get('/dashboard');
+        $response = $this->actingAs(User::factory()->owner()->create())->get('/dashboard');
 
         $response->assertSee('@mouseenter="$store.toast.pause(t.id)"', false);
         $response->assertSee('@mouseleave="$store.toast.resume(t.id)"', false);

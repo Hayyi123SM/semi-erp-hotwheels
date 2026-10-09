@@ -44,7 +44,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     {
         $consignment = $this->completedWithLots();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.consignment-in.bukti-terima', $consignment))
             ->assertOk()
             ->assertSee($consignment->doc_no)
@@ -58,7 +58,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     {
         $consignment = $this->completedWithLots();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.consignment-in.bukti-terima', $consignment))
             ->assertOk()
             ->assertSee('Petugas Toko')
@@ -73,7 +73,7 @@ class ConsignmentReceiptPrintTest extends TestCase
 
         $consignment = $this->completedWithLots();
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.consignment-in.bukti-terima', $consignment))
             ->assertOk();
 
@@ -96,7 +96,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     public function the_footer_names_when_and_by_whom_it_was_printed(): void
     {
         $consignment = $this->completedWithLots();
-        $printer = User::factory()->staff()->create(['name' => 'Rangga Saputra']);
+        $printer = User::factory()->owner()->create(['name' => 'Rangga Saputra']);
 
         $response = $this->actingAs($printer)
             ->get(route('inbound.consignment-in.bukti-terima', $consignment))
@@ -112,7 +112,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     {
         $consignment = $this->completedWithLots();
 
-        $content = $this->actingAs(User::factory()->staff()->create())
+        $content = $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.consignment-in.bukti-terima', $consignment))
             ->assertOk()
             ->getContent();
@@ -128,7 +128,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     {
         $consignment = $this->completedWithLots();
 
-        $staff = User::factory()->staff()->create();
+        $staff = User::factory()->owner()->create();
 
         foreach (range(1, 3) as $ignored) {
             $this->actingAs($staff)
@@ -143,7 +143,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     public function auto_print_only_appears_when_it_was_asked_for(): void
     {
         $consignment = $this->completedWithLots();
-        $staff = User::factory()->staff()->create();
+        $staff = User::factory()->owner()->create();
 
         $withoutFlag = $this->actingAs($staff)
             ->get(route('inbound.consignment-in.bukti-terima', $consignment))
@@ -171,11 +171,11 @@ class ConsignmentReceiptPrintTest extends TestCase
         $consignment = $this->completedWithLots();
         $consignment->update(['status' => ConsignmentStatus::Draft]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.consignment-in.bukti-terima', $consignment))
             ->assertNotFound();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.consignment-in.bukti-terima.serahkan', $consignment))
             ->assertNotFound();
     }
@@ -186,7 +186,7 @@ class ConsignmentReceiptPrintTest extends TestCase
         $consignment = $this->completedWithLots();
         $consignment->update(['status' => ConsignmentStatus::Void]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.consignment-in.bukti-terima', $consignment))
             ->assertNotFound();
     }
@@ -196,7 +196,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     {
         $consignment = $this->completedWithLots();
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->from(route('inbound.consignment-in.detail', $consignment))
             ->post(route('inbound.consignment-in.bukti-terima.serahkan', $consignment))
             ->assertRedirect(route('inbound.consignment-in.detail', $consignment))
@@ -212,7 +212,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     public function further_printings_are_recorded_as_reprints_without_a_ceiling(): void
     {
         $consignment = $this->completedWithLots();
-        $staff = User::factory()->staff()->create();
+        $staff = User::factory()->owner()->create();
 
         $this->actingAs($staff)->post(route('inbound.consignment-in.bukti-terima.serahkan', $consignment));
 
@@ -242,7 +242,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     public function the_detail_page_reports_how_often_the_receipt_was_handed_over(): void
     {
         $consignment = $this->completedWithLots();
-        $staff = User::factory()->staff()->create();
+        $staff = User::factory()->owner()->create();
 
         $this->actingAs($staff)
             ->get(route('inbound.consignment-in.detail', $consignment))
@@ -269,7 +269,7 @@ class ConsignmentReceiptPrintTest extends TestCase
         // Kalau tidak, pembuatan lot kedua gagal sebelum baris yang diperiksa
         // sempat ada, dan test-nya jadi lulus karena alasan yang salah.
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->get(route('inbound.consignment-in.riwayat'))
             ->assertOk();
 
@@ -295,7 +295,7 @@ class ConsignmentReceiptPrintTest extends TestCase
     {
         $consignment = $this->completedWithLots();
 
-        $response = $this->actingAs(User::factory()->staff()->create())
+        $response = $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.consignment-in.bukti-terima.thermal', $consignment))
             ->assertOk()
             ->assertJsonPath('ok', true)
@@ -319,7 +319,7 @@ class ConsignmentReceiptPrintTest extends TestCase
 
         Setting::set(PrintSettings::PAPER_KEY, PaperSize::Mm58->value);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.consignment-in.bukti-terima.thermal', $consignment))
             ->assertOk()
             ->assertJsonPath('paper', '58mm')
@@ -333,7 +333,7 @@ class ConsignmentReceiptPrintTest extends TestCase
 
         Setting::set(PrintSettings::PAPER_KEY, PaperSize::A4->value);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.consignment-in.bukti-terima.thermal', $consignment))
             ->assertUnprocessable()
             ->assertJsonPath('ok', false);
@@ -345,7 +345,7 @@ class ConsignmentReceiptPrintTest extends TestCase
         $consignment = $this->completedWithLots();
         $consignment->update(['status' => ConsignmentStatus::Draft]);
 
-        $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->owner()->create())
             ->post(route('inbound.consignment-in.bukti-terima.thermal', $consignment))
             ->assertNotFound();
     }

@@ -290,17 +290,15 @@ class PosSettingsTest extends TestCase
             ->assertSee('Simpan Parameter POS');
     }
 
+    /**
+     * Staff tidak boleh membuka halaman parameter POS.
+     */
     #[Test]
-    public function the_parameter_page_shows_a_staff_member_the_limits_without_a_form(): void
+    public function staff_cannot_see_the_parameter_page(): void
     {
-        Setting::set(PosSettings::STAFF_DISCOUNT_LIMIT_KEY, 15);
-
         $this->actingAs(User::factory()->staff()->create())
             ->get(route('setting.parameter'))
-            ->assertOk()
-            ->assertSee('Batas diskon kasir')
-            ->assertSee('15%')
-            ->assertDontSee('Simpan Parameter POS');
+            ->assertForbidden();
     }
 
     #[Test]
@@ -340,16 +338,15 @@ class PosSettingsTest extends TestCase
             ->assertSee('belum ada pengaturan', false);
     }
 
+    /**
+     * Staff tidak boleh membuka halaman parameter POS.
+     */
     #[Test]
-    public function the_parameter_page_is_visible_to_staff_but_not_editable(): void
+    public function staff_cannot_open_the_parameter_page(): void
     {
         $this->actingAs(User::factory()->staff()->create())
             ->get(route('setting.parameter'))
-            ->assertOk();
-
-        $this->actingAs($this->owner())
-            ->get(route('setting.parameter'))
-            ->assertOk();
+            ->assertForbidden();
     }
 
     #[Test]

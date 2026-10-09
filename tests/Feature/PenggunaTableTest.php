@@ -33,10 +33,13 @@ class PenggunaTableTest extends TestCase
     #[Test]
     public function it_sorts_on_the_server(): void
     {
-        $owner = User::factory()->owner()->create(['name' => 'Zeta Owner']);
+        // Aktor dipisah dari baris data: nama pemilik yang login ikut tampil di
+        // sidebar dan topbar, sehingga tidak boleh menimpa urutan baris tabel.
+        $actor = User::factory()->owner()->create(['name' => 'Andi Saputra']);
+        User::factory()->owner()->create(['name' => 'Zeta Owner']);
         User::factory()->staff()->create(['name' => 'Alpha Staf']);
 
-        $html = $this->actingAs($owner)
+        $html = $this->actingAs($actor)
             ->get(route('setting.pengguna', ['sort' => 'name', 'direction' => 'asc']))
             ->assertOk()
             ->getContent();
@@ -70,10 +73,14 @@ class PenggunaTableTest extends TestCase
     #[Test]
     public function it_filters_by_role(): void
     {
-        $owner = User::factory()->owner()->create(['name' => 'Owner Satu']);
+        // Aktor dipisah dari baris data: nama pemilik yang login ikut tampil di
+        // sidebar dan topbar, sehingga baris Owner yang disaring harus milik
+        // pengguna lain agar pengecekan tidak ikut menangkap chrome halaman.
+        $actor = User::factory()->owner()->create(['name' => 'Andi Saputra']);
+        User::factory()->owner()->create(['name' => 'Owner Satu']);
         User::factory()->staff()->create(['name' => 'Staf Satu']);
 
-        $this->actingAs($owner)
+        $this->actingAs($actor)
             ->get(route('setting.pengguna', ['role' => Role::Staff->value]))
             ->assertOk()
             ->assertSee('Staf Satu')

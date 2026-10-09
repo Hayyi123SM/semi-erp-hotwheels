@@ -2,9 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Models\Consignment;
 use App\Models\Consignor;
+use App\Models\Opname;
+use App\Models\OpnameLine;
+use App\Models\Product;
 use App\Models\ProductSeries;
 use App\Models\Rack;
+use App\Models\RtvNote;
+use App\Models\StockLot;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Route as RoutingRoute;
@@ -15,18 +21,19 @@ use Tests\TestCase;
 /**
  * Otorisasi harus punya satu jawaban, di satu tempat.
  *
- * Aplikasi ini punya tepat satu batas role: ada pekerjaan yang Owner lakukan
- * dan Staff tidak.SUDAH dulu batas itu dinyatakan tiga kali sekaligus --
- * sebagai middleware di route, sebagai `abort_unless` di controller, dan
- * sebagai predikat `when` di tabel Blade -- dan tidak ada yang memaksa ketiganya
- * sepakat. Hasilnya tiga bug nyata: tombol yang selalu ditolak, menu yang
- * disembunyikan tapi halamannya tetap terbuka, dan angka Owner yang bocor lewat
- * kartu di luar tabel.
+ * Aplikasi ini punya tepat satu batas role: Owner memegang semua modul, Staff
+ * hanya POS. Batas itu dinyatakan tiga kali sekaligus -- sebagai middleware
+ * di route, sebagai `abort_unless` di controller, dan sebagai predikat `when`
+ * di tabel Blade -- dan tidak ada yang memaksa ketiganya sepakat. Hasilnya
+ * bug nyata: tombol yang selalu ditolak, menu yang disembunyikan tapi
+ * halamannya tetap terbuka, dan angka Owner yang bocor lewat kartu di luar
+ * tabel.
  *
- * Test di bawah mengunci keempatnya, lalu menambahkan satu invariant yang
- * memindai route ber-middleware `owner` dan memastikan tidak ada yang bisa
- * dijangkau Staff. Invariant itulah yang dipasang supaya temuan berikutnya
- * tidak harus ditemukan manual.
+ * Test di bawah mengunci perbaikan itu, lalu menambahkan dua invariant yang
+ * saling mengunci: yang satu memindai route ber-middleware `owner` dan
+ * memastikan Staff ditolak di semuanya, yang lain memastikan tidak ada route
+ * ber-auth yang tertinggal terbuka untuk Staff tanpa masuk `pos.*` atau
+ * daftar dua-peran.
  */
 class AuthorizationConsistencyTest extends TestCase
 {
@@ -42,22 +49,36 @@ class AuthorizationConsistencyTest extends TestCase
         return User::factory()->staff()->create();
     }
 
+    /**
+     * Route ber-auth yang memang boleh dibuka kedua peran: pendukung POS,
+     * profil, dan mekanisme keamanan bawaan. Sisanya (selain `pos.*`) wajib
+     * Owner-only -- dicek invariant di bawah.
+     */
+    private const BOTH_ROLE_ROUTES = [
+        'home',
+        'logout',
+        'profile.edit',
+        'profile.update',
+        'profile.destroy',
+        'pin.verify',
+        'password.confirm',
+        'password.update',
+        'verification.notice',
+        'verification.verify',
+        'verification.send',
+    ];
+
     // ===== F1: tombol Lokasi Rak yang selalu ditolak =====
 
     #[Test]
-    public function staff_sees_no_action_button_on_a_rack(): void
+    public function staff_cannot_open_the_rack_module(): void
     {
         $staff = $this->staff();
         Rack::factory()->create(['code' => 'A-01', 'is_active' => true]);
 
-        // Tombol "Aktif" pernah tampil untuk Staff lalu selalu 403, karena
-        // predikatnya `! $isOwner || $rack->is_active` yang selalu benar untuk
-        // role kedua. Sekarang Staff tidak boleh melihat satu pun tombol aksi.
-        $html = $this->actingAs($staff)->get(route('master.lokasi-rak'))->getContent();
-
-        $this->assertStringNotContainsString('Nonaktifkan', $html);
-        $this->assertStringNotContainsString('Aktifkan', $html);
-        $this->assertStringNotContainsString('Hapus', $html);
+        // Modul Master Data kini Owner-only: Staff ditolak di pintu, bukan
+        // dibiarkan masuk lalu dihadang tombol per tombol yang selalu 403.
+        $this->actingAs($staff)->get(route('master.lokasi-rak'))->assertForbidden();
     }
 
     #[Test]
@@ -103,18 +124,18 @@ class AuthorizationConsistencyTest extends TestCase
     }
 
     #[Test]
-    public function staff_may_still_create_and_read_consignors(): void
+    public function staff_cannot_read_or_create_consignors(): void
     {
-        // Mengencangkan edit tidak boleh menutup jalur yang memang terbuka.
+        // Kuncian edit dulu, lalu menyeluruh: seluruh Master Data Owner-only.
         $staff = $this->staff();
 
-        $this->actingAs($staff)->get(route('master.penitip'))->assertOk();
+        $this->actingAs($staff)->get(route('master.penitip'))->assertForbidden();
         $this->actingAs($staff)->post(route('master.penitip.store'), [
             'name' => 'Siti',
             'status' => 'ACTIVE',
-        ])->assertRedirect(route('master.penitip'));
+        ])->assertForbidden();
 
-        $this->assertSame(1, Consignor::count());
+        $this->assertSame(0, Consignor::count());
     }
 
     // ===== F4: menu Pengguna disembunyikan tapi halamannya terbuka =====
@@ -136,16 +157,14 @@ class AuthorizationConsistencyTest extends TestCase
     // ===== F12: kartu saldo Owner bocor ke Staff =====
 
     #[Test]
-    public function staff_does_not_see_the_due_balance_stat_card(): void
+    public function staff_cannot_read_the_consignor_list_too(): void
     {
         $staff = $this->staff();
 
-        // Kolom "Saldo Jatuh Tempo" di tabel sudah disembunyikan dari Staff,
-        // tapi agregatnya bocor lewat kartu di atas tabel. Mengetik angka yang
-        // sama di tempat berbeda bukan menyembunyikan, hanya memindahkan.
-        $html = $this->actingAs($staff)->get(route('master.penitip'))->getContent();
-
-        $this->assertStringNotContainsString('Saldo Titipan Jatuh Tempo', $html);
+        // Agregat "Saldo Titipan Jatuh Tempo" pernah bocor ke Staff lewat
+        // halaman yang terbuka. Master Data kini Owner-only, jadi bocornya
+        // ditutup bersama akses halamannya.
+        $this->actingAs($staff)->get(route('master.penitip'))->assertForbidden();
     }
 
     #[Test]
@@ -182,6 +201,17 @@ class AuthorizationConsistencyTest extends TestCase
         return match ($name) {
             'user' => (string) $this->owner()->getKey(),
             'series' => (string) ProductSeries::factory()->create()->getKey(),
+            'consignor' => (string) Consignor::factory()->create()->getKey(),
+            'rack' => (string) Rack::factory()->create()->getKey(),
+            'product' => (string) Product::factory()->create()->getKey(),
+            'lot' => (string) StockLot::factory()->create()->getKey(),
+            'consignment' => (string) Consignment::factory()->create()->getKey(),
+            'opname' => (string) Opname::factory()->create()->getKey(),
+            'line' => (string) OpnameLine::factory()->create()->getKey(),
+            'rtv' => (string) RtvNote::factory()->create()->getKey(),
+            // Parameter non-model (token impor, draftId sesi) tidak di-route
+            // bind; mereka tidak akan bertemu model di route, jadi cukup angka
+            // apa pun -- middleware `owner` sudah menolak sebelum controller.
             default => 'x',
         };
     }
@@ -204,13 +234,54 @@ class AuthorizationConsistencyTest extends TestCase
                 $url = str_replace('{'.$parameter.'}', $this->parameterFor($parameter), $url);
             }
 
-            $this->actingAs($staff)
+            $status = $this->actingAs($staff)
                 ->{$method}($url)
-                ->assertForbidden("Route $method $uri harus menolak Staff.");
+                ->getStatusCode();
+
+            // 404 ikut diterima hanya untuk route ber-`scopeBindings()`: pasangan
+            // palsu `{opname}`/`{line}` kita tidak saling memiliki sehingga
+            // binding menolak sebelum middleware `owner` sempat jalan. Yang
+            // menjamin middleware-nya memang terpasang adalah invariant
+            // `every_authenticated_route_is_staff_open_or_owner_only`.
+            $this->assertContains(
+                $status,
+                [403, 404],
+                "Route $method $uri harus menolak Staff, malah menjawab $status."
+            );
         }
 
         // Penolakan tidak boleh diam-diam mengubah apa pun.
         $this->assertTrue($staff->fresh()->is_active);
+    }
+
+    /**
+     * Arah sebaliknya bagi pemindai di atas: route biasa bisa tidak sengaja
+     * dibiarkan terbuka untuk Staff.
+     *
+     * Pemindaian `every_owner_only_route_refuses_staff` mengambil route yang
+     * sudah ber-middleware `owner`; kalau middlewar-nya dicabut, route itu
+     * hilang dari daftar dan tidak akan pernah teruji. Invariant berikut
+     * menutup sisi itu: setiap route ber-auth yang bukan POS dan bukan rute
+     * dua-peran WAJIB menolak Staff -- entah lewat middleware `owner` di route,
+     * dalam `pos.*`, atau ada di daftar dua-peran.
+     */
+    #[Test]
+    public function every_authenticated_route_is_staff_open_or_owner_only(): void
+    {
+        $violations = collect(Route::getRoutes())
+            ->filter(fn (RoutingRoute $route) => in_array('auth', $route->gatherMiddleware(), true))
+            ->filter(fn (RoutingRoute $route) => $route->getName() !== null)
+            ->reject(fn (RoutingRoute $route) => str_starts_with($route->getName(), 'pos.'))
+            ->reject(fn (RoutingRoute $route) => in_array($route->getName(), self::BOTH_ROLE_ROUTES, true))
+            ->reject(fn (RoutingRoute $route) => in_array('owner', $route->gatherMiddleware(), true))
+            ->map(fn (RoutingRoute $route) => $route->getName())
+            ->values();
+
+        $this->assertSame(
+            [],
+            $violations->all(),
+            'Route ber-auth wajib masuk `pos.*`, daftar dua-peran, atau memakai middleware owner.'
+        );
     }
 
     /**
@@ -235,6 +306,13 @@ class AuthorizationConsistencyTest extends TestCase
             // Ukuran label menentukan isi label yang keluar dari printer,
             // jadi halaman simpannya ikut daftar route yang wajib owner.
             'setting.perangkat.label.update',
+            // Toll Station: dashboard dan seluruh modul non-POS dijaga
+            // middleware `owner` di level grup route.
+            'dashboard',
+            'master.penitip',
+            'inbound.stock-in-pribadi',
+            'inventory.karantina',
+            'report.settlement',
         ];
 
         $routeNames = collect(Route::getRoutes())

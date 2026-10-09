@@ -85,21 +85,48 @@ class DashboardService
      */
     public function warnings(): array
     {
-        $belumBerlabel = LabelPrintJob::query()
-            ->where('status', LabelStatus::Sent->value)
-            ->whereNull('confirmed_at')
-            ->count();
+        $quarantine = $this->quarantineSummary();
 
+        return [
+            'belumBerlabel' => $this->unconfirmedLabels(),
+            'karantina' => $quarantine['count'],
+            'karantinaAging' => $quarantine['oldestDays'],
+        ];
+    }
+
+    /**
+     * Ringkasan kasus karantina terbuka: jumlahnya dan umur kasus tertua.
+     *
+     * Satu definisi untuk dashboard, header, dan sidebar supaya angka "kasus
+     * menunggu verifikasi" tidak bisa berbeda antar tempat.
+     *
+     * @return array{count: int, oldestDays: int}
+     */
+    public function quarantineSummary(): array
+    {
         $oldest = QuarantineCase::query()
             ->whereIn('status', QuarantineStatus::openValues())
             ->orderBy('created_at')
             ->first();
 
         return [
-            'belumBerlabel' => $belumBerlabel,
-            'karantina' => QuarantineCase::query()->whereIn('status', QuarantineStatus::openValues())->count(),
-            'karantinaAging' => $oldest === null ? 0 : max(0, (int) $oldest->created_at->diffInDays(now())),
+            'count' => QuarantineCase::query()->whereIn('status', QuarantineStatus::openValues())->count(),
+            'oldestDays' => $oldest === null ? 0 : max(0, (int) $oldest->created_at->diffInDays(now())),
         ];
+    }
+
+    /**
+     * Label hasil cetak yang belum dikonfirmasi printer.
+     *
+     * Definisi tunggal "antrean konfirmasi", dipakai banner dashboard dan
+     * pusat notifikasi topbar supaya keduanya tidak bisa berbeda.
+     */
+    public function unconfirmedLabels(): int
+    {
+        return LabelPrintJob::query()
+            ->where('status', LabelStatus::Sent->value)
+            ->whereNull('confirmed_at')
+            ->count();
     }
 
     /**

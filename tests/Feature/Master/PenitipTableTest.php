@@ -102,19 +102,17 @@ class PenitipTableTest extends TestCase
             ->assertSee('Flat Rp7.500/unit');
     }
 
+    /**
+     * Halaman penitip hanya untuk Owner, jadi Staff ditolak sejak di pintu.
+     */
     #[Test]
-    public function it_hides_scheme_and_due_columns_from_staff(): void
+    public function staff_cannot_open_the_consignor_table(): void
     {
         $staff = User::factory()->staff()->create();
-        $this->penitip('Budi', ['scheme_rate' => 12.5]);
 
-        $html = $this->actingAs($staff)
+        $this->actingAs($staff)
             ->get(route('master.penitip'))
-            ->assertOk()
-            ->assertDontSee('12.5% dari harga jual')
-            ->getContent();
-
-        $this->assertStringNotContainsString('Saldo Jatuh Tempo', $html);
+            ->assertForbidden();
     }
 
     #[Test]

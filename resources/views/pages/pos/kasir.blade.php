@@ -374,13 +374,22 @@
                 <p class="mt-1 break-all font-mono text-body-lg font-semibold text-text-strong"
                    x-text="code"></p>
             </div>
-            <p class="text-body-sm text-text-muted">
-                Periksa lagi kapitalisasinya, atau pindahkan barang ini ke karantina
-                sampai ada yang berhak mengidentifikasi.
-            </p>
-            <a href="{{ route('inventory.karantina') }}" class="btn-secondary w-full">
-                Buka Halaman Karantina
-            </a>
+            @if (auth()->user()?->isOwner())
+                <p class="text-body-sm text-text-muted">
+                    Periksa lagi kapitalisasinya, atau pindahkan barang ini ke karantina
+                    sampai ada yang berhak mengidentifikasi.
+                </p>
+                <a href="{{ route('inventory.karantina') }}" class="btn-secondary w-full">
+                    Buka Halaman Karantina
+                </a>
+            @else
+                {{-- Karantina Owner-only, jadi Staff diarahkan meminta Owner alih-alih
+                     diberi tautan yang akan berakhir 403. --}}
+                <p class="text-body-sm text-text-muted">
+                    Periksa lagi kapitalisasinya, atau minta Owner memindahkan barang ini
+                    ke karantina sampai ada yang berhak mengidentifikasi.
+                </p>
+            @endif
         </div>
     </template>
 
@@ -503,7 +512,13 @@
                              membedakan dua barang yang namanya mirip, dan meraba
                              rak lebih cepat daripada membaca spec. --}}
                         <p class="mt-2 text-body-md font-medium text-text-strong" x-text="item.name"></p>
-                        <p class="text-label-sm text-text-muted" x-show="item.series" x-text="item.series"></p>
+                        <div class="mt-1 space-y-0.5 text-label-sm text-text-muted">
+                            <div x-show="item.series || item.color || item.year">
+                                <span x-show="item.series">Seri: <span class="text-text-strong" x-text="item.series"></span></span>
+                                <span x-show="item.color"> · Warna: <span class="text-text-strong" x-text="item.color"></span></span>
+                                <span x-show="item.year"> · Tahun: <span class="text-text-strong" x-text="item.year"></span></span>
+                            </div>
+                        </div>
                         <p class="font-mono text-label-sm text-text-subtle">
                             <span x-text="item.sku"></span>
                             <span x-show="item.rack" x-text="' · ' + item.rack"></span>

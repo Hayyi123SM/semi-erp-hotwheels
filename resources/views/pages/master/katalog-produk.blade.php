@@ -13,12 +13,15 @@
         @if ($isOwner)
             {{-- Opened through the shared helper, which walks the template below
                  with Alpine as it opens and tears it down as it closes. --}}
-            <button type="button" class="btn-ghost"
+            <button type="button" class="btn-secondary flex items-center gap-2"
                     @click="notify.templateModal('seri-panel', {
                         title: 'Kelola Seri',
                         description: 'Tambahkan, ubah, atau hapus seri produk (mis. Hot Wheels, Matchbox, Mini GT).',
                         size: 'lg',
                     })">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 5h12M3 12h12M3 19h12M15 5l4 4-4 4M19 9h-8" />
+                </svg>
                 Kelola Seri
             </button>
         @endif

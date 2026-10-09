@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Enums\LabelReason;
+use App\Http\Middleware\OwnerOnly;
 use App\Models\AuditLog;
 use App\Models\LabelPrintJob;
 use App\Models\StockLot;
@@ -33,6 +34,13 @@ use Tests\TestCase;
  *    yang labelnya sobek akan diminta PIN -- yaitu membatalkan seluruh tujuan
  *    cetakan ulang. Batas dan otorisasi harus dihitung di tempat yang sama,
  *    kalau tidak angka di form dan keputusan di server akan berbeda.
+ *
+ * Rute `inbound.cetak-label.reprint` (dan halaman `inbound.cetak-label`)
+ * kini ber-middleware `owner`: Staff menerima 403. Tes-tes Staff di file ini
+ * sengaja melewati middleware itu satu per satu supaya logika batas/PIN dan
+ * tampilan sisa-nya tetap teruji dari sisi Staff; batas 403-nya sendiri
+ * diuji di `AuthorizationConsistencyTest`. Dua tes yang sebelumnya
+ * memverifikasi kemampuan Staff justru dibalik menjadi tes penolakan.
  */
 class LabelReprintLimitTest extends TestCase
 {
@@ -90,6 +98,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function a_reprint_inside_the_qty_needs_no_pin(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['labels_printed' => 10]);
 
         // 10 dari 12 sudah keluar; masih ada sisa untuk 2 label.
@@ -103,6 +114,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function a_reprint_beyond_the_qty_is_refused_without_a_pin(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['labels_printed' => 12]);
 
         $this->reprint([$lot->id], copies: 1)
@@ -118,6 +132,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function a_reprint_still_in_the_queue_counts_toward_the_cap(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['qty_received' => 2, 'labels_printed' => 1]);
         LabelPrintJob::factory()->for($lot, 'lot')->reprint()->create(['copies' => 1]);
 
@@ -130,6 +147,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function a_failed_reprint_does_not_count_toward_the_cap(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Job FAILED tidak menghasilkan label, jadi tidak memblokir cetakan
         // berikutnya. Kalau ikut menghitung, satu kertas habis membuat lot
         // terkunci sampai ada yang membersihkan job-nya.
@@ -145,6 +165,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function a_confirmed_reprint_still_counts_toward_the_cap(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['qty_received' => 3, 'labels_printed' => 1]);
         $job = LabelPrintJob::factory()->for($lot, 'lot')->reprint()->confirmed()->create(['copies' => 2]);
 
@@ -162,6 +185,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_refusal_names_the_lot_and_the_numbers(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['qty_received' => 4, 'labels_printed' => 4], 'CN01-HW-001-U09');
 
         $this->reprint([$lot->id], copies: 3)->assertSessionHasErrors('pin_token');
@@ -176,19 +202,23 @@ class LabelReprintLimitTest extends TestCase
     // -------------------------------------------------------- otorisasi ---
 
     #[Test]
-    public function staff_may_exceed_the_qty_with_an_owner_pin(): void
+    public function staff_cannot_use_an_owner_pin_to_exceed_the_qty(): void
     {
+        // Rute ini kini Owner-only: PIN pun tidak membuka pintu bagi Staff.
         $lot = $this->lot(['labels_printed' => 12]);
 
         $this->reprint([$lot->id], copies: 3, extra: ['pin_token' => $this->token($this->staff)])
-            ->assertRedirect(route('inbound.cetak-label'));
+            ->assertForbidden();
 
-        $this->assertSame($this->owner->id, LabelPrintJob::sole()->approved_by);
+        $this->assertSame(0, $this->jobsOn($lot));
     }
 
     #[Test]
     public function the_approver_is_audited_with_the_reason_and_the_action(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['labels_printed' => 12]);
 
         $this->reprint([$lot->id], copies: 2, extra: [
@@ -211,6 +241,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function a_token_issued_for_another_action_does_not_unlock_an_overprint(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['labels_printed' => 12]);
 
         $this->reprint([$lot->id], copies: 1, extra: [
@@ -223,6 +256,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function a_forged_token_does_not_unlock_an_overprint(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['labels_printed' => 12]);
 
         $this->reprint([$lot->id], copies: 1, extra: ['pin_token' => 'token-palsu'])
@@ -232,14 +268,15 @@ class LabelReprintLimitTest extends TestCase
     }
 
     #[Test]
-    public function one_staff_cannot_borrow_another_staffs_token(): void
+    public function staff_cannot_borrow_another_staffs_token(): void
     {
+        // Rute ini kini Owner-only: token apa pun sudah ditolak middleware.
         $lot = $this->lot(['labels_printed' => 12]);
         $colleague = User::factory()->staff()->create();
         $token = $this->token($colleague);
 
         $this->reprint([$lot->id], copies: 1, extra: ['pin_token' => $token])
-            ->assertSessionHasErrors('pin_token');
+            ->assertForbidden();
 
         $this->assertSame(0, $this->jobsOn($lot));
     }
@@ -276,6 +313,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_daily_limit_counts_attempts_not_labels(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Satu permintaan 4 label tetap satu percobaan. Kalau yang dihitung
         // label, jatah seharian habis dalam satu permintaan dan bedanya
         // dengan batas jumlah label menghilang.
@@ -290,6 +330,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_fourth_attempt_of_the_day_needs_a_pin(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot();
         LabelPrintJob::factory()->count(3)->for($lot, 'lot')->reprint()->create(['copies' => 1]);
 
@@ -302,6 +345,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function exceeding_the_daily_limit_is_audited_separately(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot();
         LabelPrintJob::factory()->count(3)->for($lot, 'lot')->reprint()->create(['copies' => 1]);
 
@@ -317,6 +363,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_first_label_does_not_count_as_a_reprint_attempt(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Label awal dibuat otomatis saat barang masuk. Kalau ikut menghitung,
         // lot baru langsung kehilangan jatah hari pertamanya.
         $lot = $this->lot();
@@ -330,6 +379,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function yesterday_does_not_count_toward_todays_limit(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot();
         LabelPrintJob::factory()->count(5)->for($lot, 'lot')->reprint()->create([
             'copies' => 1,
@@ -355,6 +407,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_daily_limit_is_per_lot(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Jatah tiga kali berlaku per SKU, bukan per sesi: dua lot berbeda
         // tidak saling menghabiskan jatah.
         $first = $this->lot(['sku' => 'CN01-HW-001-U03']);
@@ -501,6 +556,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_search_result_shows_the_headroom_that_is_left(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['qty_received' => 10, 'labels_printed' => 4]);
 
         $this->assertStringContainsString('sisa 6', $this->searchPage($lot));
@@ -509,6 +567,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_search_result_counts_a_reprint_still_in_the_printer(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['qty_received' => 10, 'labels_printed' => 4]);
         LabelPrintJob::factory()->for($lot, 'lot')->reprint()->create(['copies' => 5]);
 
@@ -521,6 +582,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function a_full_lot_is_marked_as_needing_an_owner_pin(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot(['qty_received' => 10, 'labels_printed' => 10]);
 
         $this->assertStringContainsString('butuh PIN', $this->searchPage($lot));
@@ -529,6 +593,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function a_lot_full_only_because_of_a_queued_reprint_is_marked_too(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Lot ini belum "penuh" secara `labels_printed`, tapi tidak ada lagi
         // ruang untuk cetakan. Kalau hanya `labels_printed` yang dilihat,
         // operator tidak akan diberi tahu sebelum menekan tombol.
@@ -541,6 +608,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_search_result_shows_the_daily_allowance_left(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot();
         LabelPrintJob::factory()->count(2)->for($lot, 'lot')->reprint()->create(['copies' => 1]);
 
@@ -550,6 +620,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function an_exhausted_allowance_is_marked_on_the_result(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         $lot = $this->lot();
         LabelPrintJob::factory()->count(3)->for($lot, 'lot')->reprint()->create(['copies' => 1]);
 
@@ -559,6 +632,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_form_names_the_action_its_pin_token_is_scoped_to(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // Token dari aksi lain harus ditolak. Kalau view meng-hardcode
         // konteks yang berbeda dari `ReprintLabelsRequest`, setiap cetakan
         // yang melewati batas akan ditolak dengan alasan "token untuk aksi
@@ -572,6 +648,9 @@ class LabelReprintLimitTest extends TestCase
     #[Test]
     public function the_form_still_works_without_javascript(): void
     {
+        // Rute ini Owner-only di produksi; tes ini menguji logika batas/PIN-nya.
+        $this->withoutMiddleware(OwnerOnly::class);
+
         // `@submit` hanya menahan form kalau dialognya ada. Kalau tidak, form
         // dikirim sebagai POST biasa dan penolakan muncul sebagai pesan
         // session seperti form pada umumnya.

@@ -113,6 +113,22 @@
                     </thead>
                     <tbody class="divide-y divide-border-subtle">
                         @forelse ($jobs as $job)
+                            @php
+                                $product = $job->lot->product;
+
+                                $productAttrs = collect([
+                                    $product->color,
+                                    $product->packaging_type?->label(),
+                                ])->filter()->implode(' · ');
+
+                                // Harga dan kondisi dari LOT, bukan produk: lot-lah
+                                // snapshot yang benar-benar dicetak di label, dan
+                                // bisa berbeda antar lot produk yang sama.
+                                $condition = collect([
+                                    $job->lot->card_condition?->label(),
+                                    $job->lot->blister_condition?->label(),
+                                ])->filter()->implode(' / ');
+                            @endphp
                             <tr class="transition hover:bg-canvas">
                                 <td class="px-3 py-2">
                                     <input type="checkbox" name="ids[]" value="{{ $job->id }}"
@@ -125,8 +141,27 @@
                                 </td>
                                 <td class="px-3 py-2 font-mono text-sku text-text-strong">{{ $job->lot->sku }}</td>
                                 <td class="px-3 py-2">
-                                    <p class="text-body-sm text-text-strong">{{ $job->lot->product->name }}</p>
-                                    <p class="text-label-sm text-text-subtle">{{ $job->lot->product->series?->name ?? 'Tanpa Seri' }}</p>
+                                    <p class="text-body-sm text-text-strong">
+                                        {{ $product->name }}
+                                        @if ($product->needs_review)
+                                            <x-ui.badge-status type="warning">Perlu Review</x-ui.badge-status>
+                                        @endif
+                                    </p>
+                                    <p class="text-label-sm text-text-subtle">
+                                        {{ $product->series?->name ?? 'Tanpa Seri' }}
+                                        @if ($product->year)
+                                            &middot; {{ $product->year }}
+                                        @endif
+                                    </p>
+                                    @if ($productAttrs !== '')
+                                        <p class="text-label-sm text-text-subtle">{{ $productAttrs }}</p>
+                                    @endif
+                                    <p class="text-label-sm">
+                                        @if ($condition !== '')
+                                            <span class="text-text-subtle">{{ $condition }} &middot;</span>
+                                        @endif
+                                        <span class="text-text-strong tabular-nums">{{ \App\Support\Format::rupiah($job->lot->list_price) }}</span>
+                                    </p>
                                 </td>
                                 <td class="px-3 py-2 text-center tabular-nums">{{ $job->copies }}&times;</td>
                                 <td class="px-3 py-2 text-label-sm text-text-muted">{{ $job->reason->label() }}</td>
@@ -374,6 +409,18 @@
                                     $inFlight = (int) $match->in_flight_labels;
                                     $headroom = $match->qty_received - $match->labels_printed - $inFlight;
                                     $dailyLeft = \App\Services\Inventory\ReprintLimit::DAILY_STAFF_LIMIT - $match->reprints_today;
+
+                                    // Kondisi dan harga dari lot, sama seperti di
+                                    // antrean: itulah yang dicetak di label.
+                                    $condition = collect([
+                                        $match->card_condition?->label(),
+                                        $match->blister_condition?->label(),
+                                    ])->filter()->implode(' / ');
+
+                                    $detail = collect([
+                                        $match->product->color,
+                                        $condition,
+                                    ])->filter()->implode(' · ');
                                 @endphp
                                 <tr class="transition hover:bg-canvas">
                                     <td class="px-3 py-2">
@@ -383,11 +430,19 @@
                                                aria-label="Pilih lot {{ $match->sku }}">
                                     </td>
                                     <td class="px-3 py-2 font-mono text-sku text-text-strong">{{ $match->sku }}</td>
-                                    <td class="px-3 py-2 text-body-sm text-text-strong">
-                                        {{ $match->product->name }}
-                                        @if ($match->pending_labels_count > 0)
-                                            <x-ui.badge-status type="info">{{ $match->pending_labels_count }} menunggu</x-ui.badge-status>
-                                        @endif
+                                    <td class="px-3 py-2">
+                                        <p class="text-body-sm text-text-strong">
+                                            {{ $match->product->name }}
+                                            @if ($match->pending_labels_count > 0)
+                                                <x-ui.badge-status type="info">{{ $match->pending_labels_count }} menunggu</x-ui.badge-status>
+                                            @endif
+                                        </p>
+                                        <p class="text-label-sm text-text-subtle">
+                                            @if ($detail !== '')
+                                                {{ $detail }} &middot;
+                                            @endif
+                                            <span class="text-text-strong tabular-nums">{{ \App\Support\Format::rupiah($match->list_price) }}</span>
+                                        </p>
                                     </td>
                                     <td class="px-3 py-2 font-mono text-label-sm text-text-muted">
                                         {{ $match->consignment?->doc_no ?? 'OW00 &middot; Pribadi' }}

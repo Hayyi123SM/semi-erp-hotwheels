@@ -80,23 +80,20 @@ class LiveStockTest extends TestCase
         $this->assertStringContainsString('Kartu', $html);
     }
 
+    /**
+     * Halaman live stock kini di balik middleware Owner; staff ditolak 403.
+     */
     #[Test]
-    public function staff_sees_quantities_but_not_the_value_of_the_stock(): void
+    public function staff_cannot_open_the_live_stock_page(): void
     {
         $staff = User::factory()->staff()->create();
 
         $this->ownLot($this->rack(), 5, 'OW00-HW-001');
         $this->consignLot($this->rack(), 1, 'CN01-HW-002');
 
-        $html = $this->actingAs($staff)
+        $this->actingAs($staff)
             ->get(route('inventory.live-stock'))
-            ->assertOk()
-            ->content();
-
-        $this->assertStringContainsString('OW00-HW-001', $html);
-        $this->assertStringNotContainsString('HPP', $html);
-        $this->assertStringNotContainsString('Nilai Stok', $html);
-        $this->assertStringContainsString('Stok Menipis', $html);
+            ->assertForbidden();
     }
 
     #[Test]
@@ -211,7 +208,7 @@ class LiveStockTest extends TestCase
     #[Test]
     public function moving_a_lot_changes_its_rack_and_writes_a_zero_movement(): void
     {
-        $user = User::factory()->staff()->create();
+        $user = User::factory()->owner()->create();
         $from = $this->rack();
         $to = $this->rack();
         $lot = $this->consignLot($from, 5, 'CN01-HW-001');
@@ -257,7 +254,7 @@ class LiveStockTest extends TestCase
     #[Test]
     public function moving_a_lot_to_the_same_or_an_inactive_rack_is_refused(): void
     {
-        $user = User::factory()->staff()->create();
+        $user = User::factory()->owner()->create();
         $from = $this->rack();
         $lot = $this->consignLot($from, 5, 'CN01-HW-001');
 
@@ -278,7 +275,7 @@ class LiveStockTest extends TestCase
     #[Test]
     public function an_empty_lot_cannot_be_moved(): void
     {
-        $user = User::factory()->staff()->create();
+        $user = User::factory()->owner()->create();
         $from = $this->rack();
         $to = $this->rack();
         $lot = $this->consignLot($from, 0, 'CN01-HW-001');
@@ -311,21 +308,19 @@ class LiveStockTest extends TestCase
         $this->assertStringContainsString('HPP', $content);
     }
 
+    /**
+     * Ekspor live stock kini di balik middleware Owner; staff ditolak 403.
+     */
     #[Test]
-    public function the_export_never_hands_hpp_to_staff(): void
+    public function staff_cannot_export_the_stock(): void
     {
         $staff = User::factory()->staff()->create();
 
         $this->consignLot($this->rack(), 2, 'CN01-HW-001');
 
-        $content = $this->actingAs($staff)
+        $this->actingAs($staff)
             ->get(route('inventory.live-stock.ekspor'))
-            ->assertOk()
-            ->streamedContent();
-
-        $this->assertStringNotContainsString('HPP', $content);
-        $this->assertStringNotContainsString('Skema', $content);
-        $this->assertStringContainsString('CN01-HW-001', $content);
+            ->assertForbidden();
     }
 
     #[Test]

@@ -5,20 +5,21 @@ declare(strict_types=1);
 namespace App\Http\Requests\Inventory;
 
 use App\Enums\AdjustmentReason;
-use App\Http\Requests\Concerns\RequiresOwnerPin;
 use App\Models\User;
-use App\Services\Auth\PinService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
  * Putuskan satu baris selisih: setujui (dan ubah stok) atau tolak (FR-IC-23).
  *
- * PIN Owner berlaku untuk kedua keputusan, bukan hanya persetujuan. Penolakan
- * memang tidak menyentuh stok, tetapi ia menutup baris: setelah ditolak,
- * hitungan fisik itu tidak bisa dipakai lagi dan sesi dianggap selesai. Dua
- * keputusan yang sama-sama menentukan apakah selisih itu hidup atau mati tidak
- * boleh punya pintu yang berbeda lebarnya.
+ * Keputusan selisih adalah pekerjaan Owner. Seluruh modul Inventory berada di
+ * dalam grup `['auth', 'owner']` (`routes/web.php`), jadi request yang sampai
+ * ke class ini selalu dibawa Owner; Staff ditolak 403 sebelum aturan validasi
+ * sempat dibaca. Tidak ada
+ * pintu PIN di sini: PIN Owner tetap dipakai aksi-aksi lain yang mengatasnamakan
+ * Owner (mis. menutup shift), tetapi memutuskan selisih bukan salah satunya --
+ * memintanya lagi di layar yang hanya muncul untuk Owner hanya menambah satu
+ * langkah tanpa menambah satu lapis pengaman pun.
  *
  * Alasan hanya diwajibkan untuk persetujuan, dan itu bukan kelalaian: alasan
  * menjadi bagian dari gerakan stok (`stock_movements.reason`) untuk
@@ -27,13 +28,6 @@ use Illuminate\Validation\Rule;
  */
 class ReviewBarisRequest extends FormRequest
 {
-    use RequiresOwnerPin;
-
-    protected function ownerPinContext(): string
-    {
-        return 'inventory.opname-approve';
-    }
-
     public function rules(): array
     {
         return [
@@ -43,7 +37,6 @@ class ReviewBarisRequest extends FormRequest
                 'nullable',
                 Rule::enum(AdjustmentReason::class),
             ],
-            ...$this->ownerPinRules(),
         ];
     }
 
@@ -62,7 +55,6 @@ class ReviewBarisRequest extends FormRequest
             'decision.in' => 'Keputusan tidak dikenal.',
             'reason.required' => 'Pilih alasan selisih sebelum menyetujui.',
             'reason.enum' => 'Alasan selisih tidak dikenal.',
-            'pin_token.required' => 'Verifikasi PIN Owner diperlukan untuk memutuskan baris selisih.',
         ];
     }
 
@@ -80,26 +72,8 @@ class ReviewBarisRequest extends FormRequest
             : null;
     }
 
-    /**
-     * Siapa yang menyetujui: Owner lewat token PIN, atau Owner sendiri yang
-     * mengklik. Staff tanpa token tidak akan sampai ke sini -- aturan PIN di
-     * atas menahannya -- tetapi `null` tetap dikembalikan sebagai bentuk paling
-     * jujur dari "tidak ada yang menotorisasi", bukan jatuh ke pemilik baris.
-     */
-    public function approver(): ?User
+    public function approver(): User
     {
-        $user = $this->user();
-
-        if ($user?->isOwner()) {
-            return $user;
-        }
-
-        $approver = app(PinService::class)->approverFor(
-            $user,
-            $this->input($this->ownerPinField()),
-            $this->ownerPinContext(),
-        );
-
-        return $approver instanceof User ? $approver : null;
+        return $this->user();
     }
 }

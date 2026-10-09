@@ -7,6 +7,7 @@ use App\Services\Label\HtmlLabelRenderer;
 use App\Services\Label\LabelRenderer;
 use App\Services\Notification\Transport\WaMeTransport;
 use App\Services\Notification\Transport\WhatsappTransport;
+use Illuminate\Auth\Middleware\RedirectIfAuthenticated;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -45,6 +46,22 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->rateLimiters();
         $this->ownerGate();
+        $this->roleAwareLoginRedirect();
+    }
+
+    /**
+     * Tamu yang sudah login tidak boleh dilempar ke dashboard begitu saja.
+     *
+     * Bawaan `RedirectIfAuthenticated` mencari route bernama `dashboard`.
+     * Setelah Staff dikunci ke POS, dashboard akan menolaknya dengan 403, jadi
+     * pengalihan default itu justru mengarah ke halaman terlarang. Override ini
+     * memakai `User::homeRoute()` supaya tiap peran kembali ke halamannya.
+     */
+    private function roleAwareLoginRedirect(): void
+    {
+        RedirectIfAuthenticated::redirectUsing(
+            fn (Request $request): string => route($request->user()->homeRoute())
+        );
     }
 
     /**
