@@ -46,7 +46,7 @@ RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && CADDY_GLOBAL_OPTIONS="auto_https disable_redirects" \
        CADDY_SERVER_ADMIN_HOST=localhost \
        CADDY_SERVER_ADMIN_PORT=2019 \
-       CADDY_SERVER_SERVER_NAME="http://:80" \
+       CADDY_SERVER_SERVER_NAME="http://:8000" \
        CADDY_SERVER_LOG_LEVEL=WARN \
        CADDY_SERVER_LOGGER=json \
        CADDY_SERVER_WORKER_DIRECTIVE="num 2" \
@@ -55,11 +55,11 @@ RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
        frankenphp validate --config docker/Caddyfile --adapter caddyfile
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://127.0.0.1/up > /dev/null || exit 1
+    CMD curl -fsS http://127.0.0.1:8000/up > /dev/null || exit 1
 
-EXPOSE 80
+EXPOSE 8000
 
 USER www-data
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["php", "artisan", "octane:frankenphp", "--host=0.0.0.0", "--port=80", "--caddyfile=docker/Caddyfile"]
+CMD ["php", "artisan", "octane:frankenphp", "--host=0.0.0.0", "--port=8000", "--caddyfile=docker/Caddyfile"]

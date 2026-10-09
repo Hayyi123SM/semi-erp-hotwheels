@@ -56,7 +56,7 @@ services:
     # FrankenPHP (lewat Octane) melayani semua request sebagai worker; jumlah
     # thread-nya menggantikan pm.max_children=10 php-fpm lama. Sesuaikan
     # lewat OCTANE_WORKERS di .env bersamaan dengan RAM server.
-    command: php artisan octane:frankenphp --host=0.0.0.0 --port=80 --workers=${OCTANE_WORKERS:-10} --caddyfile=docker/Caddyfile
+    command: php artisan octane:frankenphp --host=0.0.0.0 --port=8000 --workers=${OCTANE_WORKERS:-10} --caddyfile=docker/Caddyfile
     environment:
       <<: *app-environment
       # Instance utama satu-satunya yang memanaskan route/view cache dan
