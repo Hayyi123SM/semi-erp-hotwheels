@@ -308,7 +308,7 @@ class ResponsiveColumnTest extends TestCase
     #[Test]
     public function it_seeds_the_saved_view_in_the_head(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->owner()->create();
 
         $html = $this->actingAs($user)->get('/master/penitip')->assertOk()->getContent();
 
@@ -332,7 +332,7 @@ class ResponsiveColumnTest extends TestCase
     #[Test]
     public function it_offers_the_view_toggle_on_a_real_page(): void
     {
-        $html = $this->actingAs(User::factory()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->get('/master/penitip')
             ->assertOk()
             ->getContent();
@@ -437,7 +437,7 @@ class ResponsiveColumnTest extends TestCase
     #[Test]
     public function a_filter_chip_matches_the_height_of_a_dropdown(): void
     {
-        $html = $this->actingAs(User::factory()->create())
+        $html = $this->actingAs(User::factory()->owner()->create())
             ->get('/master/lokasi-rak')
             ->assertOk()
             ->getContent();

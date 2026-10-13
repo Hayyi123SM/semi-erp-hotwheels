@@ -1,3 +1,4 @@
+@use('App\Services\Inventory\QuarantineSla')
 @use('App\Services\Inventory\ReprintLimit')
 @use('App\Services\Pos\PosSettings')
 @use('App\Support\Format')
@@ -138,9 +139,11 @@
             <li class="flex items-center justify-between gap-4 py-3">
                 <div>
                     <p class="text-body-md font-medium text-text-strong">SLA karantina</p>
-                    <p class="text-label-sm text-text-muted">Umur karantina sebelum ditandai perlu pemeriksaan Owner.</p>
+                    <p class="text-label-sm text-text-muted">Umur karantina sebelum ditandai perlu pemeriksaan Owner. Bawaan {{ QuarantineSla::DEFAULT_REVIEW_DAYS }}&ndash;{{ QuarantineSla::DEFAULT_ESCALATE_DAYS }} hari.</p>
                 </div>
-                <x-ui.badge-status type="neutral">belum ada pengaturan</x-ui.badge-status>
+                <p class="shrink-0 text-headline-sm font-semibold tabular-nums text-text-strong">
+                    {{ QuarantineSla::reviewDays() }}&ndash;{{ QuarantineSla::escalateDays() }} hari
+                </p>
             </li>
             <li class="flex items-center justify-between gap-4 py-3">
                 <div>

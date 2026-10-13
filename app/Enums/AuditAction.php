@@ -64,6 +64,7 @@ enum AuditAction: string
     case OpnameApprove = 'OPNAME_APPROVE';
     case OpnameReject = 'OPNAME_REJECT';
     case OpnameCancel = 'OPNAME_CANCEL';
+    case OpnameReopen = 'OPNAME_REOPEN';
 
     // Retur ke penitip (RTV). Eksekusinya dicatat terpisah dari pembuatan dan
     // staging karena hanya eksekusilah yang mengurangi stok; sebuah sesi bisa
@@ -109,6 +110,7 @@ enum AuditAction: string
             self::OpnameApprove => 'Selisih Opname Disetujui',
             self::OpnameReject => 'Selisih Opname Ditolak',
             self::OpnameCancel => 'Sesi Opname Dibatalkan',
+            self::OpnameReopen => 'Sesi Opname Dibuka Ulang',
             self::RtvCreate => 'Sesi RTV Dibuat',
             self::RtvStaging => 'Barang Dipindah ke Rak Staging RTV',
             self::RtvExecute => 'RTV Dieksekusi',
@@ -138,7 +140,7 @@ enum AuditAction: string
             self::OpnameCancel, self::RtvExecute => 'warning',
             self::PrintLabels, self::RetryLabels, self::ReprintLabels,
             self::HandOverReceiptReprint, self::TransferRack, self::OpnameStart,
-            self::OpnameSubmit, self::OpnameReject,
+            self::OpnameSubmit, self::OpnameReject, self::OpnameReopen,
             self::RtvCreate, self::RtvStaging, self::RtvCancel,
             self::UpdateReceiptPrinterSettings,
             self::UpdatePosSettings => 'info',

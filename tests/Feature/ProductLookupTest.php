@@ -293,7 +293,7 @@ class ProductLookupTest extends TestCase
         $payload = $this->lookup()->findByBarcode('CN01-HW-001')?->toArray();
 
         $this->assertSame(
-            ['id', 'sku', 'name', 'series', 'price', 'ownership', 'consignor', 'stock', 'pendingLabels', 'status', 'statusType', 'sellable', 'rack'],
+            ['id', 'sku', 'name', 'series', 'price', 'ownership', 'consignor', 'stock', 'pendingLabels', 'status', 'statusType', 'sellable', 'rack', 'color', 'year'],
             array_keys((array) $payload),
         );
     }

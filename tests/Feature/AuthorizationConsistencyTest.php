@@ -274,13 +274,20 @@ class AuthorizationConsistencyTest extends TestCase
             ->reject(fn (RoutingRoute $route) => str_starts_with($route->getName(), 'pos.'))
             ->reject(fn (RoutingRoute $route) => in_array($route->getName(), self::BOTH_ROLE_ROUTES, true))
             ->reject(fn (RoutingRoute $route) => in_array('owner', $route->gatherMiddleware(), true))
+            // Pengguna & Role dijaga `manage-users` (Owner atau Developer),
+            // yang tetap menolak Staff. Bukan `owner`, jadi harus dikecualikan
+            // di sini dan diuji tersendiri di bawah.
+            ->reject(fn (RoutingRoute $route) => in_array('manage-users', $route->gatherMiddleware(), true))
+            // Route khusus Developer (`dev.*`) juga menolak Staff, jadi tidak
+            // boleh dihitung sebagai temuan bocor.
+            ->reject(fn (RoutingRoute $route) => in_array('dev', $route->gatherMiddleware(), true))
             ->map(fn (RoutingRoute $route) => $route->getName())
             ->values();
 
         $this->assertSame(
             [],
             $violations->all(),
-            'Route ber-auth wajib masuk `pos.*`, daftar dua-peran, atau memakai middleware owner.'
+            'Route ber-auth wajib masuk `pos.*`, daftar dua-peran, atau memakai middleware owner/manage-users/dev.'
         );
     }
 
@@ -296,19 +303,14 @@ class AuthorizationConsistencyTest extends TestCase
     public function the_routes_fixed_by_this_audit_are_still_owner_only(): void
     {
         $protected = [
-            // F4: yang dulu hanya disembunyikan dari sidebar.
-            'setting.pengguna',
-            'setting.pengguna.create',
-            'setting.pengguna.store',
-            'setting.pengguna.edit',
-            'setting.pengguna.update',
-            'setting.pengguna.toggle',
+            // Pengguna & Role tidak lagi di sini: dijaga `manage-users`
+            // (Owner atau Developer) dan dikunci oleh test
+            // `the_user_management_routes_require_the_manage_users_middleware`.
             // Ukuran label menentukan isi label yang keluar dari printer,
             // jadi halaman simpannya ikut daftar route yang wajib owner.
             'setting.perangkat.label.update',
-            // Toll Station: dashboard dan seluruh modul non-POS dijaga
+            // Toll Station: seluruh modul non-POS dijaga
             // middleware `owner` di level grup route.
-            'dashboard',
             'master.penitip',
             'inbound.stock-in-pribadi',
             'inventory.karantina',
@@ -328,6 +330,67 @@ class AuthorizationConsistencyTest extends TestCase
                 $routeNames,
                 "Route $name wajib ber-middleware owner; kalau tidak, Staff bisa membukanya lagi."
             );
+        }
+    }
+
+    #[Test]
+    public function the_user_management_routes_require_the_manage_users_middleware(): void
+    {
+        // Pengguna & Role kini terbuka untuk Owner dan Developer. Route-nya
+        // tidak lagi ber-middleware `owner`, jadi pemindai owner tidak akan
+        // pernah menyentuhnya -- test ini yang menjaga middlewar-nya.
+        $protected = [
+            'setting.pengguna',
+            'setting.pengguna.create',
+            'setting.pengguna.store',
+            'setting.pengguna.edit',
+            'setting.pengguna.update',
+            'setting.pengguna.toggle',
+        ];
+
+        $routeNames = collect(Route::getRoutes())
+            ->filter(fn (RoutingRoute $route) => in_array('manage-users', $route->gatherMiddleware(), true))
+            ->map(fn (RoutingRoute $route) => $route->getName())
+            ->filter()
+            ->values()
+            ->all();
+
+        foreach ($protected as $name) {
+            $this->assertContains(
+                $name,
+                $routeNames,
+                "Route $name wajib ber-middleware manage-users; kalau tidak, tanpa owner pun Staff bisa membukanya."
+            );
+        }
+    }
+
+    #[Test]
+    public function every_manage_users_route_refuses_staff(): void
+    {
+        // Sisi lain dari pemindai owner: route `manage-users` tidak masuk daftar
+        // route `owner`, jadi harus dipindai sendiri agar Staff tetap ditolak.
+        $routes = collect(Route::getRoutes())
+            ->filter(fn (RoutingRoute $route) => in_array('manage-users', $route->gatherMiddleware(), true))
+            ->map(fn (RoutingRoute $route) => [
+                $route->methods()[0],
+                $route->uri(),
+                $route->parameterNames(),
+            ])
+            ->values();
+
+        $this->assertNotEmpty($routes, 'Tidak ada route manage-users untuk dipindai.');
+
+        $staff = $this->staff();
+
+        foreach ($routes as [$method, $uri, $parameters]) {
+            $url = $uri;
+            foreach ($parameters as $parameter) {
+                $url = str_replace('{'.$parameter.'}', $this->parameterFor($parameter), $url);
+            }
+
+            $status = $this->actingAs($staff)->{$method}($url)->getStatusCode();
+
+            $this->assertContains($status, [403, 404], "Route $method $uri harus menolak Staff, malah menjawab $status.");
         }
     }
 }

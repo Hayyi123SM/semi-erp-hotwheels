@@ -112,7 +112,6 @@ class PagesRenderTest extends TestCase
     public static function appRoutes(): array
     {
         return [
-            'dashboard' => ['/dashboard'],
             'master.penitip' => ['/master/penitip'],
             'master.katalog-produk' => ['/master/katalog-produk'],
             'master.lokasi-rak' => ['/master/lokasi-rak'],
@@ -128,13 +127,13 @@ class PagesRenderTest extends TestCase
             'pos.riwayat' => ['/pos/riwayat-transaksi'],
             'pos.shift-kasir' => ['/pos/shift-kasir'],
             'report.settlement' => ['/reports/consignor-settlement'],
-            'report.margin' => ['/reports/profit-margin'],
-            'report.laporan' => ['/reports/laporan-penjualan-stok'],
-            'report.audit-log' => ['/reports/audit-log'],
-            'setting.pengguna' => ['/settings/pengguna-role'],
-            'setting.perangkat' => ['/settings/perangkat'],
-            'setting.wa-template' => ['/settings/wa-template'],
-            'setting.parameter' => ['/settings/parameter'],
+            'report.penjualan' => ['/reports/penjualan'],
+            'report.kinerja-penitip' => ['/reports/kinerja-penitip'],
+            'report.laporan-transaksi' => ['/reports/laporan-transaksi'],
+            'report.harian-pos' => ['/reports/harian-pos'],
+            'report.kartu-stok' => ['/reports/kartu-stok'],
+            'setting.perangkat' => ['/setting/perangkat'],
+            'setting.pengguna' => ['/setting/pengguna'],
         ];
     }
 }

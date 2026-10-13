@@ -15,9 +15,9 @@
         <x-slot:filters>
             <select name="role" class="select-base filter-select" aria-label="Filter role pengguna">
                 <option value="">Semua role</option>
-                @foreach (\App\Enums\Role::cases() as $option)
+                @foreach (auth()->user()->assignableRoles() as $option)
                     <option value="{{ $option->value }}" @selected(request()->query('role') === $option->value)>
-                        {{ $option->value === \App\Enums\Role::Owner->value ? 'Owner' : 'Staff' }}
+                        {{ $option->label() }}
                     </option>
                 @endforeach
             </select>

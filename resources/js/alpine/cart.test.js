@@ -12,10 +12,23 @@ import { registerCart } from "./cart";
  * meta tag -- ketiganya hal yang kalau disederhanakan akan membuat test lulus
  * sementara halamannya tidak jalan.
  */
-function mount({ url = "/pos/produk/cari", lots = [] } = {}) {
+function mount({ url = "/pos/produk/cari", lots = [], draft = {} } = {}) {
     const toasts = [];
     const root = document.createElement("div");
     root.dataset.lookupUrl = url;
+
+    // Halaman menyediakan ketiga URL draft sebagai atribut; test yang peduli
+    // draft memasangnya, dan test yang tidak membiarkannya kosong supaya tidak
+    // ada permintaan latar yang tak diminta.
+    for (const [key, value] of Object.entries({
+        draftLoad: draft.load,
+        draftSave: draft.save,
+        draftCancel: draft.cancel,
+    })) {
+        if (value !== undefined) {
+            root.dataset[key] = value;
+        }
+    }
 
     let cart = null;
 
@@ -315,36 +328,69 @@ describe("posCart: the cart itself", () => {
         expect(cart.change).toBe(0);
     });
 
-    it("drops the row entirely when the last unit is decremented", () => {
-        const { cart } = mount();
-        cart.addItem({
-            id: 1,
-            sku: "A",
-            name: "a",
-            price: 10_000,
-            stock: 4,
-            sellable: true,
+    it("asks for confirmation when decrementing the last unit", async () => {
+        const ask = vi.fn().mockImplementation(({ onConfirm }) => {
+            onConfirm?.();
+            return Promise.resolve(true);
         });
-
-        cart.decrement("A");
-
-        expect(cart.items).toHaveLength(0);
-    });
-
-    it("never asks while decrementing, however far the qty goes", () => {
-        const ask = vi.fn().mockResolvedValue(false);
         window.notify = { ask };
 
         try {
             const { cart } = mount();
-            cart.addItem({ id: 1, sku: "A", name: "a", price: 10_000, stock: 4, sellable: true });
-            cart.addItem({ id: 2, sku: "B", name: "b", price: 10_000, stock: 4, sellable: true });
+            cart.addItem({
+                id: 1,
+                sku: "A",
+                name: "a",
+                price: 10_000,
+                stock: 4,
+                sellable: true,
+            });
 
-            // qty 1 -> 0 menghapus barisnya, dan tidak boleh membuka dialog.
             cart.decrement("A");
 
-            expect(cart.items.map((i) => i.sku)).toEqual(["B"]);
+            expect(ask).toHaveBeenCalledTimes(1);
+            expect(ask).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: "Hapus item?",
+                    danger: true,
+                })
+            );
+            expect(cart.items).toHaveLength(0);
+        } finally {
+            delete window.notify;
+        }
+    });
+
+    it("does not ask while qty > 1 and asks only when removing the last unit", async () => {
+            const ask = vi.fn().mockImplementation(({ onConfirm }) => {
+                onConfirm?.();
+                return Promise.resolve(true);
+            });
+            window.notify = { ask };
+
+        try {
+            const { cart } = mount();
+            cart.addItem({ id: 1, sku: "A", name: "a", price: 10_000, stock: 4, sellable: true });
+            cart.addItem({ id: 2, sku: "B", name: "b", price: 10_000, stock: 10, sellable: true });
+
+            // Naikkan qty B jadi 4 (mulai dari 1)
+            cart.increment("B");
+            cart.increment("B");
+            cart.increment("B");
+
+            // Decrement saat qty > 1: 4->3, 3->2, 2->1 — tidak boleh minta konfirmasi
+            cart.decrement("B");
+            cart.decrement("B");
+            cart.decrement("B");
+
+            expect(cart.items.find((i) => i.sku === "B").qty).toBe(1);
             expect(ask).not.toHaveBeenCalled();
+
+            // Sekarang qty == 1, decrement akan menghapus item terakhir -> harus minta konfirmasi
+            cart.decrement("B");
+            expect(ask).toHaveBeenCalledTimes(1);
+            // Konfirmasi diterima via onConfirm, jadi item B terhapus
+            expect(cart.items.map((i) => i.sku)).toEqual(["A"]);
         } finally {
             delete window.notify;
         }
@@ -958,5 +1004,257 @@ describe("posStrukDialog: printing after a sale", () => {
 
         delete window.notify;
         dialog.selesai();
+    });
+});
+
+describe("posCart: restoring a leftover cart", () => {
+    const draft = {
+        items: [
+            {
+                lotId: 7,
+                sku: "HW-007",
+                name: "Hot Wheels Model 7",
+                price: 20_000,
+                ownership: "PRIBADI",
+                consignor: null,
+                qty: 2,
+                stock: 5,
+                discountType: "percent",
+                discountValue: 10,
+            },
+        ],
+    };
+
+    function draftFetch(payload) {
+        return vi.fn(async () => ({ ok: true, json: async () => payload }));
+    }
+
+    afterEach(() => {
+        delete window.notify;
+    });
+
+    it("restores the leftover cart without asking", async () => {
+        const ask = vi.fn().mockResolvedValue(true);
+        window.notify = { ask };
+        global.fetch = draftFetch({ has_draft: true, draft });
+
+        const { cart } = mount({ draft: { load: "/pos/draft" } });
+
+        await vi.waitFor(() => expect(cart.items).toHaveLength(1));
+
+        expect(ask).not.toHaveBeenCalled();
+        expect(cart.items[0]).toMatchObject({
+            sku: "HW-007",
+            qty: 2,
+            price: 20_000,
+            discountType: "percent",
+            discountValue: 10,
+        });
+        // Batas qty dihitung ulang dari stok, bukan dibekukan bersama draft:
+        // stok yang ikut tersimpan bisa sudah berubah sebelum keranjang dibuka.
+        expect(cart.items[0].canIncrease).toBe(true);
+    });
+
+    it("restores a draft from server even when notify helper is missing", async () => {
+        global.fetch = draftFetch({ has_draft: true, draft });
+
+        const { cart } = mount({ draft: { load: "/pos/draft" } });
+
+        await vi.waitFor(() => expect(cart.items).toHaveLength(1));
+    });
+
+    it("does not ask when the server has nothing to restore", async () => {
+        const ask = vi.fn().mockResolvedValue(true);
+        window.notify = { ask };
+        global.fetch = draftFetch({ has_draft: false });
+
+        const { cart } = mount({ draft: { load: "/pos/draft" } });
+
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(ask).not.toHaveBeenCalled();
+        expect(cart.items).toHaveLength(0);
+    });
+
+    it("saves the cart with the discount as a number", async () => {
+        global.fetch = draftFetch({});
+
+        const { cart } = mount({ draft: { save: "/pos/draft" } });
+        cart.addItem({
+            id: 1,
+            sku: "A",
+            name: "a",
+            price: 10_000,
+            stock: 3,
+            sellable: true,
+        });
+
+        cart.items[0].discountType = "percent";
+        // `x-model.number` mengosongkan field yang belum diisi menjadi string
+        // kosong; draft tidak boleh menyimpannya apa adanya.
+        cart.items[0].discountValue = "";
+
+        await cart.saveDraft();
+
+        const body = JSON.parse(global.fetch.mock.calls.at(-1)[1].body);
+        expect(body.items[0].discountType).toBe("percent");
+        expect(body.items[0].discountValue).toBe(0);
+    });
+
+    it("drops the draft rather than storing an empty cart", async () => {
+        global.fetch = draftFetch({});
+
+        const { cart } = mount({
+            draft: { save: "/pos/draft", cancel: "/pos/draft" },
+        });
+        cart.addItem({
+            id: 1,
+            sku: "A",
+            name: "a",
+            price: 10_000,
+            stock: 3,
+            sellable: true,
+        });
+
+        cart.clear();
+
+        await vi.waitFor(() =>
+            expect(global.fetch).toHaveBeenCalledWith(
+                "/pos/draft",
+                expect.objectContaining({ method: "DELETE" }),
+            ),
+        );
+    });
+});
+
+describe("posCart: per-line discount", () => {
+    function cartWithLine(line) {
+        const { cart } = mount();
+
+        cart.items.push({
+            lotId: 1,
+            sku: "A",
+            name: "a",
+            price: 10_000,
+            qty: 2,
+            stock: 5,
+            discountType: null,
+            discountValue: 0,
+            get canIncrease() {
+                return this.qty < this.stock;
+            },
+            ...line,
+        });
+
+        return cart;
+    }
+
+    it("turns a percentage into rupiah off the line amount", () => {
+        const cart = cartWithLine({ discountType: "percent", discountValue: 10 });
+
+        expect(cart.discountFor(cart.items[0])).toBe(2_000);
+        expect(cart.lineTotalFor(cart.items[0])).toBe(18_000);
+    });
+
+    it("caps a nominal discount at the line amount, never below zero", () => {
+        const cart = cartWithLine({ discountType: "amount", discountValue: 999_999 });
+
+        expect(cart.discountFor(cart.items[0])).toBe(20_000);
+        expect(cart.lineTotalFor(cart.items[0])).toBe(0);
+    });
+
+    it("treats an empty value as no discount", () => {
+        const cart = cartWithLine({ discountType: "amount", discountValue: "" });
+
+        expect(cart.discountFor(cart.items[0])).toBe(0);
+        expect(cart.lineTotalFor(cart.items[0])).toBe(20_000);
+    });
+
+    it("totals the discount and the net across lines", () => {
+        const cart = cartWithLine({ discountType: "percent", discountValue: 10 });
+
+        expect(cart.discountTotal).toBe(2_000);
+        expect(cart.subtotal).toBe(18_000);
+    });
+
+    it("clears the value when the type changes, so 10% does not become Rp10", () => {
+        const cart = cartWithLine({ discountType: "percent", discountValue: 10 });
+
+        cart.onDiscountTypeChange(cart.items[0]);
+
+        expect(cart.items[0].discountValue).toBe(0);
+    });
+
+    it("clamps a percentage at 100 and a nominal at the line amount", () => {
+        const cart = cartWithLine({ discountType: "percent", discountValue: 250 });
+
+        cart.clampDiscount(cart.items[0]);
+        expect(cart.items[0].discountValue).toBe(100);
+
+        cart.items[0].discountType = "amount";
+        cart.items[0].discountValue = 999_999;
+
+        cart.clampDiscount(cart.items[0]);
+        expect(cart.items[0].discountValue).toBe(20_000);
+    });
+});
+
+describe("posCart: clearing the entire basket", () => {
+    const lot = {
+        id: 1,
+        sku: "A",
+        name: "Hot Wheels Model A",
+        price: 10_000,
+        stock: 4,
+        sellable: true,
+    };
+
+    function mountWithNotify(ask) {
+        window.notify = { ask };
+
+        const { cart } = mount();
+        cart.addItem({ ...lot });
+
+        return cart;
+    }
+
+    afterEach(() => {
+        delete window.notify;
+    });
+
+    it("clears the basket once confirmed", async () => {
+        const ask = vi.fn().mockResolvedValue(true);
+        const cart = mountWithNotify(ask);
+
+        expect(await cart.clearConfirmed()).toBe(true);
+        expect(cart.items).toHaveLength(0);
+        expect(ask.mock.calls[0][0].danger).toBe(true);
+        expect(ask.mock.calls[0][0].title).toContain("Kosongkan");
+    });
+
+    it("leaves the basket alone when cancelled", async () => {
+        const ask = vi.fn().mockResolvedValue(false);
+        const cart = mountWithNotify(ask);
+
+        expect(await cart.clearConfirmed()).toBe(false);
+        expect(cart.items).toHaveLength(1);
+    });
+
+    it("does nothing when the basket is already empty", async () => {
+        const ask = vi.fn().mockResolvedValue(true);
+        window.notify = { ask };
+        const { cart } = mount();
+
+        expect(await cart.clearConfirmed()).toBe(false);
+        expect(ask).not.toHaveBeenCalled();
+    });
+
+    it("does nothing without a notify helper", async () => {
+        const { cart } = mount();
+        cart.addItem({ ...lot });
+
+        expect(await cart.clearConfirmed()).toBe(false);
+        expect(cart.items).toHaveLength(1);
     });
 });

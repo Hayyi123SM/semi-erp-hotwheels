@@ -1,18 +1,11 @@
 @use('App\Support\Format')
 
 <x-ui.page-header
-    title="Analisis Margin &amp; Fee"
+    title="Analisis Margin & Fee"
     subtitle="Profitabilitas stok PRIBADI vs take-rate fee titipan. Hanya Owner."
     :crumbs="['Reports & Analisis', 'Profit Margin vs Fee']"
 >
     <x-slot:actions>
-        <form method="GET" action="{{ route('report.margin') }}" class="flex flex-wrap items-center gap-2">
-            <input type="hidden" name="d" value="{{ $dimension }}">
-            <input type="date" name="from" value="{{ request('from') }}" class="input-base text-label-sm">
-            <span class="text-label-sm text-text-subtle">—</span>
-            <input type="date" name="to" value="{{ request('to') }}" class="input-base text-label-sm">
-            <button type="submit" class="btn-secondary">Terapkan</button>
-        </form>
         <a href="{{ route('report.margin', array_merge(request()->query(), ['format' => 'csv'])) }}" class="btn-secondary">
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
             Ekspor CSV
@@ -25,21 +18,32 @@
 </x-ui.page-header>
 
 <div class="space-y-6">
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <p class="text-headline-sm font-semibold text-text-strong">Periode Konsolidasi</p>
-            <p class="text-label-sm text-text-muted">Dimensi: Seri · Penitip · SKU · Hari</p>
+    <x-ui.filter-bar
+        :action="route('report.margin')"
+        :reset-url="route('report.margin', ['d' => $dimension])"
+        :active="request()->has('from') || request()->has('to')"
+    >
+        {{-- Dimensi adalah navigasi, bukan nilai form: tautannya memuat ulang
+             halaman dan membawa `from`/`to` yang sedang aktif lewat
+             `request()->except('d')`. `d` tetap dikirim sebagai input tersembunyi
+             supaya Terapkan tidak membuang dimensi yang sedang dipilih. --}}
+        <input type="hidden" name="d" value="{{ $dimension }}">
+
+        <div class="flex flex-col gap-1">
+            <span class="text-label-sm text-text-subtle">Dimensi</span>
+            <div class="inline-flex h-11 items-center gap-0.5 rounded-lg bg-canvas p-1">
+                @foreach (['seri' => 'Seri', 'penitip' => 'Penitip', 'sku' => 'SKU', 'hari' => 'Hari'] as $value => $label)
+                    <a href="{{ route('report.margin', array_merge(request()->except('d'), ['d' => $value])) }}"
+                       @if ($dimension === $value) aria-current="true" @endif
+                       class="rounded-md px-3 py-1.5 text-label-md {{ $dimension === $value ? 'bg-text-strong text-white shadow-sm' : 'text-text-muted transition hover:text-text-strong' }}">
+                        {{ $label }}
+                    </a>
+                @endforeach
+            </div>
         </div>
 
-        <div class="inline-flex items-center gap-0.5 rounded-lg bg-canvas p-1">
-            @foreach (['seri' => 'Seri', 'penitip' => 'Penitip', 'sku' => 'SKU', 'hari' => 'Hari'] as $value => $label)
-                <a href="{{ route('report.margin', array_merge(request()->except('d'), ['d' => $value])) }}"
-                   class="rounded-md px-3 py-1.5 text-label-md {{ $dimension === $value ? 'bg-text-strong text-white shadow-sm' : 'text-text-muted hover:text-text-strong' }}">
-                    {{ $label }}
-                </a>
-            @endforeach
-        </div>
-    </div>
+        <x-ui.date-range :from="$from" :to="$to" />
+    </x-ui.filter-bar>
 
     <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <x-ui.stat-card label="Bruto Periode" value="{{ Format::rupiah($summary['bruto']) }}" delta="{{ $summary['nota'] }} nota" delta-tone="info" />
@@ -58,27 +62,8 @@
         @endif
     </x-ui.banner>
 
-    <div class="grid gap-6 lg:grid-cols-2">
-        <x-ui.section-card title="Take-rate per Skema">
-            <div class="space-y-4">
-                @forelse ($takeRates as $row)
-                    <div>
-                        <div class="mb-1 flex items-center justify-between text-body-sm">
-                            <span class="text-text-strong">{{ $row['label'] }}</span>
-                            <span class="text-text-muted tabular-nums">{{ $row['rate'] }}%</span>
-                        </div>
-                        <div class="h-2.5 w-full overflow-hidden rounded-full bg-canvas">
-                            <div class="h-2.5 rounded-full bg-titip-text" style="width: {{ min(100, $row['rate']) }}%"></div>
-                        </div>
-                    </div>
-                @empty
-                    <x-ui.empty-state title="Tidak ada skema terjual" description="Penjualan barang titipan akan muncul di sini." />
-                @endforelse
-                <p class="pt-1 text-label-sm text-text-subtle">Take-rate dihitung dari total fee ÷ total nilai terjual per skema.</p>
-            </div>
-        </x-ui.section-card>
-
-        <x-ui.section-card title="Pendapatan per Dimensi">
+    <div class="grid gap-6 lg:grid-cols-3">
+        <x-ui.section-card title="Pendapatan per Dimensi" class="lg:col-span-2">
             @php
                 $max = max(array_column($dimensions, 'pendapatan') ?: [1]);
             @endphp
@@ -125,6 +110,25 @@
                     </table>
                 </div>
             @endif
+        </x-ui.section-card>
+
+        <x-ui.section-card title="Take-rate per Skema">
+            <div class="space-y-4">
+                @forelse ($takeRates as $row)
+                    <div>
+                        <div class="mb-1 flex items-center justify-between text-body-sm">
+                            <span class="text-text-strong">{{ $row['label'] }}</span>
+                            <span class="text-text-muted tabular-nums">{{ $row['rate'] }}%</span>
+                        </div>
+                        <div class="h-2.5 w-full overflow-hidden rounded-full bg-canvas">
+                            <div class="h-2.5 rounded-full bg-titip-text" style="width: {{ min(100, $row['rate']) }}%"></div>
+                        </div>
+                    </div>
+                @empty
+                    <x-ui.empty-state title="Tidak ada skema terjual" description="Penjualan barang titipan akan muncul di sini." />
+                @endforelse
+                <p class="pt-1 text-label-sm text-text-subtle">Take-rate dihitung dari total fee ÷ total nilai terjual per skema.</p>
+            </div>
         </x-ui.section-card>
     </div>
 

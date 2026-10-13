@@ -210,19 +210,22 @@ final class CheckoutService
      */
     private function priceLine(StockLot $lot, CheckoutLine $line): PricedLine
     {
+        $lineAmount = (int) $lot->list_price * $line->qty;
+        $discount = $this->lineDiscount($lineAmount, $line);
+
         // Stok milik toko sendiri tidak dibagi dengan siapa pun: tidak ada
         // skema, tidak ada hak penitip, dan seluruh harga jual adalah milik
         // toko. TermsCalculator sengaja tidak dipanggil di sini karena ia akan
         // menolak skema yang memang tidak boleh ada pada lot ini.
         if ($lot->owner_type === OwnerType::Own) {
-            $lineTotal = $lot->list_price * $line->qty;
+            $lineTotal = max(0, $lineAmount - $discount);
 
             return new PricedLine(
                 lot: $lot,
                 qty: $line->qty,
                 inputMethod: $line->inputMethod,
                 listPrice: $lot->list_price,
-                sellPrice: $lot->list_price,
+                sellPrice: $lineTotal,
                 lineTotal: $lineTotal,
                 schemeType: null,
                 schemeRate: null,
@@ -231,6 +234,9 @@ final class CheckoutService
                 costPrice: $lot->cost_price,
                 feeToko: $lineTotal,
                 hakPenitip: null,
+                discountTotal: $discount,
+                discountType: $line->discountType,
+                discountValue: $line->discountValue,
             );
         }
 
@@ -239,15 +245,18 @@ final class CheckoutService
         // adalah TypeError -- bukan penolakan yang bisa dibaca kasir, tapi
         // layar 500 di tengah transaksi yang sedang berjalan.
         $rate = $lot->scheme_rate === null ? null : (float) $lot->scheme_rate;
+        $policy = $lot->discount_policy ?? DiscountPolicy::StoreBears;
 
         try {
+            // Tanpa diskon: TermsCalculator bekerja per unit, sedangkan diskon
+            // di sini adalah nilai satu baris. Mencampur keduanya pernah membuat
+            // diskon Rp3.000 pada dua unit dipotong dua kali.
             $breakdown = $this->terms->breakdown(
                 listPrice: $lot->list_price,
                 scheme: $this->guardScheme($lot, $rate, $lot->scheme_amount),
                 rate: $rate,
                 amount: $lot->scheme_amount,
-                policy: $lot->discount_policy ?? DiscountPolicy::StoreBears,
-                discount: 0,
+                policy: $policy,
             );
         } catch (ValidationException $e) {
             // Pesan dari TermsCalculator menyebut field, bukan barang. Satu
@@ -258,21 +267,59 @@ final class CheckoutService
             ]);
         }
 
+        $lineTotal = max(0, $lineAmount - $discount);
+
+        // Diskon dibebankan menurut kebijakan lot: toko yang menanggung, atau
+        // dibagi dengan penitip. Dalam kedua kasus, `hak_penitip + fee_toko`
+        // tetap sama dengan yang dibayar pelanggan (BR-05).
+        $storeFee = $breakdown->storeFeeFor($line->qty);
+        $consignorRight = $breakdown->consignorRightFor($line->qty);
+
+        if ($policy === DiscountPolicy::StoreBears) {
+            $storeFee -= $discount;
+        } else {
+            $consignorRight -= $discount;
+        }
+
         return new PricedLine(
             lot: $lot,
             qty: $line->qty,
             inputMethod: $line->inputMethod,
             listPrice: $lot->list_price,
-            sellPrice: $breakdown->sellPrice,
-            lineTotal: $breakdown->sellPrice * $line->qty,
+            sellPrice: $lineTotal,
+            lineTotal: $lineTotal,
             schemeType: $lot->scheme_type,
             schemeRate: $rate,
             schemeAmount: $lot->scheme_amount,
             termsVersion: $lot->terms_version,
             costPrice: $lot->cost_price,
-            feeToko: $breakdown->storeFeeFor($line->qty),
-            hakPenitip: $breakdown->consignorRightFor($line->qty),
+            feeToko: $storeFee,
+            hakPenitip: $consignorRight,
+            discountTotal: $discount,
+            discountType: $line->discountType,
+            discountValue: $line->discountValue,
         );
+    }
+
+    /**
+     * Diskon satu baris, dalam rupiah, dibatasi tidak melebihi harga barisnya.
+     *
+     * Persen dihitung dari `harga × qty` dan nominal diambil apa adanya; batas
+     * atasnya sama untuk keduanya, sehingga baris tidak pernah menjadi negatif.
+     * Nilai yang dikirim layar bisa saja basi, jadi angka inilah yang dipakai
+     * server -- bukan angka yang tertulis di layar.
+     */
+    private function lineDiscount(int $lineAmount, CheckoutLine $line): int
+    {
+        if (! $line->hasDiscount()) {
+            return 0;
+        }
+
+        $discount = $line->discountType === 'percent'
+            ? (int) round($lineAmount * ($line->discountValue / 100.0))
+            : (int) $line->discountValue;
+
+        return max(0, min($discount, $lineAmount));
     }
 
     /**
@@ -380,6 +427,12 @@ final class CheckoutService
      */
     private function persist(Checkout $checkout, int $shiftId, array $lines, int $total): Sale
     {
+        // `subtotal` adalah harga sebelum diskon dan `total` sesudahnya. Nota
+        // menampilkan keduanya berdampingan dengan baris diskon di antaranya,
+        // jadi menyimpan subtotal sebesar total akan membuat diskonnya tidak
+        // pernah terlihat sebagai pengurang.
+        $discountTotal = collect($lines)->sum(fn ($l) => $l->discountTotal ?? 0);
+
         $sale = Sale::create([
             'client_sale_id' => $checkout->clientSaleId,
             'receipt_no' => $this->receipts->next(),
@@ -387,8 +440,8 @@ final class CheckoutService
             'device_id' => $checkout->deviceId,
             'user_id' => $checkout->cashier->id,
             'sold_at' => now(),
-            'subtotal' => $total,
-            'discount_total' => 0,
+            'subtotal' => $total + $discountTotal,
+            'discount_total' => $discountTotal,
             'total' => $total,
             'status' => SaleStatus::Paid,
             'flags' => [],

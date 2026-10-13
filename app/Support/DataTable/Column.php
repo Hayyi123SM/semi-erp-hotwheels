@@ -55,6 +55,7 @@ class Column
         public bool $exportable = true,
         public array $componentData = [],
         public ?int $priority = null,
+        public bool $unclamped = false,
     ) {
         $this->guard('align', $align, self::ALIGNMENTS);
         $this->guard('priority', $priority, self::PRIORITIES);
@@ -189,6 +190,20 @@ class Column
         $this->guard('card', $card, self::CARDS);
 
         return $this->tap(fn (self $c) => $c->card = $card);
+    }
+
+    /**
+     * Opt the cell out of the two-line clamp that `.cell-text` applies.
+     *
+     * Most render closures produce a value worth truncating, but a handful build
+     * a deliberate multi-line cell (a product and its distinguishing details)
+     * where the clamp would silently cut the last line. Keep the opt-out on the
+     * column instead of widening `render()` to return some "full" marker: the
+     * view reads one boolean and the intent is stated where the cell is built.
+     */
+    public function unclamped(bool $unclamped = true): static
+    {
+        return $this->tap(fn (self $c) => $c->unclamped = $unclamped);
     }
 
     /**

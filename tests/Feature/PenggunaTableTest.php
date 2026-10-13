@@ -202,4 +202,167 @@ class PenggunaTableTest extends TestCase
             ->assertOk()
             ->assertSee('Pengguna tidak ditemukan');
     }
+
+    // ===== Owner: role Developer tidak boleh muncul atau dipakai =====
+
+    #[Test]
+    public function owner_cannot_choose_the_dev_role_when_creating_a_user(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $html = $this->actingAs($owner)
+            ->get(route('setting.pengguna.create'))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('Owner', $html, 'Owner tetap boleh memilih Owner.');
+        $this->assertStringContainsString('Staff', $html, 'Owner tetap boleh memilih Staff.');
+        $this->assertStringNotContainsString('Developer', $html, 'Opsi Developer harus hilang dari form Owner.');
+    }
+
+    #[Test]
+    public function owner_cannot_choose_the_dev_role_when_editing_a_user(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $target = User::factory()->staff()->create();
+
+        $html = $this->actingAs($owner)
+            ->get(route('setting.pengguna.edit', $target))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringNotContainsString('Developer', $html, 'Opsi Developer harus hilang dari form edit Owner.');
+    }
+
+    #[Test]
+    public function owner_cannot_create_a_user_with_role_dev(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        // Dropdown memang disembunyikan, tapi request bisa dibuat tangan:
+        // validasi server-lah yang menolak, bukan UI-nya.
+        $this->actingAs($owner)->post(route('setting.pengguna.store'), [
+            'name' => 'Developer Baru',
+            'username' => 'developer.baru',
+            'role' => Role::Dev->value,
+            'password' => 'rahasia123',
+        ])->assertSessionHasErrors('role');
+
+        $this->assertDatabaseMissing('users', ['username' => 'developer.baru']);
+    }
+
+    #[Test]
+    public function owner_cannot_change_a_user_role_to_dev(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $target = User::factory()->staff()->create(['username' => 'staf-umum']);
+
+        $this->actingAs($owner)->put(route('setting.pengguna.update', $target), [
+            'name' => $target->name,
+            'username' => 'staf-umum',
+            'role' => Role::Dev->value,
+        ])->assertSessionHasErrors('role');
+
+        $this->assertSame(Role::Staff->value, $target->fresh()->role->value, 'Role target tidak boleh berubah.');
+    }
+
+    #[Test]
+    public function owner_does_not_see_dev_users_in_the_list(): void
+    {
+        $owner = User::factory()->owner()->create(['name' => 'Ahmad Fauzi']);
+        $dev = User::factory()->dev()->create(['name' => 'Si Developer']);
+
+        $html = $this->actingAs($owner)
+            ->get(route('setting.pengguna'))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringNotContainsString('Si Developer', $html, 'Baris Developer tidak boleh muncul.');
+        $this->assertStringNotContainsString('Developer', $html, 'Filter/opsi Developer tidak boleh muncul.');
+        $this->assertDatabaseHas('users', ['id' => $dev->id, 'role' => Role::Dev->value]);
+    }
+
+    #[Test]
+    public function owner_cannot_edit_or_toggle_a_dev_user(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $dev = User::factory()->dev()->create();
+
+        $this->actingAs($owner)->get(route('setting.pengguna.edit', $dev))->assertForbidden();
+        $this->actingAs($owner)->patch(route('setting.pengguna.toggle', $dev))->assertForbidden();
+
+        $this->assertTrue($dev->fresh()->is_active, 'Penolakan tidak boleh mengubah status akun Developer.');
+        $this->assertSame(Role::Dev->value, $dev->fresh()->role->value);
+    }
+
+    // ===== Developer: boleh mengelola pengguna penuh =====
+
+    #[Test]
+    public function dev_can_open_the_user_list_and_the_create_form(): void
+    {
+        $dev = User::factory()->dev()->create();
+
+        $this->actingAs($dev)->get(route('setting.pengguna'))->assertOk();
+        $this->actingAs($dev)->get(route('setting.pengguna.create'))->assertOk();
+    }
+
+    #[Test]
+    public function dev_can_create_a_dev_user(): void
+    {
+        $dev = User::factory()->dev()->create();
+
+        $this->actingAs($dev)->post(route('setting.pengguna.store'), [
+            'name' => 'Developer Baru',
+            'username' => 'developer.baru',
+            'role' => Role::Dev->value,
+            'password' => 'rahasia123',
+        ])->assertRedirect(route('setting.pengguna'));
+
+        $this->assertDatabaseHas('users', ['username' => 'developer.baru', 'role' => Role::Dev->value]);
+    }
+
+    #[Test]
+    public function dev_sees_dev_users_in_the_list(): void
+    {
+        $dev = User::factory()->dev()->create(['name' => 'Si Developer']);
+        User::factory()->dev()->create(['name' => 'Saudara Developer']);
+
+        $this->actingAs($dev)
+            ->get(route('setting.pengguna'))
+            ->assertOk()
+            ->assertSee('Saudara Developer')
+            ->assertSee('Developer');
+    }
+
+    #[Test]
+    public function dev_can_edit_a_dev_user(): void
+    {
+        $actor = User::factory()->dev()->create();
+        $target = User::factory()->dev()->create(['username' => 'dev-tujuan']);
+
+        $this->actingAs($actor)
+            ->get(route('setting.pengguna.edit', $target))
+            ->assertOk();
+    }
+
+    #[Test]
+    public function dev_still_cannot_open_other_settings(): void
+    {
+        // Memberi akses pengelolaan pengguna tidak boleh membuka Pengaturan
+        // lain yang tetap milik Owner.
+        $dev = User::factory()->dev()->create();
+
+        $this->actingAs($dev)->get(route('setting.perangkat'))->assertForbidden();
+    }
+
+    #[Test]
+    public function staff_cannot_reach_user_management_even_though_dev_can(): void
+    {
+        $staff = User::factory()->staff()->create();
+        $target = User::factory()->staff()->create();
+
+        $this->actingAs($staff)->get(route('setting.pengguna'))->assertForbidden();
+        $this->actingAs($staff)->post(route('setting.pengguna.store'), ['role' => Role::Owner->value])->assertForbidden();
+        $this->actingAs($staff)->get(route('setting.pengguna.edit', $target))->assertForbidden();
+    }
 }

@@ -92,17 +92,15 @@ class StrukPreviewTest extends TestCase
         $this->assertStringContainsString("paper || '80mm'", $html);
     }
 
+    /**
+     * Setelan perangkat kini Owner-only; Staff hanya boleh memakai POS.
+     */
     #[Test]
-    public function staff_sees_the_preview_but_not_the_form(): void
+    public function staff_cannot_open_the_printer_settings(): void
     {
-        $html = $this->actingAs(User::factory()->staff()->create())
+        $this->actingAs(User::factory()->staff()->create())
             ->get(route('setting.perangkat'))
-            ->assertOk()
-            ->content();
-
-        $this->assertStringContainsString('Pratinjau struk', $html);
-        $this->assertStringNotContainsString('Simpan Pengaturan Struk', $html);
-        $this->assertStringNotContainsString('Uji Cetak Thermal', $html);
+            ->assertForbidden();
     }
 
     /**

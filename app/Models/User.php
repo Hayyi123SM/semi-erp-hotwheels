@@ -52,6 +52,35 @@ class User extends Authenticatable
         return $this->role === Role::Staff;
     }
 
+    public function isDev(): bool
+    {
+        return $this->role === Role::Dev;
+    }
+
+    /**
+     * Role yang boleh diberikan oleh pengguna ini lewat form pengguna.
+     *
+     * Owner mengelola toko dan tidak boleh menyentuh akun Developer; Developer
+     * adalah jalan masuk teknis yang hanya dibuat seeder atau Developer lain.
+     * Satu definisi di sini dipakai form, filter daftar, dan aturan validasi
+     * request, supaya pilihan yang tampak dan nilai yang diterima server tidak
+     * pernah berbeda.
+     *
+     * @return list<Role>
+     */
+    public function assignableRoles(): array
+    {
+        return $this->isDev() ? Role::cases() : [Role::Owner, Role::Staff];
+    }
+
+    /**
+     * Apakah role ini boleh diberikan oleh pengguna ini.
+     */
+    public function canAssignRole(Role $role): bool
+    {
+        return in_array($role, $this->assignableRoles(), true);
+    }
+
     /**
      * Halaman muka per peran.
      *
@@ -62,7 +91,11 @@ class User extends Authenticatable
      */
     public function homeRoute(): string
     {
-        return $this->isOwner() ? 'dashboard' : 'pos.kasir';
+        if ($this->isDev()) {
+            return 'dev.menu';
+        }
+
+        return $this->isOwner() ? 'owner.dashboard' : 'pos.kasir';
     }
 
     /**

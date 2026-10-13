@@ -39,6 +39,9 @@ final readonly class PricedLine
         public ?int $costPrice,
         public int $feeToko,
         public ?int $hakPenitip,
+        public int $discountTotal = 0,
+        public ?string $discountType = null,
+        public ?int $discountValue = null,
     ) {}
 
     /**
@@ -55,7 +58,12 @@ final readonly class PricedLine
             'owner_code' => $this->lot->owner_code,
             'qty' => $this->qty,
             'list_price' => $this->listPrice,
-            'discount' => 0,
+            'discount' => $this->discountTotal,
+            // Bentuk diskonnya ikut disimpan, bukan hanya hasil akhirnya:
+            // nota yang hanya menyimpan Rp-nya tidak bisa menjelaskan kenapa
+            // angkanya sebesar itu ketika ditanya kemudian.
+            'discount_type' => $this->discountType,
+            'discount_value' => $this->discountValue,
             'sell_price' => $this->sellPrice,
             'scheme_type' => $this->schemeType?->value,
             'scheme_rate' => $this->schemeRate,

@@ -42,8 +42,10 @@ class MasterSeeder extends Seeder
             ['key' => 'Honda Civic Type R', 'code' => 'OW00', 'seq' => 3, 'price' => 95000, 'rack' => 'A-02-01'],
             ['key' => 'Mazda 787B', 'code' => 'OW00', 'seq' => 4, 'price' => 135000, 'rack' => 'A-02-01'],
         ];
-        foreach ($ownLots as $lot) {
-            $this->makeLot($own, $lot['key'], $lot['code'], $lot['seq'], $lot['price'], $lot['rack'], $products, $racks);
+        if ($own->wasRecentlyCreated) {
+            foreach ($ownLots as $lot) {
+                $this->makeLot($own, $lot['key'], $lot['code'], $lot['seq'], $lot['price'], $lot['rack'], $products, $racks);
+            }
         }
         $consignments->push($own);
         $this->seedSkuSeq('OW00', 'HW', 4);
@@ -53,8 +55,10 @@ class MasterSeeder extends Seeder
             ['key' => 'Nissan Skyline GT-R R34', 'code' => 'CN01', 'seq' => 1, 'price' => 220000, 'rack' => 'A-01-03'],
             ['key' => 'Toyota Supra MK4', 'code' => 'CN01', 'seq' => 2, 'price' => 185000, 'rack' => 'B-01-05'],
         ];
-        foreach ($cn1Lots as $lot) {
-            $this->makeLot($cn1, $lot['key'], $lot['code'], $lot['seq'], $lot['price'], $lot['rack'], $products, $racks);
+        if ($cn1->wasRecentlyCreated) {
+            foreach ($cn1Lots as $lot) {
+                $this->makeLot($cn1, $lot['key'], $lot['code'], $lot['seq'], $lot['price'], $lot['rack'], $products, $racks);
+            }
         }
         $consignments->push($cn1);
         $this->seedSkuSeq('CN01', 'HW', 2);
@@ -64,8 +68,10 @@ class MasterSeeder extends Seeder
             ['key' => 'Lamborghini Huracan', 'code' => 'CN02', 'seq' => 1, 'price' => 175000, 'rack' => 'B-01-05'],
             ['key' => 'Ford Mustang GT', 'code' => 'CN02', 'seq' => 2, 'price' => 120000, 'rack' => 'Q-00-01'],
         ];
-        foreach ($cn2Lots as $lot) {
-            $this->makeLot($cn2, $lot['key'], $lot['code'], $lot['seq'], $lot['price'], $lot['rack'], $products, $racks);
+        if ($cn2->wasRecentlyCreated) {
+            foreach ($cn2Lots as $lot) {
+                $this->makeLot($cn2, $lot['key'], $lot['code'], $lot['seq'], $lot['price'], $lot['rack'], $products, $racks);
+            }
         }
         $consignments->push($cn2);
         $this->seedSkuSeq('CN02', 'HW', 2);
@@ -194,21 +200,23 @@ class MasterSeeder extends Seeder
         return $result;
     }
 
-    private function makeConsignment(User $owner, string $docNo, OwnerType $ownerType, ?Consignor $consignor, int $qty, ConsignmentStatus $status)
+    private function makeConsignment(User $owner, string $docNo, OwnerType $ownerType, ?Consignor $consignor, int $qty, ConsignmentStatus $status): Consignment
     {
-        return Consignment::create([
-            'doc_no' => $docNo,
-            'owner_type' => $ownerType,
-            'consignor_id' => $consignor?->id,
-            'consignment_date' => now()->subDays(30),
-            'notes' => 'Seeder '.$docNo,
-            'qty_claimed' => $qty,
-            'qty_received' => $qty,
-            'status' => $status,
-            'created_by' => $owner->id,
-            'committed_at' => now()->subDays(29),
-            'committed_by' => $owner->id,
-        ]);
+        return Consignment::firstOrCreate(
+            ['doc_no' => $docNo],
+            [
+                'owner_type' => $ownerType,
+                'consignor_id' => $consignor?->id,
+                'consignment_date' => now()->subDays(30),
+                'notes' => 'Seeder '.$docNo,
+                'qty_claimed' => $qty,
+                'qty_received' => $qty,
+                'status' => $status,
+                'created_by' => $owner->id,
+                'committed_at' => now()->subDays(29),
+                'committed_by' => $owner->id,
+            ]
+        );
     }
 
     private function makeLot($consignment, string $productKey, string $ownerCode, int $seq, int $price, string $rackCode, array $products, array $racks): void

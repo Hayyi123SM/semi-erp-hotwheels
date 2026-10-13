@@ -19,21 +19,34 @@ class UserManagementController extends Controller
 
     public function index()
     {
-        $isOwner = auth()->user()->isOwner();
-        $me = auth()->user();
+        $actor = auth()->user();
+        $canManage = $actor->can('manage-users');
+        $isOwner = $actor->isOwner();
 
         $base = User::query();
+
+        // Owner tidak pernah melihat akun Developer: barisnya dibuang dari
+        // daftar, filter, dan angka kartu -- bukan hanya tombolnya disembunyikan.
+        // Developer melihat semuanya.
+        if ($isOwner) {
+            $base->where('role', '!=', Role::Dev->value);
+        }
+
         $users = (clone $base)->when(
             request()->query('role'),
             fn ($query, $role) => $query->where('role', $role)
         );
 
+        // Owner boleh mengurus Owner/Staff; hanya Developer yang boleh
+        // menyentuh akun Developer.
+        $mayTouch = fn (User $user): bool => $canManage && ($actor->isDev() || ! $user->isDev());
+
         $table = DataTable::for(request(), $users)
             ->searchable(['name', 'username', 'email'])
             ->sortable(['name', 'username', 'role', 'is_active', 'created_at'])
             ->columns([
-                Column::make('name', 'Nama', sort: 'name')->priority(1)->card('title')->render(function (User $user) use ($me) {
-                    $tag = $user->is($me)
+                Column::make('name', 'Nama', sort: 'name')->priority(1)->card('title')->render(function (User $user) use ($actor) {
+                    $tag = $user->is($actor)
                         ? '<span class="ml-1 rounded bg-canvas px-1.5 py-0.5 text-label-sm text-text-subtle">Anda</span>'
                         : '';
 
@@ -42,13 +55,14 @@ class UserManagementController extends Controller
                 Column::make('username', 'Username', sort: 'username')->mono()->priority(2)->card('meta'),
                 Column::make('email', 'Email')->mono()->priority(2)->card('meta'),
                 Column::make('role', 'Role')->priority(1)->card('badge')->render(function (User $user) {
-                    $owner = $user->isOwner();
-                    $classes = $owner
-                        ? 'border-warning-border bg-warning-bg text-warning-text'
-                        : 'border-info-border bg-info-bg text-info-text';
+                    $classes = match ($user->role) {
+                        Role::Owner => 'border-warning-border bg-warning-bg text-warning-text',
+                        Role::Dev => 'border-border-strong bg-canvas text-text-muted',
+                        default => 'border-info-border bg-info-bg text-info-text',
+                    };
 
                     return '<span class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-label-md '.$classes.'">'
-                        .($owner ? 'Owner' : 'Staff').'</span>';
+                        .e($user->role->label()).'</span>';
                 }),
                 Column::make('is_active', 'Status')->priority(1)->card('badge')->value(function (User $user) {
                     return $user->is_active ? 'ACTIVE' : 'INACTIVE';
@@ -62,14 +76,14 @@ class UserManagementController extends Controller
                                 'key' => 'edit',
                                 'label' => 'Edit',
                                 'route' => 'setting.pengguna.edit',
-                                'when' => $isOwner,
+                                'when' => $mayTouch,
                             ],
                             [
                                 'key' => 'toggle',
                                 'label' => 'Nonaktif',
                                 'route' => 'setting.pengguna.toggle',
                                 'method' => 'PATCH',
-                                'when' => fn (User $user) => $isOwner && $user->is_active,
+                                'when' => fn (User $user) => $mayTouch($user) && $user->is_active,
                                 'confirm' => [
                                     'title' => 'Nonaktifkan pengguna?',
                                     'description' => 'Pengguna tidak dapat login lagi sampai diaktifkan kembali.',
@@ -81,7 +95,7 @@ class UserManagementController extends Controller
                                 'label' => 'Aktifkan',
                                 'route' => 'setting.pengguna.toggle',
                                 'method' => 'PATCH',
-                                'when' => fn (User $user) => $isOwner && ! $user->is_active,
+                                'when' => fn (User $user) => $mayTouch($user) && ! $user->is_active,
                             ],
                         ])),
                     ]),
@@ -90,7 +104,7 @@ class UserManagementController extends Controller
                 'role' => ['label' => 'Role', 'format' => fn (string $value) => Format::enum($value)],
             ]);
 
-        if ($isOwner) {
+        if ($canManage) {
             $table->create(route('setting.pengguna.create'), 'Tambah Pengguna');
         }
 
@@ -105,23 +119,23 @@ class UserManagementController extends Controller
 
         return $this->page('pages.settings.pengguna', [
             'table' => $table,
-            'totalUsers' => $base->toBase()->count(),
-            'ownerCount' => $base->toBase()->where('role', Role::Owner->value)->count(),
-            'inactiveCount' => $base->toBase()->where('is_active', false)->count(),
-            'canManage' => $isOwner,
+            'totalUsers' => (clone $base)->count(),
+            'ownerCount' => (clone $base)->where('role', Role::Owner->value)->count(),
+            'inactiveCount' => (clone $base)->where('is_active', false)->count(),
+            'canManage' => $canManage,
         ], 'Pengguna & Role');
     }
 
     public function create()
     {
-        abort_unless(auth()->user()->isOwner(), 403);
+        abort_unless(auth()->user()->can('manage-users'), 403);
 
         return $this->page('pages.settings.pengguna-form', ['user' => new User], 'Tambah Pengguna');
     }
 
     public function store(StoreUserRequest $request)
     {
-        abort_unless(auth()->user()->isOwner(), 403);
+        abort_unless($request->user()->can('manage-users'), 403);
 
         $data = $request->validated();
         $data['email_verified_at'] = isset($data['email']) ? now() : null;
@@ -137,14 +151,14 @@ class UserManagementController extends Controller
 
     public function edit(User $user)
     {
-        abort_unless(auth()->user()->isOwner(), 403);
+        $this->ensureCanManage($user);
 
         return $this->page('pages.settings.pengguna-form', ['user' => $user], 'Edit Pengguna');
     }
 
     public function update(UpdateUserRequest $request, User $user)
     {
-        abort_unless(auth()->user()->isOwner(), 403);
+        $this->ensureCanManage($user);
 
         $this->ensureOwnershipSafe($user, $request);
 
@@ -169,9 +183,11 @@ class UserManagementController extends Controller
 
     public function toggleActive(User $user)
     {
-        abort_unless(auth()->user()->isOwner(), 403);
+        $this->ensureCanManage($user);
 
-        if ($user->is(auth()->user())) {
+        $actor = auth()->user();
+
+        if ($user->is($actor)) {
             return back()->with('toast', ['type' => 'error', 'message' => 'Anda tidak dapat menonaktifkan akun sendiri.']);
         }
 
@@ -182,6 +198,20 @@ class UserManagementController extends Controller
             'type' => 'success',
             'message' => 'Pengguna '.$user->name.' '.($user->is_active ? 'diaktifkan' : 'dinonaktifkan').'.',
         ]);
+    }
+
+    /**
+     * Satu gerbang untuk edit/update/toggle.
+     *
+     * Owner tidak boleh menyentuh akun Developer sama sekali; Developer boleh.
+     * Ditulis sekali di sini supaya tidak ada jalur yang lupa dijaga.
+     */
+    private function ensureCanManage(User $target): void
+    {
+        $actor = auth()->user();
+
+        abort_unless($actor->can('manage-users'), 403);
+        abort_if($actor->isOwner() && $target->isDev(), 403, 'Akun Developer hanya dapat dikelola oleh Developer.');
     }
 
     private function ensureOwnershipSafe(User $user, UpdateUserRequest $request): void

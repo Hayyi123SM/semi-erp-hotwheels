@@ -74,45 +74,45 @@ class ProductController extends Controller
                     ->priority(1)
                     ->card('footer')
                     ->component('ui.row-actions', [
-                            'actions' => array_values(array_filter([
-                                [
-                                    'key' => 'approve',
-                                    'label' => 'Setujui',
-                                    'variant' => 'primary',
-                                    'route' => 'master.katalog-produk.approve',
-                                    'method' => 'PATCH',
-                                    'when' => fn (Product $p) => $isOwner && $p->needs_review,
+                        'actions' => array_values(array_filter([
+                            [
+                                'key' => 'approve',
+                                'label' => 'Setujui',
+                                'variant' => 'primary',
+                                'route' => 'master.katalog-produk.approve',
+                                'method' => 'PATCH',
+                                'when' => fn (Product $p) => $isOwner && $p->needs_review,
+                            ],
+                            [
+                                'key' => 'edit',
+                                'label' => 'Edit',
+                                'route' => 'master.katalog-produk.edit',
+                                'when' => $isOwner,
+                            ],
+                            [
+                                'key' => 'destroy',
+                                'label' => 'Hapus',
+                                'variant' => 'danger',
+                                'route' => 'master.katalog-produk.destroy',
+                                'method' => 'DELETE',
+                                'when' => $isOwner,
+                                'confirm' => [
+                                    'title' => 'Hapus produk ini?',
+                                    'description' => 'Produk dihapus permanen. Tidak bisa bila masih memiliki stock lot.',
+                                    'text' => 'Hapus',
                                 ],
-                                [
-                                    'key' => 'edit',
-                                    'label' => 'Edit',
-                                    'route' => 'master.katalog-produk.edit',
-                                    'when' => $isOwner,
-                                ],
-                                [
-                                    'key' => 'destroy',
-                                    'label' => 'Hapus',
-                                    'variant' => 'danger',
-                                    'route' => 'master.katalog-produk.destroy',
-                                    'method' => 'DELETE',
-                                    'when' => $isOwner,
-                                    'confirm' => [
-                                        'title' => 'Hapus produk ini?',
-                                        'description' => 'Produk dihapus permanen. Tidak bisa bila masih memiliki stock lot.',
-                                        'text' => 'Hapus',
-                                    ],
-                                ],
-                            ])),
-                        ])
+                            ],
+                        ])),
+                    ])
                     ->visible(fn () => true),
             ])
             ->perPage([10, 25, 50, 100])
             ->searchPlaceholder('Cari nama produk / seri / kode casting...')
             ->title('Katalog Produk')
             ->filters([
-                    // A flag, because the query reads it with boolean(): only a
-                    // truthy value narrows anything, so the chip says just the name.
-                    'needs_review' => ['label' => 'Perlu review', 'flag' => true],
+                // A flag, because the query reads it with boolean(): only a
+                // truthy value narrows anything, so the chip says just the name.
+                'needs_review' => ['label' => 'Perlu review', 'flag' => true],
             ])
             ->create(route('master.katalog-produk.create'), 'Tambah Produk');
 

@@ -5,20 +5,33 @@ namespace App\Http\Controllers\Pages;
 use App\Enums\CardCondition;
 use App\Enums\LotStatus;
 use App\Enums\OwnerType;
+use App\Enums\QuarantineReason;
+use App\Enums\QuarantineStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Inventory\AssignQuarantineCaseRequest;
+use App\Http\Requests\Inventory\LookupQuarantineRequest;
 use App\Http\Requests\Inventory\PindahRakRequest;
+use App\Http\Requests\Inventory\ResolveQuarantineRequest;
+use App\Http\Requests\Inventory\StoreQuarantineCaseRequest;
 use App\Models\Consignor;
 use App\Models\ProductSeries;
+use App\Models\QuarantineCase;
 use App\Models\Rack;
 use App\Models\StockLot;
 use App\Models\StockMovement;
+use App\Services\Inventory\QuarantineCaseService;
+use App\Services\Inventory\QuarantineLookupService;
+use App\Services\Inventory\QuarantineResolutionService;
+use App\Services\Inventory\QuarantineSla;
 use App\Services\Inventory\StockTransferService;
 use App\Support\DataTable\Column;
 use App\Support\DataTable\DataTable;
+use App\Support\Enums;
 use App\Support\Format;
-use App\Support\MockData;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class InventoryController extends Controller
@@ -47,9 +60,10 @@ class InventoryController extends Controller
             ->searchPlaceholder('Scan barcode / cari SKU...')
             ->columns([
                 Column::make('sku', 'SKU', sort: 'sku')->mono()->priority(1)->card('title'),
-                Column::make('product.name', 'Produk & Seri')
+                Column::make('product.name', 'Produk')
                     ->priority(1)
                     ->card('subtitle')
+                    ->unclamped()
                     ->render(fn (StockLot $lot) => $this->productCell($lot)),
                 Column::make('card_condition', 'Kondisi', sort: 'card_condition')
                     ->priority(3)
@@ -254,9 +268,273 @@ class InventoryController extends Controller
         ]);
     }
 
-    public function karantina()
+    /**
+     * Halaman Karantina (Fase 1 + 2).
+     *
+     * `?case=` memilih kasus yang ditangani: hanya untuk kasus itulah panel
+     * resolusi (pencarian kandidat, assign, eskalasi, write-off) dirender.
+     * Setelah aksi, redirect memakai `?case=` yang sama supaya konteks yang
+     * sedang dibuka tetap terbuka, bukan kembali ke kasus pertama di antrean.
+     */
+    public function karantina(LookupQuarantineRequest $request, QuarantineLookupService $lookup)
     {
-        return $this->page('pages.inventory.karantina', ['cases' => MockData::quarantineCases()], 'Karantina');
+        $reviewDays = QuarantineSla::reviewDays();
+        $escalateDays = QuarantineSla::escalateDays();
+
+        $cases = $this->quarantineCases();
+        $rows = $cases->map(fn (QuarantineCase $case): array => $this->quarantineRow($case, $reviewDays, $escalateDays));
+
+        $selectedCase = $this->resolveSelectedCase($rows, $request->query('case'));
+
+        $candidateContext = null;
+
+        if ($selectedCase !== null) {
+            $case = $cases->firstWhere('case_no', $selectedCase);
+            $candidateContext = $this->candidateContext($case, $request, $lookup);
+        }
+
+        return $this->page('pages.inventory.karantina', [
+            'cases' => $rows->all(),
+            'openCount' => $rows->count(),
+            'agingReview' => $rows->where('age', '>', $reviewDays)->count(),
+            'agingEscalate' => $rows->where('age', '>', $escalateDays)->count(),
+            'unitTotal' => $rows->sum('qty'),
+            'reviewDays' => $reviewDays,
+            'escalateDays' => $escalateDays,
+            'selectedCase' => $selectedCase,
+            'activeCase' => $selectedCase === null ? null : $cases->firstWhere('case_no', $selectedCase),
+            'candidates' => $candidateContext,
+            'racks' => Rack::query()
+                ->where('is_active', true)
+                ->orderBy('code')
+                ->get(['id', 'code']),
+            'conditions' => Enums::options(CardCondition::class),
+            'reasons' => Enums::options(QuarantineReason::class),
+        ], 'Karantina');
+    }
+
+    /**
+     * Registrasi kasus karantina baru (BR-10).
+     */
+    public function storeKarantina(
+        StoreQuarantineCaseRequest $request,
+        QuarantineCaseService $service,
+    ): RedirectResponse {
+        $case = $service->register(
+            $request->qty(),
+            $request->rack(),
+            $request->keyword(),
+            $request->series(),
+            $request->color(),
+            $request->condition(),
+            $request->reason(),
+            $request->user(),
+        );
+
+        return redirect()
+            ->route('inventory.karantina', ['case' => $case->case_no])
+            ->with('toast', [
+                'type' => 'success',
+                'message' => 'Kasus '.$case->case_no.' dibuka ('.$case->qty.' unit di rak karantina).',
+            ]);
+    }
+
+    /**
+     * Tautkan kasus ke satu kandidat lot & tutup (BR-11/BR-13).
+     */
+    public function assignKarantina(
+        QuarantineCase $case,
+        AssignQuarantineCaseRequest $request,
+        QuarantineResolutionService $service,
+    ): RedirectResponse {
+        $case = $service->assign(
+            $case,
+            $request->lot(),
+            $request->countedC(),
+            $request->confirm(),
+            $request->user(),
+            null,
+        );
+
+        return redirect()
+            ->route('inventory.karantina', ['case' => $case->case_no])
+            ->with('toast', [
+                'type' => 'success',
+                'message' => 'Kasus '.$case->case_no.' diselesaikan: di-assign ke '.$case->assignedLot?->sku.'.',
+            ]);
+    }
+
+    /**
+     * Naikkan kasus agar disetujui/diputuskan Owner (BR-12).
+     */
+    public function eskalasiKarantina(
+        QuarantineCase $case,
+        ResolveQuarantineRequest $request,
+        QuarantineResolutionService $service,
+    ): RedirectResponse {
+        $service->escalate($case, $request->user(), $request->note());
+
+        return redirect()
+            ->route('inventory.karantina', ['case' => $case->case_no])
+            ->with('toast', [
+                'type' => 'success',
+                'message' => 'Kasus '.$case->case_no.' dieskalasi ke Owner.',
+            ]);
+    }
+
+    /**
+     * Tutup kasus sebagai write-off (unit tak teridentifikasi dibuang).
+     */
+    public function writeOffKarantina(
+        QuarantineCase $case,
+        ResolveQuarantineRequest $request,
+        QuarantineResolutionService $service,
+    ): RedirectResponse {
+        $service->writeOff($case, $request->user(), $request->note());
+
+        return redirect()
+            ->route('inventory.karantina', ['case' => $case->case_no])
+            ->with('toast', [
+                'type' => 'success',
+                'message' => 'Kasus '.$case->case_no.' ditutup sebagai write-off.',
+            ]);
+    }
+
+    /**
+     * Kasus terpilih: query `?case=` bila dikenali, kalau tidak kasus pertama.
+     */
+    private function resolveSelectedCase(Collection $rows, mixed $candidate): ?string
+    {
+        if (is_string($candidate) && $candidate !== '' && $rows->contains('caseId', $candidate)) {
+            return $candidate;
+        }
+
+        return $rows->isEmpty() ? null : (string) $rows->first()['caseId'];
+    }
+
+    /**
+     * Hasil pencarian kandidat untuk kasus yang sedang dibuka, atau null bila
+     * kasus itu tidak tersedia.
+     *
+     * @return array{caseId: string, lots: list<array<string, mixed>>, ambiguous: bool}|null
+     */
+    private function candidateContext(
+        QuarantineCase $case,
+        LookupQuarantineRequest $request,
+        QuarantineLookupService $lookup,
+    ): ?array {
+        $attributes = $case->attributes ?? [];
+
+        $keyword = $request->keyword() ?? ($attributes['model'] ?? null);
+        $series = $request->series() ?? ($attributes['series'] ?? null);
+        $color = $request->color() ?? ($attributes['color'] ?? null);
+        $condition = $request->condition()
+            ?? CardCondition::tryFrom((string) ($attributes['condition'] ?? ''));
+
+        $result = $lookup->search($keyword, $series, $color, $condition);
+
+        return [
+            'caseId' => $case->case_no,
+            'lots' => $result['lots']
+                ->take(100)
+                ->map(fn (StockLot $lot): array => $this->candidateRow($lot, $case->qty))
+                ->values()
+                ->all(),
+            'ambiguous' => $result['ambiguous'],
+            'form' => [
+                'q' => $keyword,
+                'seri' => $series,
+                'warna' => $color,
+                'kondisi' => $condition?->value,
+            ],
+        ];
+    }
+
+    /**
+     * Bentuk kandidat untuk panel resolusi.
+     *
+     * @return array<string, mixed>
+     */
+    private function candidateRow(StockLot $lot, int $caseQty): array
+    {
+        $condition = $lot->card_condition?->label()
+            ?? ($lot->product?->card_condition?->label() ?? Format::EMPTY);
+
+        return [
+            'id' => $lot->id,
+            'sku' => $lot->sku,
+            'product' => $lot->product?->name ?? Format::EMPTY,
+            'series' => $lot->product?->series?->name ?? null,
+            'color' => $lot->product?->color ?? null,
+            'year' => $lot->product?->year ?? null,
+            'condition' => $condition,
+            'owner' => $lot->isOwned() ? 'Milik toko' : $lot->consignor?->name ?? 'Titipan',
+            'rack' => $lot->rack?->code ?? Format::EMPTY,
+            'price' => $lot->list_price,
+            'available' => $lot->qty_on_hand,
+            'score' => (int) ($lot->score ?? 0),
+            'ambiguous' => (bool) ($lot->ambiguous ?? false),
+        ];
+    }
+
+    /**
+     * Kasus karantina yang masih menggantung, tertua dulu.
+     *
+     * @return Collection<int, QuarantineCase>
+     */
+    private function quarantineCases(): Collection
+    {
+        return QuarantineCase::query()
+            ->whereIn('status', QuarantineStatus::openValues())
+            ->with(['rack', 'opener'])
+            ->orderByDesc('created_at')
+            ->get();
+    }
+
+    /**
+     * Bentuk yang dimakan halaman karantina: semua nilai yang divisualkan
+     * dihitung di sini, bukan dicabik-cabik lagi di view.
+     *
+     * @return array<string, mixed>
+     */
+    private function quarantineRow(QuarantineCase $case, int $reviewDays, int $escalateDays): array
+    {
+        $age = $this->caseAge($case);
+
+        $attributes = $case->attributes ?? [];
+
+        $reason = QuarantineReason::tryFrom((string) ($attributes['reason'] ?? ''))
+            ?->label() ?? ($attributes['reason'] ?? '—');
+
+        $condition = CardCondition::tryFrom((string) ($attributes['condition'] ?? ''))
+            ?->label() ?? ($attributes['condition'] ?? null);
+
+        return [
+            'id' => $case->getKey(),
+            'caseId' => $case->case_no,
+            'arrivedAt' => Format::datetime($case->created_at),
+            'age' => $age,
+            'severity' => $age > $escalateDays ? 'error' : ($age > $reviewDays ? 'warning' : 'neutral'),
+            'qty' => $case->qty,
+            'status' => $case->status->value,
+            'statusLabel' => Format::enum($case->status),
+            'rack' => $case->rack?->code,
+            'model' => $attributes['model'] ?? 'Belum teridentifikasi',
+            'reason' => $reason,
+            'series' => $attributes['series'] ?? null,
+            'color' => $attributes['color'] ?? null,
+            'condition' => $condition,
+            'openedBy' => $case->opener?->name,
+        ];
+    }
+
+    private function caseAge(QuarantineCase $case): int
+    {
+        if ($case->created_at === null) {
+            return 0;
+        }
+
+        return max(0, (int) $case->created_at->diffInDays(now()));
     }
 
     /**
@@ -376,11 +654,25 @@ class InventoryController extends Controller
 
     private function productCell(StockLot $lot): string
     {
-        $series = $lot->product?->series?->name;
-        $html = '<span class="font-medium text-text-strong">'.e($lot->product?->name ?? $lot->sku).'</span>';
+        $product = $lot->product;
+        $series = $product?->series?->name;
+        $html = '<span class="font-medium text-text-strong">'.e($product?->name ?? $lot->sku).'</span>';
 
         if ($series !== null && $series !== '') {
             $html .= '<span class="block text-label-sm text-text-muted">'.e($series).'</span>';
+        }
+
+        // Warna dan tahun tersedia opsional di katalog; keduanya pembeda yang
+        // paling sering dicari orang untuk mobilan yang mirip, jadi digabung
+        // dalam satu baris di bawah nama dan seri (pola titik yang sama seperti
+        // sel produk di halaman cetak label).
+        $details = array_filter(
+            [$product?->color, (string) $product?->year],
+            fn (string $part): bool => $part !== '' && $part !== '0',
+        );
+
+        if ($details !== []) {
+            $html .= '<span class="block text-label-sm text-text-muted">'.e(implode(' · ', $details)).'</span>';
         }
 
         return $html;

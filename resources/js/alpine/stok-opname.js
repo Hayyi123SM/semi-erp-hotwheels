@@ -45,6 +45,8 @@ const STATUS_TYPE_ICONS = {
  * @param {object} [config.statuses] id baris → `{label, type}` dari server
  * @param {object} [config.urls] id baris → URL `/tambah`
  * @param {string} [config.csrf] token CSRF untuk panggilan fetch
+ * @param {object} [config.reviewTargets] id baris → payload dialog Review
+ * @param {number|string|null} [config.failedReviewId] baris yang gagal divalidasi
  */
 export function stokOpname(config = {}) {
     const rows = config.rows ?? [];
@@ -59,11 +61,37 @@ export function stokOpname(config = {}) {
         counts,
         statuses: config.statuses ?? {},
         urls: config.urls ?? {},
+        // Payload dialog Review datang utuh dari server; tombol hanya mengirim
+        // id. Baris yang gagal divalidasi membuka kembali dialognya dari sini.
+        reviewTargets: config.reviewTargets ?? {},
+        failedReviewId: config.failedReviewId ?? null,
         // SKU persis seperti pada label tidak boleh ambigu: dua baris tidak
         // pernah berbagi SKU dalam satu sesi (SKU unik per lot).
         idBySku: Object.fromEntries(rows.map((row) => [row.sku, row.id])),
         // Counter per id untuk serialisasi /tambah; lihat addBySku.
         scanQueue: {},
+
+        init() {
+            if (this.failedReviewId !== null && this.reviewTargets[this.failedReviewId]) {
+                this.openReview(this.failedReviewId);
+            }
+        },
+
+        /**
+         * Buka dialog keputusan untuk satu baris.
+         *
+         * Id yang tidak dikenal tidak membuka apa pun: lebih baik tombol diam
+         * daripada dialog yang mengirim ke alamat yang salah.
+         *
+         * @param {number|string} id id baris opname
+         */
+        openReview(id) {
+            this.review = this.reviewTargets[id] ?? null;
+
+            if (this.review !== null) {
+                window.dispatchEvent(new CustomEvent('open-modal', { detail: 'review-baris' }));
+            }
+        },
 
         matches(sku) {
             const q = this.q.trim().toUpperCase();

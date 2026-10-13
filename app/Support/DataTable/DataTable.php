@@ -91,7 +91,8 @@ class DataTable
     }
 
     /**
-     * Columns searched by the toolbar. Relation paths are supported, e.g. 'product.name'.
+     * Columns searched by the toolbar. Relation paths are supported, one level
+     * deep or nested, e.g. 'product.name' and 'product.series.name'.
      */
     public function searchable(array $fields): static
     {
@@ -658,7 +659,17 @@ class DataTable
                         return;
                     }
 
-                    [$relation, $column] = explode('.', $field, 2);
+                    /*
+                     * A dotted path is a relation path plus the final column.
+                     * Peel the column off the last dot so the remaining path can
+                     * be handed to whereHas verbatim: Eloquent walks a dotted
+                     * relation path ('product.series') itself, and piping the
+                     * whole remainder into whereRaw would look for a
+                     * 'series.name' column on the products table.
+                     */
+                    $segments = explode('.', $field);
+                    $column = array_pop($segments);
+                    $relation = implode('.', $segments);
 
                     $query->orWhereHas(
                         $relation,

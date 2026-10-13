@@ -26,6 +26,7 @@ import { reprintForm } from './alpine/reprint-form';
 import { shiftCloseForm } from './alpine/shift-close-form';
 import { importDropzone } from './alpine/import-dropzone';
 import { stokOpname } from './alpine/stok-opname';
+import { dateRange } from './alpine/date-range';
 
 window.Alpine = Alpine;
 
@@ -66,6 +67,7 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('shiftCloseForm', shiftCloseForm);
     Alpine.data('importDropzone', importDropzone);
     Alpine.data('stokOpname', stokOpname);
+    Alpine.data('dateRange', dateRange);
     // The URL is passed in rather than read from the markup: the panel is lifted
     // into a dialog, so the route has to reach it as an argument.
     Alpine.data('productPicker', productPicker);

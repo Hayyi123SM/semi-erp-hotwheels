@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Enums\LabelPaperMode;
 use App\Enums\PrintMethod;
+use App\Http\Middleware\OwnerOnly;
 use App\Http\Requests\Settings\SavePrinterSettingsRequest;
 use App\Models\AuditLog;
 use App\Models\Rack;
@@ -437,7 +438,7 @@ class PrinterSettingsTest extends TestCase
         // Tampilan form Owner selalu memuat banner peringatan di sumbernya
         // (hanya disembunyikan Alpine), jadi halaman harus dibaca lewat
         // tampilan Staff yang bebas middleware OwnerOnly.
-        $this->withoutMiddleware(\App\Http\Middleware\OwnerOnly::class);
+        $this->withoutMiddleware(OwnerOnly::class);
 
         $this->actingAs(User::factory()->owner()->create())
             ->save(['default_template' => '3x2'])

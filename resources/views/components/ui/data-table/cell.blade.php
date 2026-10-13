@@ -24,7 +24,7 @@
 @if ($delegate)
     <x-dynamic-component :component="$delegate" :row="$row" :column="$column" :value="$value" :data="$column->componentData" />
 @elseif ($column->render)
-    <span class="cell-text" {!! $tooltip !!}>{!! ($column->render)($row, $column) !!}</span>
+    <span @class(['cell-text', 'cell-text-unclamped' => $column->unclamped]) {!! $tooltip !!}>{!! ($column->render)($row, $column) !!}</span>
 @elseif ($column->format === 'status')
     <x-ui.badge-status :type="Format::statusType($value)">{{ Format::statusLabel($value) }}</x-ui.badge-status>
 @elseif ($column->format === 'ownership')

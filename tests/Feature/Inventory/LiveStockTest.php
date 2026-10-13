@@ -5,6 +5,8 @@ namespace Tests\Feature\Inventory;
 use App\Enums\AuditAction;
 use App\Enums\MovementType;
 use App\Enums\OwnerType;
+use App\Models\Product;
+use App\Models\ProductSeries;
 use App\Models\Rack;
 use App\Models\StockLot;
 use App\Models\StockMovement;
@@ -22,15 +24,24 @@ class LiveStockTest extends TestCase
         return Rack::factory()->create(['is_active' => $active]);
     }
 
-    private function consignLot(Rack $rack, int $qty, string $sku): StockLot
+    private function consignLot(Rack $rack, int $qty, string $sku, ?int $productId = null): StockLot
     {
+        $state = [
+            'sku' => $sku,
+            'rack_id' => $rack->id,
+            'qty_on_hand' => $qty,
+            'qty_received' => $qty,
+        ];
+
+        // Produk bawaan factory cukup untuk tes lain; ikat ke produk tertentu
+        // hanya bila tes membutuhkannya, supaya perilaku pemanggil lama tidak
+        // berubah.
+        if ($productId !== null) {
+            $state['product_id'] = $productId;
+        }
+
         return StockLot::factory()
-            ->state([
-                'sku' => $sku,
-                'rack_id' => $rack->id,
-                'qty_on_hand' => $qty,
-                'qty_received' => $qty,
-            ])
+            ->state($state)
             ->create();
     }
 
@@ -78,6 +89,34 @@ class LiveStockTest extends TestCase
         // membukanya harus sudah ada di halaman, bukan menyusul belakangan.
         $this->assertStringContainsString('pindah-rak', $html);
         $this->assertStringContainsString('Kartu', $html);
+    }
+
+    #[Test]
+    public function searching_filters_by_series_name_without_an_sql_error(): void
+    {
+        // Dulu pencarian apapun di halaman ini menghasilkan 'Unknown column
+        // products.series.name': field pencarian 'product.series.name' (dua
+        // tingkat relasi) diurai di titik pertama, lalu sisanya diteruskan ke
+        // whereRaw seolah-olah itu kolom pada tabel products.
+        $owner = User::factory()->owner()->create();
+        $series = ProductSeries::factory()->create(['name' => 'Car Culture', 'code' => 'CC']);
+        $product = Product::factory()->create(['series_id' => $series->id, 'name' => 'Mazda RX-7']);
+        $matching = $this->consignLot($this->rack(), 2, 'CN01-HW-001', $product->id);
+        $other = $this->consignLot($this->rack(), 1, 'CN01-HW-002');
+
+        $html = $this->actingAs($owner)
+            ->get(route('inventory.live-stock', ['q' => 'car culture']))
+            ->assertOk()
+            ->content();
+
+        $this->assertStringContainsString('CN01-HW-001', $html);
+        $this->assertStringNotContainsString('CN01-HW-002', $html);
+
+        $none = $this->actingAs($owner)
+            ->get(route('inventory.live-stock', ['q' => 'gundam']))
+            ->assertOk()
+            ->content();
+        $this->assertStringNotContainsString('CN01-HW-001', $none);
     }
 
     /**

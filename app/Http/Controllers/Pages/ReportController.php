@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use App\Models\User;
 use App\Services\Report\MarginReportService;
+use App\Services\Report\ReportPeriod;
 use App\Services\Report\SalesReportService;
 use App\Services\Report\SettlementReportService;
 use App\Services\Report\StockReportService;
@@ -78,8 +79,16 @@ class ReportController extends Controller
             return $this->exportMargin((string) $request->query('format'), $service, $dimension, $request);
         }
 
+        // Rentang yang benar-benar dipakai, bukan hanya yang diketik: tanpa
+        // `from`/`to` di query, service menyaring 30 hari terakhir lewat
+        // `ReportPeriod`, dan filter di halaman harus menampilkan rentang yang
+        // sama -- kalau tidak, inputnya kosong sementara laporannya jelas tidak.
+        [$from, $to] = ReportPeriod::span($request->query('from'), $request->query('to'));
+
         return $this->page('pages.reports.margin', [
             'dimension' => $dimension,
+            'from' => $from->toDateString(),
+            'to' => $to->toDateString(),
             'summary' => $service->summary($request->query('from'), $request->query('to')),
             'reconciliation' => $service->reconciliation($request->query('from'), $request->query('to')),
             'dimensions' => $service->dimension($dimension, $request->query('from'), $request->query('to')),
@@ -126,7 +135,13 @@ class ReportController extends Controller
             ])
             ->emptyState('Tidak ada transaksi di periode ini', 'Ubah rentang tanggal atau buka halaman kasir untuk mencatat penjualan baru.');
 
+        // Lihat catatan di margin(): filter menampilkan rentang efektif, bukan
+        // hanya yang ada di query.
+        [$from, $to] = ReportPeriod::span($request->query('from'), $request->query('to'));
+
         return $this->page('pages.reports.laporan', [
+            'from' => $from->toDateString(),
+            'to' => $to->toDateString(),
             'summary' => $sales->summary($viewer, $request->query('from'), $request->query('to')),
             'shifts' => $sales->shifts($viewer, $request->query('from'), $request->query('to')),
             'valuation' => $stock->valuation(),

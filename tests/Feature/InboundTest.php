@@ -187,8 +187,11 @@ class InboundTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['entity' => 'StockLot', 'action' => 'RECEIVE_OWN']);
     }
 
+    /**
+     * Barang masuk kini Owner-only; Staff hanya boleh memakai POS.
+     */
     #[Test]
-    public function staff_cannot_commit_own_stock_but_may_commit_consignment(): void
+    public function staff_cannot_commit_inbound_stock(): void
     {
         $staff = User::factory()->staff()->create();
         $series = ProductSeries::factory()->create(['code' => 'HW']);
@@ -199,19 +202,15 @@ class InboundTest extends TestCase
             'items' => [['product_id' => $product->id, 'qty' => '1', 'cost_price' => '10000']],
         ])->assertForbidden();
 
-        $this->assertDatabaseCount('stock_lots', 0);
-
         $consignor = Consignor::factory()->create();
-        $commit = $this->actingAs($staff)->post('/inbound/consignment-in', [
+        $this->actingAs($staff)->post('/inbound/consignment-in', [
             'consignor_id' => $consignor->id,
             'consignment_date' => '2026-09-28',
             'verified' => '1',
             'items' => [['product_id' => $product->id, 'qty' => '1']],
-        ]);
+        ])->assertForbidden();
 
-        $this->assertRedirectedToReceipt($commit);
-
-        $this->assertDatabaseCount('stock_lots', 1);
+        $this->assertDatabaseCount('stock_lots', 0);
     }
 
     #[Test]

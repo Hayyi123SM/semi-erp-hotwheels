@@ -11,9 +11,12 @@
      x-data="posCart()"
      data-lookup-url="{{ route('pos.produk.cari') }}"
      data-checkout-url="{{ route('pos.transaksi.store') }}"
+     data-draft-load="{{ route('pos.draft.load') }}"
+     data-draft-save="{{ route('pos.draft.save') }}"
+     data-draft-cancel="{{ route('pos.draft.cancel') }}"
      @keydown.window.f2.prevent="openPicker()"
      @keydown.window.f8.prevent="pay()"
-     @keydown.window.escape.prevent="clear()">
+     @keydown.window.escape.prevent="clearConfirmed()">
 
     {{--
         POS keeps the 62/38 split from `lg` up. Below that the right column is
@@ -30,7 +33,7 @@
     --}}
     <div class="grid gap-0 lg:h-full lg:grid-cols-[minmax(0,62fr)_minmax(0,38fr)]">
         <!-- Left work zone -->
-        <div class="bg-canvas p-4 sm:p-6 lg:min-h-0 lg:overflow-y-auto">
+        <div class="bg-canvas p-3 sm:p-4 lg:p-6 lg:min-h-0 lg:overflow-y-auto pb-24 sm:pb-28 lg:pb-6">
             <div class="mx-auto max-w-4xl">
                 {{--
         Nama kasir dan nama shift datang dari shift yang benar-benar terbuka.
@@ -132,69 +135,210 @@
 
                 <!-- Basket -->
                 <div class="mt-5 card overflow-hidden">
-                    <table class="w-full text-left">
-                        <thead class="thead-dense">
-                            <tr>
-                                <th class="px-4 py-3 font-semibold">Item</th>
-                                <th class="px-4 py-3 text-center font-semibold">Qty</th>
-                                <th class="px-4 py-3 text-right font-semibold">Harga</th>
-                                <th class="px-4 py-3 text-right font-semibold">Jumlah</th>
-                                <th class="px-4 py-3"></th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-border-subtle">
-                            <template x-for="item in items" :key="item.sku">
-                                <tr class="h-12 border-b border-border-subtle transition hover:bg-canvas">
-                                    <td class="px-4 py-2">
-                                        <div class="flex items-center gap-2.5">
-                                            <span class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-label-md"
-                                                  :class="item.ownership === 'TITIP'
-                                                      ? 'border-titip-border bg-titip-bg text-titip-text'
-                                                      : 'border-pribadi-border bg-pribadi-bg text-pribadi-text'">
-                                                <span x-text="item.ownership"></span>
-                                            </span>
-                                            <div>
-                                                <p class="text-body-md font-medium text-text-strong" x-text="item.name"></p>
-                                                <p class="font-mono text-label-sm text-text-subtle">
-                                                    <span x-text="item.sku"></span>
-                                                    <span x-show="item.consignor" x-text="' · ' + item.consignor"></span>
+                    {{-- Keranjang punya kepalanya sendiri: jumlah barang dan satu
+                         kendali yang mengosongkan semuanya. Tombolnya bertanya
+                         lebih dulu (lihat `clearConfirmed()`), jadi salah tekan
+                         berbiaya satu dialog, bukan satu keranjang. --}}
+                    <div class="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3">
+                        <p class="text-label-md text-text-muted">
+                            Keranjang · <span class="tabular-nums" x-text="items.length">0</span> item
+                        </p>
+                        <button type="button"
+                                class="btn-ghost h-8 px-3 text-error-text hover:bg-error-bg"
+                                x-show="items.length > 0"
+                                x-cloak
+                                @click="clearConfirmed()">
+                            Kosongkan
+                        </button>
+                    </div>
+
+                    {{-- Tabelnya menggulir mendatar kalau tidak muat, bukan
+                         memotong kolom di tepi kanan. `min-w` memberi kolom
+                         diskon dan tombol hapus lebar sendiri, sehingga nama
+                         barang tidak lagi diperas untuk memberi ruang kepada
+                         keduanya. --}}
+                    <div class="hidden lg:block overflow-x-auto">
+                        <table class="w-full min-w-[760px] text-left">
+                            <thead class="thead-dense">
+                                <tr>
+                                    <th class="px-4 py-3 font-semibold">Item</th>
+                                    <th class="px-4 py-3 text-center font-semibold">Qty</th>
+                                    <th class="px-4 py-3 text-right font-semibold">Harga</th>
+                                    <th class="px-4 py-3 text-center font-semibold">Diskon</th>
+                                    <th class="px-4 py-3 text-right font-semibold">Jumlah</th>
+                                    <th class="px-4 py-3"></th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-border-subtle">
+                                <template x-for="item in items" :key="item.sku">
+                                    <tr class="h-12 border-b border-border-subtle transition hover:bg-canvas">
+                                        <td class="px-4 py-2.5">
+                                            <div class="min-w-0">
+                                                <div class="flex flex-wrap items-center gap-1.5">
+                                                    <span class="inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-label-md"
+                                                          :class="item.ownership === 'TITIP'
+                                                              ? 'border-titip-border bg-titip-bg text-titip-text'
+                                                              : 'border-pribadi-border bg-pribadi-bg text-pribadi-text'">
+                                                        <span x-text="item.ownership"></span>
+                                                    </span>
+                                                    <span class="font-mono text-label-sm text-text-subtle" x-text="item.sku"></span>
+                                                </div>
+                                                <p class="mt-1 text-body-md font-medium text-text-strong leading-tight" x-text="item.name"></p>
+                                                <p class="mt-0.5 text-label-sm text-text-muted leading-tight whitespace-normal">
+                                                    <span x-show="item.color" x-text="'Warna: ' + item.color"></span>
+                                                    <span x-show="item.year && item.color"> · </span>
+                                                    <span x-show="item.year" x-text="'Tahun: ' + item.year"></span>
+                                                    <span x-show="item.consignor && (item.color || item.year)"> · </span>
+                                                    <span x-show="item.consignor" x-text="'Konsinyor: ' + item.consignor"></span>
                                                 </p>
                                             </div>
-                                        </div>
-                                    </td>
-                                    <td class="px-4 py-2">
-                                        <div class="flex items-center justify-center gap-1">
-                                            <button type="button" class="flex h-7 w-7 items-center justify-center rounded text-text-muted hover:bg-canvas" @click="decrement(item.sku)" :aria-label="'Kurangi ' + item.name">−</button>
-                                            <span class="w-8 text-center text-body-md font-semibold tabular-nums" x-text="item.qty"></span>
-                                            <button type="button" class="flex h-7 w-7 items-center justify-center rounded text-text-muted hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40"
-                                                    @click="increment(item.sku)"
-                                                    :disabled="!item.canIncrease"
-                                                    :aria-label="'Tambah ' + item.name"
-                                                    :title="item.canIncrease ? 'Tambah' : 'Stok tinggal ' + item.stock">+</button>
-                                        </div>
-                                    </td>
-                                    <td class="px-4 py-2 text-right text-body-md tabular-nums" x-text="format.rupiah(item.price)"></td>
-                                    <td class="px-4 py-2 text-right text-body-md font-semibold tabular-nums" x-text="format.rupiah(item.price * item.qty)"></td>
-                                    <td class="px-4 py-2 text-right">
-                                        <button type="button" class="flex h-7 w-7 items-center justify-center rounded text-error-text hover:bg-error-bg" @click="removeItem(item.sku)" aria-label="Hapus item">
-                                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18L18 6M6 6l12 12"/></svg>
-                                        </button>
+                                        </td>
+                                        <td class="whitespace-nowrap px-4 py-2">
+                                            <div class="flex items-center justify-center gap-1">
+                                                <button type="button" class="flex h-7 w-7 items-center justify-center rounded text-text-muted hover:bg-canvas touch-manipulation" @click="decrement(item.sku)" :aria-label="'Kurangi ' + item.name">−</button>
+                                                <span class="w-8 text-center text-body-md font-semibold tabular-nums" x-text="item.qty"></span>
+                                                <button type="button" class="flex h-7 w-7 items-center justify-center rounded text-text-muted hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40 touch-manipulation"
+                                                        @click="increment(item.sku)"
+                                                        :disabled="!item.canIncrease"
+                                                        :aria-label="'Tambah ' + item.name"
+                                                        :title="item.canIncrease ? 'Tambah' : 'Stok tinggal ' + item.stock">+</button>
+                                            </div>
+                                        </td>
+                                        <td class="whitespace-nowrap px-4 py-2 text-right text-body-md tabular-nums" x-text="format.rupiah(item.price)"></td>
+                                        <td class="px-3 py-2">
+                                            <div class="flex items-center justify-center gap-1.5">
+                                                <select class="h-8 shrink-0 rounded-md border border-border-subtle bg-surface-lowest pl-2 pr-6 text-label-sm text-text-strong outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/15 touch-manipulation"
+                                                        x-model="item.discountType"
+                                                        @change="onDiscountTypeChange(item)"
+                                                        aria-label="Tipe diskon">
+                                                    <option value="">Tanpa</option>
+                                                    <option value="percent">%</option>
+                                                    <option value="amount">Rp</option>
+                                                </select>
+                                                <div class="relative">
+                                                    <span x-show="item.discountType === 'amount'"
+                                                          x-cloak
+                                                          class="pointer-events-none absolute inset-y-0 left-2 flex items-center text-label-sm text-text-subtle">Rp</span>
+                                                    <span x-show="item.discountType === 'percent'"
+                                                          x-cloak
+                                                          class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-label-sm text-text-subtle">%</span>
+                                                    <input type="number"
+                                                           class="h-8 w-24 rounded-md border border-border-subtle bg-surface-lowest text-right text-label-sm tabular-nums text-text-strong outline-none transition placeholder:text-text-subtle focus:border-primary focus:ring-[3px] focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-text-subtle"
+                                                           :class="item.discountType === 'amount' ? 'pl-7 pr-2' : (item.discountType === 'percent' ? 'pl-2 pr-6' : 'px-2')"
+                                                           x-model.number="item.discountValue"
+                                                           :disabled="!item.discountType"
+                                                           placeholder="0"
+                                                           min="0"
+                                                           :max="item.discountType === 'percent' ? 100 : (item.price * item.qty)"
+                                                           step="1"
+                                                           @input.debounce.300ms="saveDraft()"
+                                                           @blur="clampDiscount(item)"
+                                                           aria-label="Nilai diskon" />
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="whitespace-nowrap px-4 py-2 text-right">
+                                            <p x-show="discountFor(item) > 0"
+                                               x-cloak
+                                               class="text-label-sm text-text-subtle line-through tabular-nums"
+                                               x-text="format.rupiah(item.price * item.qty)"></p>
+                                            <p class="text-body-md font-semibold tabular-nums" x-text="format.rupiah(lineTotalFor(item))"></p>
+                                        </td>
+                                        <td class="px-4 py-2 text-right">
+                                            <button type="button" class="flex h-7 w-7 items-center justify-center rounded text-error-text hover:bg-error-bg touch-manipulation" @click="removeItem(item.sku)" aria-label="Hapus item">
+                                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18L18 6M6 6l12 12"/></svg>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="items.length === 0" x-cloak>
+                                    <td colspan="6">
+                                        <x-ui.empty-state
+                                            title="Keranjang kosong"
+                                            description="Pindai barcode atau ketik SKU di atas. Satu produk jadi satu baris di sini."
+                                        />
                                     </td>
                                 </tr>
-                            </template>
-                            <tr x-show="items.length === 0" x-cloak>
-                                <td colspan="5">
-                                    <x-ui.empty-state
-                                        title="Keranjang kosong"
-                                        description="Pindai barcode atau ketik SKU di atas. Satu produk jadi satu baris di sini."
-                                    />
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {{-- Mobile/Tablet basket cards --}}
+                    <div class="block lg:hidden divide-y divide-border-subtle">
+                        <template x-for="item in items" :key="'card-' + item.sku">
+                            <div class="p-3">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <div class="flex flex-wrap items-center gap-1.5">
+                                            <span class="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-label-sm"
+                                                  :class="item.ownership === 'TITIP'
+                                                      ? 'border-titip-border bg-titip-bg text-titip-text'
+                                                      : 'border-pribadi-border bg-pribadi-bg text-pribadi-text'"
+                                                  x-text="item.ownership"></span>
+                                            <span class="font-mono text-label-sm text-text-subtle" x-text="item.sku"></span>
+                                        </div>
+                                        <p class="mt-1 text-body-sm font-medium text-text-strong leading-tight" x-text="item.name"></p>
+                                        <p class="mt-0.5 text-label-sm text-text-muted leading-tight whitespace-normal">
+                                            <span x-show="item.color" x-text="'Warna: ' + item.color"></span>
+                                            <span x-show="item.year && item.color"> · </span>
+                                            <span x-show="item.year" x-text="'Tahun: ' + item.year"></span>
+                                            <span x-show="item.consignor && (item.color || item.year)"> · </span>
+                                            <span x-show="item.consignor" x-text="'Konsinyor: ' + item.consignor"></span>
+                                        </p>
+                                    </div>
+                                    <button type="button" class="flex h-8 w-8 items-center justify-center rounded text-error-text hover:bg-error-bg touch-manipulation" @click="removeItem(item.sku)" aria-label="Hapus item">
+                                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18L18 6M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
+
+                                <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+                                    <div class="flex items-center gap-1 rounded-md border border-border-subtle">
+                                        <button type="button" class="flex h-8 w-8 items-center justify-center text-text-muted hover:bg-canvas touch-manipulation" @click="decrement(item.sku)" aria-label="Kurangi">−</button>
+                                        <span class="min-w-8 text-center text-body-sm font-semibold tabular-nums" x-text="item.qty"></span>
+                                        <button type="button" class="flex h-8 w-8 items-center justify-center text-text-muted hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-40 touch-manipulation"
+                                                @click="increment(item.sku)"
+                                                :disabled="!item.canIncrease">+</button>
+                                    </div>
+
+                                    <div class="flex flex-col items-end text-right">
+                                        <p x-show="discountFor(item) > 0" x-cloak class="text-label-sm text-text-subtle line-through tabular-nums" x-text="format.rupiah(item.price * item.qty)"></p>
+                                        <p class="text-body-sm font-semibold tabular-nums" x-text="format.rupiah(lineTotalFor(item))"></p>
+                                        <p class="text-label-sm text-text-subtle tabular-nums" x-text="'@' + format.rupiah(item.price)"></p>
+                                    </div>
+                                </div>
+
+                                <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                    <select class="h-8 rounded-md border border-border-subtle bg-surface-lowest pl-2 pr-6 text-label-sm touch-manipulation"
+                                            x-model="item.discountType"
+                                            @change="onDiscountTypeChange(item)">
+                                        <option value="">Tanpa diskon</option>
+                                        <option value="percent">Diskon %</option>
+                                        <option value="amount">Diskon Rp</option>
+                                    </select>
+                                    <div class="relative" x-show="item.discountType" x-cloak>
+                                        <span x-show="item.discountType === 'amount'" class="pointer-events-none absolute inset-y-0 left-2 flex items-center text-label-sm text-text-subtle">Rp</span>
+                                        <span x-show="item.discountType === 'percent'" class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-label-sm text-text-subtle">%</span>
+                                        <input type="number"
+                                               class="h-8 w-24 rounded-md border border-border-subtle bg-surface-lowest text-right text-label-sm tabular-nums"
+                                               :class="item.discountType === 'amount' ? 'pl-7 pr-2' : 'pl-2 pr-6'"
+                                               x-model.number="item.discountValue"
+                                               min="0"
+                                               :max="item.discountType === 'percent' ? 100 : (item.price * item.qty)"
+                                               step="1"
+                                               @input.debounce.300ms="saveDraft()"
+                                               @blur="clampDiscount(item)" />
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div x-show="items.length === 0" x-cloak class="p-4">
+                            <x-ui.empty-state title="Keranjang kosong" description="Pindai barcode atau ketik SKU di atas." />
+                        </div>
+                    </div>
                 </div>
 
-                <p class="mt-3 text-label-sm text-text-subtle">
+                <p class="mt-3 text-label-sm text-text-subtle hidden lg:block">
                     <span class="mr-1 rounded bg-canvas px-1.5 py-0.5 font-mono">F2</span> Cari produk
                     · <span class="mr-1 rounded bg-canvas px-1.5 py-0.5 font-mono">F8</span> Bayar
                     · <span class="mr-1 rounded bg-canvas px-1.5 py-0.5 font-mono">Esc</span> Kosongkan
@@ -219,6 +363,14 @@
             {{-- Total. Above `lg` this sits alone at the top of the column; below
                  it shares the first row with the payment methods. --}}
             <div class="lg:mt-0">
+                {{-- Baris diskon hanya muncul saat ada diskon: total belanja tanpa
+                     diskon tidak perlu ditemani deretan "Rp0" yang cuma menambah
+                     tinggi tanpa memberi tahu apa pun. --}}
+                <div x-show="discountTotal > 0" x-cloak class="mb-3 flex items-center justify-between gap-4">
+                    <p class="text-label-sm uppercase tracking-wide text-text-muted">Total Diskon</p>
+                    <p class="text-body-lg font-bold text-success-text tabular-nums"
+                       x-text="'− ' + format.rupiah(discountTotal)">Rp0</p>
+                </div>
                 <p class="text-label-sm uppercase tracking-wide text-text-muted">Total Belanja</p>
                 <p class="mt-1 text-display-total font-bold text-text-strong tabular-nums"
                    x-text="format.rupiah(subtotal)">Rp0</p>
@@ -591,4 +743,6 @@
             </div>
         </div>
     </template>
+
+    @include('pages.pos.partials.settlement-bar-mobile')
 </div>

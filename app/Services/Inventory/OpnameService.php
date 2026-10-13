@@ -37,12 +37,12 @@ use Illuminate\Validation\ValidationException;
  *    saat sesi dimulai; angka yang dibandingkan dengan hitungan fisik adalah
  *    `system_qty` ditambah gerakan yang terjadi sesudahnya (FR-IC-22), bukan
  *    `qty_on_hand` yang bisa saja sudah berubah di tengah sesi.
- * 3. **Angka basi tidak boleh dipakai.** Baris membawa tanda air
- *    `stock_movements.id` pada saat ia dihitung. Stok yang bergerak setelah
- *    tanda air itu membuat hitungannya sudah tidak menggambarkan isi rak, jadi
- *    sesi ditolak saat diajukan dan baris ditolak saat disetujui, keduanya
- *    dengan pesan yang menyuruh menghitung ulang -- bukan diam-diam memakai
- *    angka yang sudah basi.
+ * 3. **Selisih diputuskan terhadap keadaan saat ini.** Baris membawa tanda
+ *    air `stock_movements.id` pada saat ia dihitung. Bila stok bergerak
+ *    setelah itu (barang laku, rak dipindah), `review()` menghitung ulang
+ *    selisih terhadap `system_qty + gerakan sesudah t0` di dalam transaksi
+ *    yang sama dengan keputusan, sehingga gerakan di antara hitung dan putus
+ *    ikut masuk hitungan -- bukan diam-diam memakai nilai yang sudah usang.
  *
  * Tanda air memakai id, bukan timestamp. `stock_movements.created_at` hanya
  * sedetik: gerakan yang jatuh pada detik yang sama dengan `started_at` bisa
@@ -253,9 +253,10 @@ final class OpnameService
     }
 
     /**
-     * Ajukan sesi ke Owner: semua baris wajib sudah dihitung dan tidak ada
-     * yang basi (FR-IC-21..22, dan keputusan sesi bahwa submit menutup pintu
-     * penghitungan).
+     * Ajukan sesi ke Owner: semua baris wajib sudah dihitung (FR-IC-21), dan
+     * keputusan sesi bahwa submit menutup pintu penghitungan. Baris yang stoknya
+     * bergerak setelah dihitung tetap boleh diajukan: penyesuaiannya menunggu
+     * di keputusan, di mana selisih dihitung ulang terhadap keadaan saat ini.
      *
      * @throws ValidationException
      */
@@ -290,17 +291,6 @@ final class OpnameService
                 ]);
             }
 
-            $stale = $lines->filter(fn (OpnameLine $line) => $this->isStale($line));
-
-            if ($stale->isNotEmpty()) {
-                throw ValidationException::withMessages([
-                    'opname' => sprintf(
-                        'Stok bergerak setelah dihitung, hitung ulang: %s.',
-                        $this->skuList($stale),
-                    ),
-                ]);
-            }
-
             $fresh->update([
                 'status' => OpnameStatus::PendingApproval,
                 'submitted_at' => now(),
@@ -322,6 +312,12 @@ final class OpnameService
     /**
      * Putuskan satu baris selisih: terapkan ke stok, atau tolak tanpa menyentuh
      * stok (FR-IC-23).
+     *
+     * Selisih tidak dipakai apa adanya dari waktu penghitungan: dihitung ulang
+     * di sini terhadap keadaan stok saat ini (snapshot t0 ditambah gerakan
+     * setelahnya), supaya penjualan yang terjadi setelah baris dipindai tetap
+     * ikut terhitung. Bila hasilnya nol, tidak ada keputusan yang perlu dibuat
+     * dan baris langsung tuntas sebagai baris yang sudah serasi.
      *
      * @param  string  $decision  `APPROVE` atau `REJECT`
      * @param  User|null  $approver  Owner yang memberi otorisasi; bila null,
@@ -347,14 +343,55 @@ final class OpnameService
                 ]);
             }
 
-            if ($this->isStale($fresh)) {
+            // Selisih tidak lagi diukur pada saat baris dihitung. Stok bisa
+            // bergerak di antara hitung dan putus (barang laku, rak dipindah),
+            // dan angka yang diukur di momen itu sudah usang begitu ada gerakan.
+            // Di sinilah `expectedQty()` dihitung ulang terhadap keadaan saat
+            // ini dalam transaksi yang sama dengan keputusan, sehingga
+            // penjualan yang terjadi di jendela tadi ikut masuk hitungan dan
+            // hasil akhirnya menyesuaikan stok ke angka hitungan fisik.
+            $lot = StockLot::query()->lockForUpdate()->findOrFail($fresh->lot_id);
+
+            $expectedNow = $this->expectedQty($session, $fresh);
+
+            // Ledger dan stok harus sepakat di titik keputusan, sama seperti di
+            // titik hitung: angka yang dipakai POS adalah satu-satunya angka
+            // yang boleh dibandingkan dengan hitungan fisik.
+            if ($expectedNow !== (int) $lot->qty_on_hand) {
                 throw ValidationException::withMessages([
                     'opname' => sprintf(
-                        'Stok lot %s bergerak setelah baris ini dihitung. Hitung ulang baris tersebut sebelum memutuskannya.',
-                        $fresh->lot?->sku ?? $fresh->lot_id,
+                        'Pergerakan stok lot %s tidak tercatat lengkap (ekspektasi %d, stok sistem %d). Hubungi Owner sebelum memutuskan baris ini.',
+                        $lot->sku,
+                        $expectedNow,
+                        $lot->qty_on_hand,
                     ),
                 ]);
             }
+
+            $delta = ((int) $fresh->counted_qty) - $expectedNow;
+
+            // Angka sistem sudah bergerak mengikuti hitungan (misal satu unit
+            // laku setelah baris dihitung): tidak ada selisih untuk diputuskan,
+            // baris tuntas apa adanya.
+            if ($delta === 0) {
+                $fresh->update([
+                    'diff_qty' => 0,
+                    'counted_movement_id' => $this->lastMovementId($lot),
+                    'status' => OpnameLineStatus::Ok,
+                    'reason' => null,
+                    'approved_by' => null,
+                ]);
+
+                return $this->finalize($session, $fresh);
+            }
+
+            // Catat selisih terkini sebelum diputuskan, supaya keputusan dan
+            // jejak audit membaca angka yang masih menjelaskan keadaan stok
+            // saat ini -- bukan nilai yang dihitung di momen yang sudah lewat.
+            $fresh->update([
+                'diff_qty' => $delta,
+                'counted_movement_id' => $this->lastMovementId($lot),
+            ]);
 
             if ($decision === 'REJECT') {
                 // Menolak berarti: sistem tetap seperti adanya, hitungan fisik
@@ -370,8 +407,8 @@ final class OpnameService
                     AuditAction::OpnameReject->value,
                     OpnameLine::class,
                     (int) $fresh->id,
-                    ['status' => OpnameLineStatus::Counted->value, 'diff_qty' => $fresh->diff_qty],
-                    ['status' => OpnameLineStatus::Rejected->value, 'diff_qty' => $fresh->diff_qty],
+                    ['status' => OpnameLineStatus::Counted->value, 'diff_qty' => $delta],
+                    ['status' => OpnameLineStatus::Rejected->value, 'diff_qty' => $delta],
                     $fresh->lot?->sku,
                 );
 
@@ -380,8 +417,6 @@ final class OpnameService
 
             $this->guardReasonMatchesDiff($fresh, $reason);
 
-            $lot = StockLot::query()->lockForUpdate()->findOrFail($fresh->lot_id);
-            $delta = (int) $fresh->diff_qty;
             $newQty = $lot->qty_on_hand + $delta;
 
             if ($newQty < 0) {
@@ -462,6 +497,64 @@ final class OpnameService
     }
 
     /**
+     * Buka ulang sesi yang sudah diajukan, agar hitungannya bisa dikoreksi lalu
+     * diajukan kembali (FR-IC-22).
+     *
+     * Submit mengunci penghitungan -- termasuk membatalkannya. Bila seorang
+     * pimpinan membaca angka di sesi yang sudah diajukan dan menemukan hitungan
+     * yang memang salah (bukan stok yang bergerak, yang sudah ditangani oleh
+     * `review()`), membuka ulang adalah jalannya: baris kembali ke keadaannya
+     * semula dan penghitungan ulang memperbarui tanda airnya.
+     *
+     * Bila sudah ada baris yang diputuskan, pintunya tetap tertutup. Keputusan
+     * REJECT menandai selisih sebagai ditolak, dan keputusan APPROVE sudah
+     * menulis gerakan penyesuaian ke lotnya -- menghitung ulang baris lalu
+     * menyetujuinya lagi akan menerapkan selisih yang sama dua kali. Keadaan
+     * seperti itu diselesaikan lewat penyesuaian biasa, bukan dengan memutar
+     * balik sesi.
+     *
+     * @throws ValidationException
+     */
+    public function reopen(Opname $opname, ?User $actor = null): Opname
+    {
+        return DB::transaction(function () use ($opname): Opname {
+            $fresh = Opname::query()->lockForUpdate()->findOrFail($opname->getKey());
+
+            if ($fresh->status !== OpnameStatus::PendingApproval) {
+                throw ValidationException::withMessages([
+                    'opname' => 'Hanya sesi yang sudah diajukan yang bisa dibuka ulang. Sesi ini berstatus '.$fresh->status->label().'.',
+                ]);
+            }
+
+            $decided = $fresh->lines()
+                ->whereIn('status', [OpnameLineStatus::Approved->value, OpnameLineStatus::Rejected->value])
+                ->exists();
+
+            if ($decided) {
+                throw ValidationException::withMessages([
+                    'opname' => 'Sesi ini sudah berisi keputusan baris; tidak bisa dibuka ulang setelah itu.',
+                ]);
+            }
+
+            $fresh->update([
+                'status' => OpnameStatus::Counting,
+                'submitted_at' => null,
+            ]);
+
+            $this->audit->log(
+                AuditAction::OpnameReopen->value,
+                Opname::class,
+                (int) $fresh->id,
+                ['status' => OpnameStatus::PendingApproval->value],
+                ['status' => OpnameStatus::Counting->value],
+                null,
+            );
+
+            return $fresh->refresh();
+        }, self::TX_ATTEMPTS);
+    }
+
+    /**
      * Angka sistem suatu baris pada saat ini: snapshot t0 ditambah gerakan
      * sesudah t0 (FR-IC-22).
      */
@@ -473,22 +566,6 @@ final class OpnameService
             ->sum('qty_delta');
 
         return (int) $line->system_qty + $moved;
-    }
-
-    /**
-     * Apakah hitungan baris ini sudah basi: ada gerakan stok yang terjadi
-     * setelah angkanya dimasukkan.
-     */
-    private function isStale(OpnameLine $line): bool
-    {
-        if ($line->counted_movement_id === null || $line->counted_at === null) {
-            return false;
-        }
-
-        return StockMovement::query()
-            ->where('lot_id', $line->lot_id)
-            ->where('id', '>', $line->counted_movement_id)
-            ->exists();
     }
 
     private function guardNoOpenSession(): void

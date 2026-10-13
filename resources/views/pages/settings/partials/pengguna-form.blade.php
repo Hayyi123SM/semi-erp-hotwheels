@@ -1,5 +1,11 @@
 @php
-    $roles = \App\Support\Enums::options(\App\Enums\Role::class);
+    // Pilihan role mengikuti aktor, bukan seluruh enum: Owner tidak boleh
+    // melihat atau memilih Developer. Aturan yang sama ditegakkan server-side
+    // di Store/UpdateUserRequest, jadi menyembunyikan opsi bukan satu-satunya
+    // pertahanan.
+    $roles = collect(auth()->user()->assignableRoles())
+        ->mapWithKeys(fn (\App\Enums\Role $role): array => [$role->value => $role->label()])
+        ->all();
 @endphp
 
 <form data-guard method="POST" action="{{ $isCreate ? route('setting.pengguna.store') : route('setting.pengguna.update', $user) }}" class="space-y-6">

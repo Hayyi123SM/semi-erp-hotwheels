@@ -280,7 +280,7 @@
                                             </div>
                                             <div x-show="item.default_list_price" class="flex flex-col">
                                                 <span class="text-text-muted">Harga Jual (Rp)</span>
-                                                <span class="font-medium text-text-strong" x-text="formatRupiah(item.default_list_price)"></span>
+                                                <span class="font-medium text-text-strong" x-text="format.rupiah(item.default_list_price)"></span>
                                             </div>
                                             <div x-show="item.barcode" class="flex flex-col sm:col-span-1">
                                                 <span class="text-text-muted">Barcode Pabrik</span>

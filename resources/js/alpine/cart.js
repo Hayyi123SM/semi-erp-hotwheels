@@ -163,6 +163,14 @@ export function registerCart(Alpine) {
         cartSignature: "",
 
         /**
+         * Timer penunda penyimpanan draft, satu per komponen.
+         *
+         * Perubahan qty yang beruntun menulis ulang timer ini, jadi hanya
+         * ketukan terakhir yang benar-benar dikirim ke server.
+         */
+        draftTimer: null,
+
+        /**
          * Hasil lookup terakhir.
          *
          * Dipisah dari `items` karena baris keranjang hanya berisi lot yang sudah
@@ -222,11 +230,21 @@ export function registerCart(Alpine) {
                 this.known = initialLots;
             }
 
+            // `addBySku` berakhir di `addItem`, dan di sana draft sudah
+            // disimpan. Menyimpannya lagi di sini akan menulis keranjang yang
+            // belum sempat berisi barang -- `addBySku` menunggu server, dan
+            // pilihan yang gagal tidak boleh menghasilkan permintaan apa pun.
             this.onItemPicked = (event) => {
                 this.addBySku(event.detail?.sku);
             };
 
             window.addEventListener(ADD_ITEM_EVENT, this.onItemPicked);
+            this.loadDraft();
+
+            this.beforeUnloadHandler = () => {
+                this.saveDraft();
+            };
+            window.addEventListener('beforeunload', this.beforeUnloadHandler, { capture: true });
         },
 
         /**
@@ -239,13 +257,97 @@ export function registerCart(Alpine) {
          */
         destroy() {
             window.removeEventListener(ADD_ITEM_EVENT, this.onItemPicked);
+            clearTimeout(this.draftTimer);
+
+            if (this.beforeUnloadHandler) {
+                window.removeEventListener('beforeunload', this.beforeUnloadHandler, { capture: true });
+            }
+        },
+
+        /**
+         * Diskon satu baris, dalam rupiah.
+         *
+         * Persen dan nominal berakhir di angka yang sama supaya sisa yang
+         * dibayar pelanggan hanya dihitung di satu tempat. Batasnya adalah harga
+         * baris (`harga × qty`), bukan harga satuan: diskon Rp50.000 pada dua
+         * unit berharga Rp30.000 adalah Rp60.000, dan itu masih boleh -- yang
+         * tidak boleh adalah diskon yang membuat barisnya negatif.
+         *
+         * @returns {number}
+         */
+        discountFor(item) {
+            const lineAmount = item.price * item.qty;
+            const value = Number(item.discountValue) || 0;
+
+            if (value <= 0) {
+                return 0;
+            }
+
+            const discount =
+                item.discountType === "percent"
+                    ? Math.round(lineAmount * (value / 100))
+                    : value;
+
+            if (!Number.isFinite(discount) || discount < 0) {
+                return 0;
+            }
+
+            return Math.min(discount, lineAmount);
+        },
+
+        /**
+         * Total satu baris setelah diskon.
+         *
+         * @returns {number}
+         */
+        lineTotalFor(item) {
+            return Math.max(0, item.price * item.qty - this.discountFor(item));
         },
 
         get subtotal() {
-            return this.items.reduce(
-                (sum, item) => sum + item.price * item.qty,
-                0,
-            );
+            return this.items.reduce((sum, item) => sum + this.lineTotalFor(item), 0);
+        },
+
+        get discountTotal() {
+            return this.items.reduce((sum, item) => sum + this.discountFor(item), 0);
+        },
+
+        /**
+         * Kosongkan nilai diskon saat tipe diskonnya diganti.
+         *
+         * Nilai yang diketik untuk satu tipe tidak berarti apa-apa di tipe yang
+         * lain: `10` sebagai persen adalah 10%, sedangkan sebagai nominal adalah
+         * sepuluh rupiah. Membiarkannya terbawa membuat satu ketukan pada
+         * pemilih tipe mengubah diskon dari sepuluh persen menjadi sepuluh
+         * rupiah tanpa peringatan.
+         */
+        onDiscountTypeChange(item) {
+            item.discountValue = 0;
+            this.saveDraft();
+        },
+
+        /**
+         * Rapikan nilai diskon setelah fieldnya ditinggalkan.
+         *
+         * Server tetap memvalidasi ini sebagai batas terakhir; yang di sini
+         * hanya supaya angka yang terlihat di layar tidak pernah lebih besar
+         * dari yang akan diterima server.
+         */
+        clampDiscount(item) {
+            if (!item.discountType) {
+                item.discountValue = 0;
+
+                return;
+            }
+
+            const value = Math.max(0, Math.round(Number(item.discountValue) || 0));
+
+            item.discountValue =
+                item.discountType === "percent"
+                    ? Math.min(100, value)
+                    : Math.min(item.price * item.qty, value);
+
+            this.saveDraftDebounced();
         },
 
         /**
@@ -288,7 +390,7 @@ export function registerCart(Alpine) {
                 }
 
                 existing.qty += 1;
-
+                this.saveDraftDebounced();
                 return true;
             }
 
@@ -299,14 +401,21 @@ export function registerCart(Alpine) {
                 price: lot.price,
                 ownership: lot.ownership,
                 consignor: lot.consignor,
+                series: lot.series ?? null,
+                color: lot.color ?? null,
+                year: lot.year ?? null,
+                rack: lot.rack ?? null,
                 qty: 1,
                 stock: lot.stock,
                 get canIncrease() {
                     return this.qty < this.stock;
                 },
+                discountType: null,
+                discountValue: 0,
             });
 
             this.$store.toast.push(`+ ${lot.name}`, "success");
+            this.saveDraft();
 
             return true;
         },
@@ -333,6 +442,7 @@ export function registerCart(Alpine) {
             }
 
             item.qty += 1;
+            this.saveDraftDebounced();
 
             return true;
         },
@@ -340,17 +450,44 @@ export function registerCart(Alpine) {
         /**
          * Mengurangi satu, dan menghapus barisnya kalau sudah habis.
          *
-         * Tidak pernah bertanya. Tombol `−` adalah kendali yang sengaja ditekan dan
-         * kelihatan besar, jadi kalau satu klik lagi untuk menghapus satu baris,
-         * setiap penyesuaian qty jadi dua klik -- dan penyesuaian qty jauh lebih
-         * sering terjadi daripada menghapus. Yang bertanya adalah `removeItem()`,
-         * untuk target kecil di tepi baris yang tidak sengaja sering kena.
+         * Ketika qty akan menjadi 0, tampilkan konfirmasi seperti hapus item
+         * untuk mencegah penghapusan tidak sengaja.
          */
         decrement(sku) {
             const item = this.items.find((i) => i.sku === sku);
             if (!item) return;
+
+            if (item.qty <= 1) {
+                const name = item.name || sku;
+
+                if (this.notify?.ask) {
+                    this.notify
+                        .ask({
+                            title: "Hapus item?",
+                            description: `Hapus ${name} dari keranjang?`,
+                            confirmText: "Hapus",
+                            cancelText: "Batal",
+                            danger: true,
+                            onConfirm: () => {
+                                this.drop(sku);
+                                this.saveDraft();
+                            },
+                        })
+                        .catch(() => {});
+                    return;
+                }
+
+                if (!window.confirm(`Hapus ${name} dari keranjang?`)) {
+                    return;
+                }
+
+                this.removeItem(sku);
+                this.saveDraft();
+                return;
+            }
+
             item.qty -= 1;
-            if (item.qty <= 0) this.drop(sku);
+            this.saveDraftDebounced();
         },
 
         /**
@@ -401,7 +538,9 @@ export function registerCart(Alpine) {
 
             if (!confirmed) return false;
 
-            return this.drop(sku);
+            this.drop(sku);
+            this.saveDraft();
+            return true;
         },
 
         clear() {
@@ -413,6 +552,47 @@ export function registerCart(Alpine) {
             // akan "tersimpan" sebagai duplikat dari yang pertama.
             this.clientSaleId = "";
             this.cartSignature = "";
+            this.unknownCode = "";
+            this.lastError = "";
+
+            // Draft yang sengaja dikosongkan dibuang, bukan dikosongkan isinya:
+            // keranjang kosong yang tetap tersimpan akan ditawarkan untuk
+            // dipulihkan saat halaman dibuka lagi, padahal isinya memang sudah
+            // tidak diinginkan.
+            this.cancelDraft();
+        },
+
+        /**
+         * Mengosongkan keranjang setelah kasir menyetujuinya.
+         *
+         * Dipisah dari `clear()` supaya pemanggil yang tidak bertanya -- dan
+         * sekarang `Esc` pun lewat sini, karena tombol dan pintasan tidak boleh
+         * berbeda pendapat soal apakah boleh menghapus -- tidak pernah
+         * mengosongkan keranjang hanya karena memanggil fungsi yang salah.
+         *
+         * `danger: true` sama seperti `removeItem()`: yang dihapus bukan satu
+         * baris, melainkan seluruhnya, jadi jalan keluar yang tidak sengaja
+         * (Escape, klik backdrop, tombol X) ikut dimatikan.
+         *
+         * @returns {Promise<boolean>} true kalau keranjang benar-benar dikosongkan
+         */
+        async clearConfirmed() {
+            if (this.items.length === 0) {
+                return false;
+            }
+
+            const confirmed = await this.notify?.ask({
+                title: "Kosongkan keranjang?",
+                description: `${this.items.length} barang akan dihapus dari keranjang.`,
+                confirmText: "Kosongkan",
+                cancelText: "Batal",
+                danger: true,
+            });
+
+            if (!confirmed) return false;
+
+            this.clear();
+            return true;
         },
 
         /**
@@ -681,6 +861,8 @@ export function registerCart(Alpine) {
                     // pada baris nota, dan tidak ada yang bisa membetulkannya
                     // sesudah nota tersimpan.
                     input_method: "SCAN",
+                    discount_type: item.discountType || null,
+                    discount_value: item.discountValue || 0,
                 })),
                 payments: [
                     {
@@ -881,6 +1063,209 @@ export function registerCart(Alpine) {
             ].join("");
 
             return host.outerHTML;
+        },
+
+        /**
+         * Endpoint draft, dibaca dari `data-*` seperti `lookupUrl`.
+         *
+         * File ini tidak bisa melihat route, jadi URL yang tertanam di markup
+         * adalah satu-satunya sumber kebenarannya -- dan test bisa memberikannya
+         * tanpa memalsukan lokasi.
+         */
+        get draftLoadUrl() {
+            return this.$root?.dataset?.draftLoad ?? "";
+        },
+
+        get draftSaveUrl() {
+            return this.$root?.dataset?.draftSave ?? "";
+        },
+
+        get draftCancelUrl() {
+            return this.$root?.dataset?.draftCancel ?? "";
+        },
+
+        /**
+         * Keranjang yang tertinggal di server, kalau ada.
+         *
+         * Dipanggil sekali saat komponen hidup, dan isinya langsung dipasang --
+         * tidak ditawarkan lagi lewat dialog. Reload yang memunculkan kembali
+         * barangnya membuat kerja kasir terasa tidak hilang, dan kasir yang
+         * memang ingin mulai dari kosong punya tombol "Kosongkan" di halaman
+         * itu sendiri, bukan pertanyaan yang menghadang tiap kali dibuka.
+         */
+        async loadDraft() {
+            const draft = await this.fetchDraft();
+
+            if (draft === null) {
+                return;
+            }
+
+            this.items = draft.items.map((item) => this.hydrateDraftItem(item));
+        },
+
+        /**
+         * Draft aktif dari server, atau `null`.
+         *
+         * Balasan yang tidak bisa dibaca -- jaringan putus, sesi lewat -- juga
+         * berarti "tidak ada draft": draft adalah kenyamanan, dan layar kasir
+         * yang tetap bisa dipakai lebih baik daripada layar yang menunggu.
+         */
+        async fetchDraft() {
+            if (this.draftLoadUrl === "") {
+                return null;
+            }
+
+            try {
+                const res = await fetch(this.draftLoadUrl, {
+                    headers: { Accept: "application/json", "X-CSRF-TOKEN": this.csrf() },
+                });
+
+                const data = await res.json();
+
+                if (!data?.has_draft || !Array.isArray(data.draft?.items) || data.draft.items.length === 0) {
+                    return null;
+                }
+
+                return data.draft;
+            } catch {
+                return null;
+            }
+        },
+
+        /**
+         * Simpan isi keranjang, atau buang draftnya bila keranjangnya kosong.
+         *
+         * `keepalive` supaya permintaan terakhir yang dipicu `beforeunload` tetap
+         * sampai walau halamannya sudah mulai ditinggalkan -- tanpa itu, satu
+         * reload tepat setelah menambah barang bisa kehilangan barang itu, dan
+         * itulah yang membuat keranjang terasa hilang.
+         *
+         * Keranjang kosong tidak dikirim sebagai draft: server menerjemahkan isi
+         * kosong menjadi pembatalan, dan di sini pun begitu.
+         */
+        async saveDraft() {
+            if (this.items.length === 0) {
+                await this.cancelDraft();
+
+                return;
+            }
+
+            if (this.draftSaveUrl === "") {
+                return;
+            }
+
+            try {
+                await fetch(this.draftSaveUrl, {
+                    method: "POST",
+                    keepalive: true,
+                    headers: {
+                        Accept: "application/json",
+                        "Content-Type": "application/json",
+                        "X-CSRF-TOKEN": this.csrf(),
+                    },
+                    body: JSON.stringify({ items: this.draftItems() }),
+                });
+            } catch {
+                // Draft adalah kenyamanan, bukan transaksi. Kegagalan
+                // menyimpannya tidak boleh menghalangi penjualan, dan perubahan
+                // berikutnya akan menulis keadaan yang lebih baru.
+            }
+        },
+
+        /**
+         * Versi tertunda dari `saveDraft()` untuk perubahan yang beruntun.
+         *
+         * Menekan `+` dan `−` beberapa kali berturut-turut tidak perlu menulis
+         * satu permintaan per ketukan; yang penting keadaan terakhir, dan itu
+         * yang dikirim setelah ketukan terakhir.
+         */
+        saveDraftDebounced() {
+            clearTimeout(this.draftTimer);
+            this.draftTimer = setTimeout(() => this.saveDraft(), 400);
+        },
+
+        /**
+         * Buang draft keranjang yang sedang berjalan.
+         */
+        async cancelDraft() {
+            if (this.draftCancelUrl === "") {
+                return;
+            }
+
+            try {
+                await fetch(this.draftCancelUrl, {
+                    method: "DELETE",
+                    keepalive: true,
+                    headers: {
+                        Accept: "application/json",
+                        "Content-Type": "application/json",
+                        "X-CSRF-TOKEN": this.csrf(),
+                    },
+                });
+            } catch {
+                // Pembersihan draft; gagal pun tidak menghentikan apa pun.
+            }
+        },
+
+        /**
+         * Baris keranjang dalam bentuk yang dikirim ke server.
+         *
+         * `discountValue` dipaksa jadi angka: `x-model.number` mengosongkan
+         * field yang belum diisi menjadi `''`, dan string kosong yang tersimpan
+         * di draft akan dibaca kembali sebagai nilai yang bukan nol oleh siapa
+         * pun yang membandingkannya tanpa `Number()`.
+         *
+         * @returns {object[]}
+         */
+        draftItems() {
+            return this.items.map((item) => ({
+                lotId: item.lotId,
+                sku: item.sku,
+                name: item.name,
+                price: item.price,
+                ownership: item.ownership,
+                consignor: item.consignor ?? null,
+                qty: item.qty,
+                stock: item.stock,
+                discountType: item.discountType || null,
+                series: item.series ?? null,
+                color: item.color ?? null,
+                year: item.year ?? null,
+                rack: item.rack ?? null,
+                discountValue: Number(item.discountValue) || 0,
+            }));
+        },
+
+        /**
+         * Satu baris draft dari server menjadi baris keranjang.
+         *
+         * `canIncrease` tetap dihitung dari stok, bukan nilai yang ikut
+         * tersimpan: stok yang tersimpan bersama draft bisa sudah basi, dan
+         * membiarkannya sebagai angka beku akan menawarkan tombol `+` yang akan
+         * ditolak server.
+         *
+         * @returns {object}
+         */
+        hydrateDraftItem(item) {
+            return {
+                lotId: item.lotId,
+                sku: item.sku,
+                name: item.name,
+                price: item.price,
+                ownership: item.ownership,
+                consignor: item.consignor ?? null,
+                series: item.series ?? null,
+                color: item.color ?? null,
+                year: item.year ?? null,
+                rack: item.rack ?? null,
+                qty: item.qty,
+                stock: item.stock,
+                discountType: item.discountType || null,
+                discountValue: Number(item.discountValue) || 0,
+                get canIncrease() {
+                    return this.qty < this.stock;
+                },
+            };
         },
 
         format: { rupiah, number },

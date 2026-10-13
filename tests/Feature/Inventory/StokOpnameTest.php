@@ -11,9 +11,11 @@ use App\Enums\MovementType;
 use App\Enums\OpnameLineStatus;
 use App\Enums\OpnameScope;
 use App\Enums\OpnameStatus;
+use App\Enums\ShiftStatus;
 use App\Models\Opname;
 use App\Models\OpnameLine;
 use App\Models\Rack;
+use App\Models\Shift;
 use App\Models\StockLot;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -33,13 +35,21 @@ use Tests\TestCase;
  *    yang sedang menghitung -- bukan disembunyikan dengan CSS, tidak dikirim
  *    sama sekali. Ujiannya bukan "kolomnya tidak terlihat" melainkan "angkanya
  *    tidak pernah muncul sebagai teks mana pun".
- * 2. **Submit itu sesi, bukan baris.** Semua baris wajib terhitung, dan angka
- *    yang sudah basi karena stok bergerak tidak dipakai diam-diam.
+ * 2. **Submit itu sesi, bukan baris.** Semua baris wajib terhitung; baris yang
+ *    stoknya bergerak setelah dihitung tetap boleh diajukan, karena
+ *    selisihnya dihitung ulang saat keputusan -- tidak pernah dipakai
+ *    angka yang sudah usang.
  * 3. **Keputusan mengubah stok sekali.** Menerima menulis gerakan penyesuaian
- *    dan mengubah qty; menolak tidak menyentuh apa pun.
+ *    dan mengubah qty; menolak tidak menyentuh apa pun. Bila stok sudah
+ *    bergerak mengikuti hitungan di antara hitung dan putus, tidak ada
+ *    selisih yang tersisa dan baris tuntas sebagai `Ok`.
  * 4. **Modul ini Owner-only.** Staff hanya memegang POS, jadi seluruh route
  *    stok-opname -- termasuk halaman dan keputusan review -- menolak Staff
  *    dengan 403 lewat grup `['auth', 'owner']`.
+ * 5. **Gerakan di antara hitung dan putus diserap, bukan diulang.** Sesi
+ *    tidak macet karena barang laku setelah dihitung; dan sesi yang diajukan
+ *    bisa dibuka ulang untuk mengoreksi hitungan selama belum ada satu baris
+ *    pun yang diputuskan.
  */
 class StokOpnameTest extends TestCase
 {
@@ -91,6 +101,13 @@ class StokOpnameTest extends TestCase
         return $this->actingAs($actor)
             ->from(route('inventory.stok-opname'))
             ->post(route('inventory.stok-opname.ajukan', $opname));
+    }
+
+    private function reopen(User $actor, Opname $opname): TestResponse
+    {
+        return $this->actingAs($actor)
+            ->from(route('inventory.stok-opname'))
+            ->post(route('inventory.stok-opname.buka-ulang', $opname));
     }
 
     private function review(
@@ -391,7 +408,7 @@ class StokOpnameTest extends TestCase
     }
 
     #[Test]
-    public function submitting_is_refused_when_the_stock_moved_after_the_count(): void
+    public function submitting_after_a_movement_is_allowed_and_the_approval_absorbs_it(): void
     {
         $actor = $this->owner();
         $lot = $this->lot($this->rack(), 5, 'CN01-HW-001');
@@ -400,11 +417,13 @@ class StokOpnameTest extends TestCase
         $opname = Opname::sole();
         $line = $opname->lines()->sole();
 
-        $this->countLine($actor, $opname, $line, 5);
+        $this->countLine($actor, $opname, $line, 3);
 
-        // Sebuah penjualan di antara hitung dan ajukan: angka lima sudah tidak
-        // menggambarkan isi rak, jadi sesi yang memakainya akan menutup selisih
-        // yang palsu.
+        // Sebuah penjualan di antara hitung dan ajukan. Sesi dulu menolaknya
+        // dan menyuruh menghitung ulang; sekarang penjualan ini tinggal masuk
+        // hitungan pada keputusan: ekspektasi terkini (5 - 1 = 4) menghasilkan
+        // selisih 3 - 4 = -1, bukan nilai usang -2 yang dihitung saat baris
+        // dipindai.
         StockMovement::factory()->create([
             'lot_id' => $lot->id,
             'type' => MovementType::Sale,
@@ -413,8 +432,57 @@ class StokOpnameTest extends TestCase
         ]);
         $lot->update(['qty_on_hand' => 4]);
 
-        $this->submit($actor, $opname)->assertSessionHasErrors('opname');
-        $this->assertSame(OpnameStatus::Counting, $opname->refresh()->status);
+        $this->submit($actor, $opname)->assertSessionHas('toast');
+        $this->assertSame(OpnameStatus::PendingApproval, $opname->refresh()->status);
+
+        $this->review($actor, $opname, $line, 'APPROVE', AdjustmentReason::Lost)
+            ->assertSessionMissing('errors');
+
+        // Stok menyesuaikan ke angka hitungan fisik: 3 unit.
+        $this->assertSame(3, $lot->refresh()->qty_on_hand);
+
+        $movement = StockMovement::query()
+            ->where('lot_id', $lot->id)
+            ->where('type', MovementType::AdjMinus)
+            ->sole();
+        $this->assertSame(-1, $movement->qty_delta);
+        $this->assertSame(AdjustmentReason::Lost->value, $movement->reason);
+
+        $this->assertSame(OpnameLineStatus::Approved, $line->refresh()->status);
+        $this->assertSame(OpnameStatus::Approved, $opname->refresh()->status);
+    }
+
+    #[Test]
+    public function a_movement_that_matches_the_count_leaves_nothing_to_decide(): void
+    {
+        $actor = $this->owner();
+        $lot = $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($actor);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+
+        $this->countLine($actor, $opname, $line, 4);
+        $this->submit($actor, $opname);
+
+        // Satu unit laku setelah baris dihitung: ekspektasi terkini turun ke 4
+        // dan langsung sama dengan hitungan fisik. Tidak ada selisih yang perlu
+        // disetujui atau ditolak -- baris tuntas apa adanya.
+        StockMovement::factory()->create([
+            'lot_id' => $lot->id,
+            'type' => MovementType::Sale,
+            'qty_delta' => -1,
+            'balance_after' => 4,
+        ]);
+        $lot->update(['qty_on_hand' => 4]);
+
+        $this->review($actor, $opname, $line, 'APPROVE', AdjustmentReason::Lost)
+            ->assertSessionMissing('errors');
+
+        $this->assertSame(4, $lot->refresh()->qty_on_hand);
+        $this->assertSame(OpnameLineStatus::Ok, $line->refresh()->status);
+        $this->assertSame(0, StockMovement::query()->where('type', 'like', 'ADJ_%')->count());
+        $this->assertSame(OpnameStatus::Approved, $opname->refresh()->status);
     }
 
     #[Test]
@@ -587,6 +655,72 @@ class StokOpnameTest extends TestCase
     }
 
     #[Test]
+    public function the_review_dialog_reads_its_targets_from_the_server(): void
+    {
+        $owner = $this->owner();
+        $this->lot($this->rack(), 5, 'CN01-HW-001');
+        $this->lot($this->rack(), 3, 'CN01-HW-002');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+
+        // Hitungan harus berbeda dari angka sistem; baris tanpa selisih memang
+        // tidak pernah menunggu keputusan.
+        foreach ($opname->lines()->get() as $line) {
+            $this->countLine($owner, $opname, $line, (int) $line->system_qty - 1);
+        }
+
+        $this->submit($owner, $opname);
+
+        // `@js` menggandakan escape (JSON di dalam `JSON.parse('...')`), jadi
+        // backslash dibuang dulu supaya URL bisa dibandingkan apa adanya.
+        $html = str_replace('\\', '', $this->actingAs($owner)->get(route('inventory.stok-opname'))->assertOk()->content());
+
+        $this->assertStringContainsString('reviewTargets', $html);
+
+        // Tombol Review tidak merakit alamatnya di peramban: tiap baris yang
+        // menunggu keputusan punya entri di peta server, dan itulah satu-satunya
+        // sumber URL dialog.
+        foreach ($opname->lines()->get() as $line) {
+            $this->assertStringContainsString(
+                route('inventory.stok-opname.review', [$opname, $line]),
+                $html,
+            );
+        }
+    }
+
+    #[Test]
+    public function a_review_that_fails_validation_reopens_its_line(): void
+    {
+        $owner = $this->owner();
+        $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+        $this->countLine($owner, $opname, $line, 4);
+        $this->submit($owner, $opname);
+
+        // Menyetujui tanpa alasan ditolak; baris yang gagal harus dibuka kembali,
+        // bukan sekadar menutup dialog dan menaruh pesan di puncak halaman.
+        $this->actingAs($owner)
+            ->from(route('inventory.stok-opname'))
+            ->post(route('inventory.stok-opname.review', [$opname, $line]), [
+                'decision' => 'APPROVE',
+                'review_line' => $line->getKey(),
+            ])
+            ->assertSessionHasErrors('reason');
+
+        $html = str_replace('\\', '', $this->actingAs($owner)->get(route('inventory.stok-opname'))->assertOk()->content());
+
+        $this->assertStringContainsString('failedReviewId', $html);
+        $this->assertStringContainsString(
+            route('inventory.stok-opname.review', [$opname, $line]),
+            $html,
+        );
+    }
+
+    #[Test]
     public function staff_cannot_decide_a_line(): void
     {
         $actor = $this->owner();
@@ -704,5 +838,332 @@ class StokOpnameTest extends TestCase
 
         $this->assertSame(LotStatus::Available, StockLot::sole()->status);
         $this->assertSame(0, StockMovement::query()->where('lot_id', StockLot::sole()->id)->count());
+    }
+
+    #[Test]
+    public function a_pending_session_can_be_reopened_to_change_counts_before_any_decision(): void
+    {
+        $owner = $this->owner();
+        $lot = $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+        $this->countLine($owner, $opname, $line, 4);
+        $this->submit($owner, $opname);
+        $this->assertSame(OpnameStatus::PendingApproval, $opname->refresh()->status);
+
+        // Buka ulang masih tersedia sebagai pintu mengoreksi hitungan selama
+        // belum ada satu baris pun yang diputuskan.
+        $this->reopen($owner, $opname)->assertSessionHas('toast');
+
+        $opname->refresh();
+        $this->assertSame(OpnameStatus::Counting, $opname->status);
+        $this->assertNull($opname->submitted_at);
+
+        // Hitungan lama tidak dibuang: baris kembali dengan angka yang sama.
+        $line->refresh();
+        $this->assertSame(4, $line->counted_qty);
+
+        $this->countLine($owner, $opname, $line, 2)->assertSessionHas('toast');
+        $this->submit($owner, $opname)->assertSessionHas('toast');
+
+        $this->review($owner, $opname, $line, 'APPROVE', AdjustmentReason::Lost)
+            ->assertSessionMissing('errors');
+
+        $this->assertSame(2, $lot->refresh()->qty_on_hand);
+        $this->assertSame(OpnameLineStatus::Approved, $line->refresh()->status);
+        $this->assertSame(OpnameStatus::Approved, $opname->refresh()->status);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => AuditAction::OpnameReopen->value,
+            'entity' => Opname::class,
+            'entity_id' => $opname->id,
+            'user_id' => $owner->id,
+        ]);
+    }
+
+    #[Test]
+    public function rejecting_after_a_movement_leaves_stock_untouched_and_records_the_current_diff(): void
+    {
+        $owner = $this->owner();
+        $lot = $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+        $this->countLine($owner, $opname, $line, 3);
+        $this->submit($owner, $opname);
+
+        StockMovement::factory()->create([
+            'lot_id' => $lot->id,
+            'type' => MovementType::Sale,
+            'qty_delta' => -1,
+            'balance_after' => 4,
+        ]);
+        $lot->update(['qty_on_hand' => 4]);
+
+        // Menolak tetap tidak menyentuh stok, tetapi catatan selisihnya dihitung
+        // ulang terhadap keadaan sekarang (3 - 4 = -1), bukan nilai saat baris
+        // dipindai (-2).
+        $this->review($owner, $opname, $line, 'REJECT')->assertSessionHas('toast');
+
+        $this->assertSame(4, $lot->refresh()->qty_on_hand);
+        $this->assertSame(OpnameLineStatus::Rejected, $line->refresh()->status);
+        $this->assertSame(-1, (int) $line->refresh()->diff_qty);
+        $this->assertSame(0, StockMovement::query()->where('type', 'like', 'ADJ_%')->count());
+
+        $this->assertSame(1, StockMovement::query()->where('type', MovementType::Sale)->count());
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => AuditAction::OpnameReject->value,
+            'entity' => OpnameLine::class,
+            'entity_id' => $line->id,
+        ]);
+    }
+
+    #[Test]
+    public function a_decision_is_refused_when_the_ledger_and_the_stock_disagree(): void
+    {
+        $owner = $this->owner();
+        $lot = $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+        $this->countLine($owner, $opname, $line, 4);
+        $this->submit($owner, $opname);
+
+        // Gerakan tanpa perubahan qty: ekspektasi naik (5 + 1 = 6), stok tidak
+        // (tetap 5). Angka yang dipakai POS tidak lagi sepakat dengan ledger,
+        // jadi selisih tidak boleh dihitung di atasnya.
+        StockMovement::factory()->create([
+            'lot_id' => $lot->id,
+            'type' => MovementType::Transfer,
+            'qty_delta' => 1,
+            'balance_after' => 5,
+        ]);
+
+        $this->review($owner, $opname, $line, 'APPROVE', AdjustmentReason::Lost)
+            ->assertSessionHasErrors('opname');
+
+        $this->assertSame(5, $lot->refresh()->qty_on_hand);
+        $this->assertSame(OpnameLineStatus::Counted, $line->refresh()->status);
+        $this->assertSame(OpnameStatus::PendingApproval, $opname->refresh()->status);
+    }
+
+    #[Test]
+    public function opening_a_session_warns_when_a_cashier_shift_is_still_open(): void
+    {
+        $owner = $this->owner();
+        $cashier = User::factory()->staff()->create();
+
+        $html = $this->actingAs($owner)->get(route('inventory.stok-opname'))->assertOk()->content();
+        $this->assertStringNotContainsString('Shift kasir masih terbuka', $html);
+
+        Shift::create([
+            'device_id' => 'WMS-01',
+            'user_id' => $cashier->id,
+            'opened_at' => now(),
+            'opening_cash' => 500000,
+            'status' => ShiftStatus::Open,
+        ]);
+
+        $html = $this->actingAs($owner)->get(route('inventory.stok-opname'))->assertOk()->content();
+        $this->assertStringContainsString('Shift kasir masih terbuka', $html);
+        $this->assertStringContainsString('return confirm(', $html);
+    }
+
+    #[Test]
+    public function reopening_is_refused_after_a_decision_has_been_applied(): void
+    {
+        $owner = $this->owner();
+        $rack = $this->rack();
+        $this->lot($rack, 5, 'CN01-HW-001');
+        $this->lot($rack, 3, 'CN01-HW-002');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+
+        foreach ($opname->lines()->get() as $line) {
+            $this->countLine($owner, $opname, $line, (int) $line->system_qty - 1);
+        }
+        $this->submit($owner, $opname);
+
+        $first = $opname->lines()->orderBy('lot_id')->first();
+        $this->review($owner, $opname, $first, 'APPROVE', AdjustmentReason::Lost)->assertSessionHas('toast');
+
+        // Keputusan sudah menulis gerakan penyesuaian ke stok; menghitung
+        // ulang baris itu lalu menyetujuinya lagi akan menerapkan selisihnya
+        // dua kali, jadi pintunya tetap tertutup.
+        $this->reopen($owner, $opname)->assertSessionHasErrors('opname');
+
+        $opname->refresh();
+        $this->assertSame(OpnameStatus::PendingApproval, $opname->status);
+        $this->assertNotNull($opname->submitted_at);
+    }
+
+    #[Test]
+    public function reopening_is_refused_for_a_session_that_is_still_counting(): void
+    {
+        $owner = $this->owner();
+        $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+        $this->countLine($owner, $opname, $opname->lines()->sole(), 4);
+
+        // Belum diajukan: membuka ulang hanya berarti sesuatu setelah sesi
+        // benar-benar terkunci, bukan sebelum pintunya pernah tertutup.
+        $this->reopen($owner, $opname)->assertSessionHasErrors('opname');
+
+        $this->assertSame(OpnameStatus::Counting, $opname->refresh()->status);
+    }
+
+    #[Test]
+    public function staff_cannot_reopen_a_session(): void
+    {
+        $owner = $this->owner();
+        $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+        $this->countLine($owner, $opname, $line, 4);
+        $this->submit($owner, $opname);
+
+        // Sama seperti keputusan, membuka ulang adalah urusan Owner: Staff
+        // dihentikan grup middleware sebelum menyentuh service.
+        $this->reopen(User::factory()->staff()->create(), $opname)->assertForbidden();
+
+        $this->assertSame(OpnameStatus::PendingApproval, $opname->refresh()->status);
+    }
+
+    /** Sesi penuh yang sudah diputuskan: satu lot, satu selisih disetujui. */
+    private function finishedSession(User $owner, int $systemQty, int $countedQty): Opname
+    {
+        $this->lot($this->rack(), $systemQty, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+
+        $this->countLine($owner, $opname, $line, $countedQty);
+        $this->submit($owner, $opname);
+        $this->review($owner, $opname, $line, 'APPROVE', AdjustmentReason::Lost);
+
+        return $opname->refresh();
+    }
+
+    #[Test]
+    public function the_index_shows_exactly_one_start_button_and_no_stale_copy(): void
+    {
+        $html = $this->actingAs($this->owner())->get(route('inventory.stok-opname'))->assertOk()->content();
+
+        // Opsi A: hanya CTA di header. Kartu empty-state menjelaskan, tidak
+        // menawarkan tombol kedua yang melakukan hal sama.
+        $this->assertSame(1, substr_count($html, 'Mulai Sesi Baru'));
+
+        // Semantik absorb: stok yang bergerak tidak lagi membuat baris "basi".
+        $this->assertStringNotContainsString('jadi basi', $html);
+        $this->assertStringNotContainsString('harus dihitung ulang sebelum diputuskan', $html);
+    }
+
+    #[Test]
+    public function a_running_session_is_not_offered_a_detail_link(): void
+    {
+        $owner = $this->owner();
+        $this->lot($this->rack(), 5, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+
+        $html = $this->actingAs($owner)->get(route('inventory.stok-opname'))->assertOk()->content();
+
+        // Sesi terbuka hidup di kartu kerja sendiri, bukan di riwayat: tidak
+        // ada tautan detail untuknya, dan tombol Mulai pun tidak ditawarkan.
+        // Ditulis sebagai atribut utuh karena URL detail hanyalah awalan dari
+        // URL `.../baris/{line}/hitung` yang memang ada di kartu kerja.
+        $this->assertStringNotContainsString('data-row-url="'.route('inventory.stok-opname.detail', $opname).'"', $html);
+        $this->assertStringNotContainsString('href="'.route('inventory.stok-opname.detail', $opname).'"', $html);
+        $this->assertSame(0, substr_count($html, 'Mulai Sesi Baru'));
+    }
+
+    #[Test]
+    public function the_history_links_each_finished_session_to_its_detail(): void
+    {
+        $owner = $this->owner();
+        $opname = $this->finishedSession($owner, 5, 4);
+
+        $html = $this->actingAs($owner)->get(route('inventory.stok-opname'))->assertOk()->content();
+
+        $this->assertStringContainsString($opname->opname_no, $html);
+        $this->assertStringContainsString('data-row-url="'.route('inventory.stok-opname.detail', $opname).'"', $html);
+        $this->assertStringContainsString('href="'.route('inventory.stok-opname.detail', $opname).'"', $html);
+    }
+
+    #[Test]
+    public function the_detail_page_shows_facts_lines_and_the_audit_timeline(): void
+    {
+        $owner = $this->owner();
+        $opname = $this->finishedSession($owner, 5, 4);
+
+        $html = $this->actingAs($owner)
+            ->get(route('inventory.stok-opname.detail', $opname))
+            ->assertOk()
+            ->content();
+
+        $this->assertStringContainsString('Detail Sesi', $html);
+        $this->assertStringContainsString($opname->opname_no, $html);
+        $this->assertStringContainsString('Seluruh gudang', $html);
+
+        // Baris sesi memuat angka sistem begitu tidak lagi blind.
+        $this->assertStringContainsString('CN01-HW-001', $html);
+        $this->assertStringContainsString('Qty Sistem', $html);
+
+        // Jejak audit dibangun dari Opname dan OpnameLine sekaligus.
+        $this->assertStringContainsString('Sesi Opname Dimulai', $html);
+        $this->assertStringContainsString('Sesi Opname Diajukan', $html);
+        $this->assertStringContainsString('Selisih Opname Disetujui', $html);
+    }
+
+    #[Test]
+    public function the_detail_page_keeps_a_counting_session_blind(): void
+    {
+        $owner = $this->owner();
+        $this->lot($this->rack(), 41, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+
+        $html = $this->actingAs($owner)
+            ->get(route('inventory.stok-opname.detail', $opname))
+            ->assertOk()
+            ->content();
+
+        // Sesi menghitung bisa dibuka lewat URL langsung; angka sistemnya tetap
+        // tidak pernah dikirim, sama seperti halaman berjalan.
+        $this->assertStringContainsString('Sesi masih menghitung', $html);
+        $this->assertStringNotContainsString('Qty Sistem', $html);
+        $this->assertDoesNotMatchRegularExpression('/>\s*41\s*</', $html);
+    }
+
+    #[Test]
+    public function a_guest_is_redirected_from_the_detail_page(): void
+    {
+        $opname = Opname::factory()->create();
+
+        $this->get(route('inventory.stok-opname.detail', $opname))->assertRedirect(route('login'));
+    }
+
+    #[Test]
+    public function staff_cannot_open_a_session_detail(): void
+    {
+        $owner = $this->owner();
+        $opname = $this->finishedSession($owner, 5, 4);
+
+        $this->actingAs(User::factory()->staff()->create())
+            ->get(route('inventory.stok-opname.detail', $opname))
+            ->assertForbidden();
     }
 }

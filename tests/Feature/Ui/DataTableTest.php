@@ -4,6 +4,8 @@ namespace Tests\Feature\Ui;
 
 use App\Enums\ConsignorStatus;
 use App\Models\Consignor;
+use App\Models\Product;
+use App\Models\ProductSeries;
 use App\Models\StockLot;
 use App\Models\User;
 use App\Support\DataTable\Column;
@@ -344,6 +346,30 @@ class DataTableTest extends TestCase
             ->title('Stok');
 
         $this->assertSame(0, $table->rows()->total());
+    }
+
+    #[Test]
+    public function it_searches_through_nested_relations(): void
+    {
+        // Live stock searches 'product.series.name' -- dua tingkat relasi.
+        // Dulu path bertitik itu dipotong di titik pertama lalu sisanya
+        // diteruskan ke whereRaw, jadi pencarian apapun merobohkan halaman
+        // dengan 'Unknown column products.series.name'.
+        $series = ProductSeries::factory()->create(['name' => 'Toy Story', 'code' => 'TS']);
+        $product = Product::factory()->create(['series_id' => $series->id, 'name' => 'Pizza Planet Truck']);
+        $lot = StockLot::factory()->create(['product_id' => $product->id]);
+
+        $search = fn (string $q) => DataTable::for(request()->merge(['q' => $q]), StockLot::query()->with('product.series'))
+            ->searchable(['product.series.name'])
+            ->sortable(['sku'])
+            ->columns([Column::make('sku', 'SKU')->sortable('sku')])
+            ->perPage([10]);
+
+        $matching = $search('toy');
+        $this->assertSame(1, $matching->rows()->total());
+        $this->assertSame($lot->id, $matching->rows()->first()->id);
+
+        $this->assertSame(0, $search('gundam')->rows()->total());
     }
 
     #[Test]

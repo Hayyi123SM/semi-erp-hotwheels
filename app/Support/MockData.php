@@ -78,15 +78,6 @@ class MockData
         ];
     }
 
-    public static function quarantineCases(): array
-    {
-        return [
-            ['caseId' => 'Q-2026-014', 'arrivedAt' => '18 Sep 2026 10:12', 'age' => 6, 'skuFallback' => 'CN02-HW-002', 'model' => 'Ford Mustang GT', 'reason' => 'BARCODE TIDAK TERBACA', 'severity' => 'warning', 'candidate' => 'Ford Mustang GT · American Scene · 93%'],
-            ['caseId' => 'Q-2026-017', 'arrivedAt' => '21 Sep 2026 14:40', 'age' => 3, 'skuFallback' => 'OW00-HW-00?', 'model' => 'Tidak teridentifikasi', 'reason' => 'PRODUK TANPA LABEL', 'severity' => 'error', 'candidate' => 'Mazda 787B · Car Culture · 71%'],
-            ['caseId' => 'Q-2026-011', 'arrivedAt' => '12 Sep 2026 09:05', 'age' => 12, 'skuFallback' => 'CN01-SC-907', 'model' => 'Fast & Furious 5-pack', 'reason' => 'STOK PABRIK (DOS PACK)', 'severity' => 'error', 'candidate' => 'Nissan Skyline GT-R R34 · 45%'],
-        ];
-    }
-
     public static function transactions(): array
     {
         return [

@@ -9,8 +9,12 @@ abstract class Controller
 {
     /**
      * Render a page view wrapped inside the application layout.
+     *
+     * POS pages pass `layouts.pos` -- the sidebar-less shell -- so the cashier
+     * screen is not competing with the whole admin navigation. The default
+     * stays `layouts.app`, so every other caller is unaffected.
      */
-    protected function page(string $view, array $data = [], ?string $title = null): View
+    protected function page(string $view, array $data = [], ?string $title = null, string $layout = 'layouts.app'): View
     {
         // A table refreshing itself already has the shell on screen. Wrapping
         // the fragment in the layout would make the layout, the sidebar and the
@@ -20,7 +24,7 @@ abstract class Controller
             return view($view, $data);
         }
 
-        return view('layouts.app', [
+        return view($layout, [
             'slot' => view($view, $data)->render(),
             'title' => $title,
         ]);

@@ -65,23 +65,27 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * The single definition of who is an Owner.
+     * The named answers to "who may do this?".
      *
-     * There is exactly one role boundary in this app, so the whole rule is one
-     * line. It lives in a Gate rather than staying as `$user->isOwner()` calls
-     * scattered through middleware, controllers and views so that the question
-     * "may this person do owner work?" has exactly one answer in the codebase.
-     * Every named ability below currently resolves to the same check -- with
-     * only two roles there is no finer distinction to make yet -- but the names
-     * are what the UI and the tests read, so when a third role arrives the
-     * rules can diverge per ability without touching call sites.
+     * The rules live in Gates rather than staying as `$user->isOwner()` calls
+     * scattered through middleware, controllers and views so that each
+     * question has exactly one answer in the codebase. `owner-only` and
+     * `dev-only` are the two role boundaries; the rest are abilities that name
+     * what a call site actually wants, so the rules can diverge per ability
+     * without touching call sites.
+     *
+     * `manage-users` is intentionally wider than the owner boundary: managing
+     * accounts is technical housekeeping, so a Developer may do it too -- that
+     * is the only legitimate way a new Developer account is born.
      */
     private function ownerGate(): void
     {
         Gate::define('owner-only', fn (User $user): bool => $user->isOwner());
+        Gate::define('dev-only', fn (User $user): bool => $user->isDev());
+        Gate::define('manage-visibility', fn (User $user): bool => $user->isDev());
+        Gate::define('manage-users', fn (User $user): bool => $user->isOwner() || $user->isDev());
 
         foreach ([
-            'manage-users',
             'manage-racks',
             'manage-products',
             'manage-consignor',

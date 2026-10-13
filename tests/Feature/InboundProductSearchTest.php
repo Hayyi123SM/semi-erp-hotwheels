@@ -33,10 +33,11 @@ class InboundProductSearchTest extends TestCase
 
     private function product(string $name, array $overrides = []): Product
     {
-        return Product::factory()->create($overrides + [
-            'series_id' => ProductSeries::factory()->create(['name' => 'Hot Wheels', 'code' => 'HW'])->id,
-            'name' => $name,
-        ]);
+        if (! array_key_exists('series_id', $overrides)) {
+            $overrides['series_id'] = ProductSeries::factory()->create(['name' => 'Hot Wheels', 'code' => 'HW'])->id;
+        }
+
+        return Product::factory()->create($overrides + ['name' => $name]);
     }
 
     // ================= Bentuk jawaban =================
@@ -61,6 +62,43 @@ class InboundProductSearchTest extends TestCase
             ->assertJsonPath('items.0.product_id', $product->id)
             ->assertJsonPath('items.0.name', 'Nissan Skyline GT-R R34')
             ->assertJsonPath('items.0.series', 'Hot Wheels');
+    }
+
+    #[Test]
+    public function a_search_returns_distinguishing_details_for_duplicate_names(): void
+    {
+        // Dua produk bernama sama -- persis kasus data ganda di katalog. Modal
+        // inbound harus menerima data yang membuat keduanya bisa dibedakan
+        // (warna, tahun, harga), bukan sekadar nama dan seri.
+        $series = ProductSeries::factory()->create(['name' => 'Hot Wheels', 'code' => 'HW']);
+
+        $this->product('Mazda RX-7 Savanna', [
+            'series_id' => $series->id,
+            'color' => 'Burnt Orange',
+            'year' => 1985,
+            'default_list_price' => 65_000,
+        ]);
+        $this->product('Mazda RX-7 Savanna', [
+            'series_id' => $series->id,
+            'color' => 'Montego Blue',
+            'year' => 1987,
+            'default_list_price' => 75_000,
+        ]);
+
+        // Urutan hasil sama nama tidak dijamin, jadi hasil dipetakan per tahun
+        // sebelum diperiksa, bukan lewat indeks.
+        $items = collect(
+            $this->actingAs(User::factory()->owner()->create())
+                ->postJson(route('inbound.produk.cari'), ['q' => 'mazda rx-7'])
+                ->assertOk()
+                ->assertJsonCount(2, 'items')
+                ->json('items'),
+        )->keyBy('year');
+
+        $this->assertSame('Burnt Orange', $items[1985]['color']);
+        $this->assertSame(65_000, $items[1985]['default_list_price']);
+        $this->assertSame('Montego Blue', $items[1987]['color']);
+        $this->assertSame(75_000, $items[1987]['default_list_price']);
     }
 
     #[Test]

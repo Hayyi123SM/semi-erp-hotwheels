@@ -10,8 +10,14 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             UserSeeder::class,
+            DevSeeder::class,
             MasterSeeder::class,
-            DemoSeeder::class,
         ]);
+
+        // Data contoh hanya untuk lingkungan pengembangan; produksi tidak boleh
+        // ikut terisi nota penjualan dan pergeseran kasir palsu.
+        if (app()->environment(['local', 'development', 'testing'])) {
+            $this->call(DemoSeeder::class);
+        }
     }
 }

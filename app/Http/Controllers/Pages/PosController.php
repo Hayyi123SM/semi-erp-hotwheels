@@ -13,6 +13,7 @@ use App\Http\Requests\Pos\OpenShiftRequest;
 use App\Models\Sale;
 use App\Models\Shift;
 use App\Models\User;
+use App\Services\Pos\CartDraftService;
 use App\Services\Pos\Checkout;
 use App\Services\Pos\CheckoutLine;
 use App\Services\Pos\CheckoutPayment;
@@ -75,7 +76,7 @@ class PosController extends Controller
         return $this->page('pages.pos.kasir', [
             'shift' => $shifts->currentFor(request()->user()),
             'deviceId' => DeviceId::current(),
-        ], 'Kasir');
+        ], 'Kasir', 'layouts.pos');
     }
 
     /**
@@ -107,6 +108,8 @@ class PosController extends Controller
                     lotId: (int) $line['lot_id'],
                     qty: (int) $line['qty'],
                     inputMethod: InputMethod::from($line['input_method'] ?? InputMethod::Scan->value),
+                    discountType: $line['discount_type'] ?? null,
+                    discountValue: isset($line['discount_value']) ? (int) $line['discount_value'] : null,
                 ),
                 $request->validated('items', []),
             ),
@@ -324,7 +327,7 @@ class PosController extends Controller
             'statusOptions' => collect(SaleStatus::cases())
                 ->mapWithKeys(fn (SaleStatus $status): array => [$status->value => $status->label()])
                 ->all(),
-        ], 'Riwayat Transaksi');
+        ], 'Riwayat Transaksi', 'layouts.pos');
     }
 
     /**
@@ -355,7 +358,7 @@ class PosController extends Controller
 
         return $this->page('pages.pos.nota', [
             'sale' => $sale,
-        ], $sale->receipt_no);
+        ], $sale->receipt_no, 'layouts.pos');
     }
 
     /**
@@ -574,7 +577,7 @@ class PosController extends Controller
             'summary' => $shift instanceof Shift ? $shifts->summary($shift) : null,
             'cashThreshold' => $shifts->cashDifferenceThreshold(),
             'recentShifts' => $this->recentShifts($actor),
-        ], 'Shift Kasir');
+        ], 'Shift Kasir', 'layouts.pos');
     }
 
     /**
@@ -619,7 +622,7 @@ class PosController extends Controller
      * memang shift yang sedang dibuka" tetap milik `ShiftService`: controller
      * tidak boleh punya aturan kedua yang bisa berbeda dari yang dipakai service.
      */
-    public function closeShift(CloseShiftRequest $request, Shift $shift, ShiftService $shifts): RedirectResponse
+    public function closeShift(CloseShiftRequest $request, Shift $shift, ShiftService $shifts, CartDraftService $drafts): RedirectResponse
     {
         try {
             $closed = $shifts->close(
@@ -629,6 +632,11 @@ class PosController extends Controller
                 $request->cashDiffApprover(),
                 $request->notes(),
             );
+
+            // Keranjang yang tergantung di shift ini sudah tidak bisa dibayar
+            // lagi, jadi tidak ada gunanya menyimpannya sebagai ACTIVE. Disapu
+            // di sini supaya halaman kasir tidak menawarkan memulihkannya.
+            $drafts->expireOld();
         } catch (ShiftAlreadyClosedException) {
             return back()->withInput()->with('toast', [
                 'type' => 'warning',
@@ -651,6 +659,83 @@ class PosController extends Controller
                             : 'Owner yang mengesahkannya',
                     ),
             ]);
+    }
+
+    /**
+     * Keranjang yang belum dibayar, kalau ada.
+     *
+     * Dipanggil layar kasir begitu halaman terbuka. Isi keranjang dikirim apa
+     * adanya dan layar yang memutuskan apakah akan memulihkannya; server hanya
+     * menjawab "ada" atau "tidak", supaya keputusan menimpa keranjang yang
+     * sedang terlihat tetap milik kasir.
+     */
+    public function loadDraft(Request $request, CartDraftService $drafts, ShiftService $shifts): JsonResponse
+    {
+        $draft = $drafts->getActive($this->currentShiftId($request, $shifts), DeviceId::current());
+
+        if ($draft === null) {
+            return response()->json(['has_draft' => false]);
+        }
+
+        return response()->json([
+            'has_draft' => true,
+            'draft' => [
+                'id' => $draft->id,
+                'items' => $draft->items,
+                'note' => $draft->note,
+                'shift_id' => $draft->shift_id,
+                'device_id' => $draft->device_id,
+            ],
+        ]);
+    }
+
+    /**
+     * Simpan isi keranjang yang sedang berjalan.
+     *
+     * Dipanggil berulang dari layar kasir setiap keranjang berubah, jadi tidak
+     * ada penjagaan idempotensi di sini: yang ditulis adalah keadaan terakhir,
+     * dan keadaan terakhir itulah yang benar. Keranjang kosong diterjemahkan
+     * layanan menjadi pembatalan draft.
+     */
+    public function saveDraft(Request $request, CartDraftService $drafts, ShiftService $shifts): JsonResponse
+    {
+        $validated = $request->validate([
+            'items' => ['array'],
+            'note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $draft = $drafts->save(
+            $validated['items'] ?? [],
+            $this->currentShiftId($request, $shifts),
+            DeviceId::current(),
+            $validated['note'] ?? null,
+        );
+
+        return response()->json(['ok' => true, 'draft_id' => $draft?->id]);
+    }
+
+    /**
+     * Buang keranjang yang sedang berjalan.
+     *
+     * Dipakai saat kasir mengosongkan keranjang dengan sengaja, supaya draft
+     * yang sengaja dihapus tidak ditawarkan untuk dipulihkan lagi saat halaman
+     * dibuka ulang.
+     */
+    public function cancelDraft(Request $request, CartDraftService $drafts, ShiftService $shifts): JsonResponse
+    {
+        $drafts->cancel($this->currentShiftId($request, $shifts), DeviceId::current());
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Id shift yang sedang berjalan untuk pengguna ini, atau `null` bila belum
+     * ada shift terbuka. Dipakai bersama tiga endpoint draft supaya kuncinya
+     * selalu dihitung dengan cara yang sama.
+     */
+    private function currentShiftId(Request $request, ShiftService $shifts): ?int
+    {
+        return $shifts->currentFor($request->user())?->id;
     }
 
     /**

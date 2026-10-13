@@ -1,11 +1,16 @@
-@props(['title' => '', 'subtitle' => '', 'position' => 'right', 'trigger' => null, 'panel' => null])
+@props(['title' => '', 'subtitle' => '', 'position' => 'right', 'trigger' => null, 'panel' => null, 'open' => false, 'id' => null])
 
 @php
     $enterFrom = $position === 'left' ? '-translate-x-full' : 'translate-x-full';
 @endphp
 
-<div x-data="{ open: false }">
-    {{ $trigger }}
+<div x-data="{ open: @js($open), did: @js($id) }"
+     @if($id) x-on:drawer:open.window="if ($event.detail?.id === did) open = true" x-on:drawer:close.window="if ($event.detail?.id === did) open = false" @endif>
+    @if($trigger)
+        <div @click="open = true" class="inline-flex">
+            {{ $trigger }}
+        </div>
+    @endif
 
     <div x-show="open" x-cloak class="fixed inset-0 z-50" role="dialog" aria-modal="true" @keydown.escape.window="open = false">
         <div class="absolute inset-0 bg-text-strong/40" @click="open = false"></div>

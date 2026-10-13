@@ -1,6 +1,9 @@
 <?php
 
+use App\Http\Middleware\DevOnly;
 use App\Http\Middleware\EnsureAccountIsActive;
+use App\Http\Middleware\EnsureFeatureVisible;
+use App\Http\Middleware\ManageUsers;
 use App\Http\Middleware\OwnerOnly;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -21,6 +24,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'owner' => OwnerOnly::class,
+            'dev' => DevOnly::class,
+            'manage-users' => ManageUsers::class,
+            'feature' => EnsureFeatureVisible::class,
         ]);
 
         // Appending rather than aliasing: an account can be switched off while

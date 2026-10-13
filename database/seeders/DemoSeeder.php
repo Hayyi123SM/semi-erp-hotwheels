@@ -6,9 +6,12 @@ use App\Enums\LedgerType;
 use App\Enums\MovementType;
 use App\Enums\OwnerType;
 use App\Enums\PaymentMethod;
+use App\Enums\QuarantineStatus;
 use App\Enums\SaleStatus;
 use App\Enums\ShiftStatus;
 use App\Models\ConsignorLedger;
+use App\Models\QuarantineCase;
+use App\Models\Rack;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SalePayment;
@@ -28,14 +31,18 @@ class DemoSeeder extends Seeder
 
         $this->seedSettings();
         $this->seedWaTemplates();
+        $this->seedQuarantineCases();
 
-        $shift = Shift::create([
-            'device_id' => 'WMS-01',
-            'user_id' => $cashier->id,
-            'opened_at' => now()->subHours(6)->startOfDay()->addHours(9),
-            'opening_cash' => 500000,
-            'status' => ShiftStatus::Open,
-        ]);
+        $openedAt = now()->subHours(6)->startOfDay()->addHours(9);
+
+        $shift = Shift::firstOrCreate(
+            ['device_id' => 'WMS-01', 'opened_at' => $openedAt],
+            [
+                'user_id' => $cashier->id,
+                'opening_cash' => 500000,
+                'status' => ShiftStatus::Open,
+            ]
+        );
 
         $saleRows = [
             [
@@ -116,8 +123,94 @@ class DemoSeeder extends Seeder
         }
     }
 
+    /**
+     * Kasus karantina contoh untuk halaman Karantina: satu melewati ambang
+     * eskalasi (merah), satu melewati ambang review (kuning), satu masih segar.
+     * Umurnya relatif terhadap waktu seed supaya badge SLA selalu terlihat.
+     */
+    private function seedQuarantineCases(): void
+    {
+        if (QuarantineCase::query()->exists()) {
+            return;
+        }
+
+        $rack = Rack::query()->where('code', 'Q-00-01')->first();
+        $staff = User::query()->where('username', 'ahmad.fauzi')->first();
+
+        $rows = [
+            [
+                'age' => 9,
+                'status' => QuarantineStatus::Open,
+                'qty' => 2,
+                'S' => 3, 'C' => 1, 'Q' => 2,
+                'attributes' => [
+                    'model' => 'Ford Mustang GT',
+                    'series' => 'American Scene',
+                    'color' => 'Oxford White',
+                    'condition' => 'Card Mint',
+                    'reason' => 'BARCODE TIDAK TERBACA',
+                ],
+            ],
+            [
+                'age' => 5,
+                'status' => QuarantineStatus::WaitingEvidence,
+                'qty' => 1,
+                'S' => 2, 'C' => 1, 'Q' => 1,
+                'attributes' => [
+                    'model' => 'Mazda 787B',
+                    'series' => 'Car Culture',
+                    'color' => 'Renown Orange',
+                    'condition' => 'Blister Rusak',
+                    'reason' => 'PRODUK TANPA LABEL',
+                ],
+            ],
+            [
+                'age' => 2,
+                'status' => QuarantineStatus::Open,
+                'qty' => 3,
+                'S' => 5, 'C' => 2, 'Q' => 3,
+                'attributes' => [
+                    'model' => '97 Mazda RX-7',
+                    'series' => 'Car Culture',
+                    'color' => 'Silver',
+                    'condition' => 'Card Mint',
+                    'reason' => 'STOK PABRIK (DOS PACK)',
+                ],
+            ],
+        ];
+
+        foreach ($rows as $index => $row) {
+            $createdAt = now()->subDays($row['age'])->startOfDay()->addHours(10)->addMinutes($index * 17);
+
+            QuarantineCase::forceCreate([
+                'case_no' => 'QC-'.$createdAt->format('Ymd').'-'.str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT),
+                'status' => $row['status'],
+                'qty' => $row['qty'],
+                'photo_urls' => [],
+                'attributes' => $row['attributes'],
+                'rack_id' => $rack?->id,
+                'assigned_lot_id' => null,
+                'S' => $row['S'],
+                'C' => $row['C'],
+                'Q' => $row['Q'],
+                'V' => $row['S'] - ($row['C'] + $row['Q']),
+                'counted_at' => $createdAt,
+                'decided_by' => null,
+                'evidence' => [],
+                'resolved_at' => null,
+                'opened_by' => $staff?->id,
+                'created_at' => $createdAt,
+                'updated_at' => $createdAt,
+            ]);
+        }
+    }
+
     private function makeSale(Shift $shift, User $cashier, array $row): void
     {
+        if (Sale::where('receipt_no', $row['receipt'])->exists()) {
+            return;
+        }
+
         $lot = StockLot::where('sku', $row['sku'])->firstOrFail();
 
         $fee = match ($lot->scheme_type?->value) {

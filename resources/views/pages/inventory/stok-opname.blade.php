@@ -43,8 +43,13 @@
          statuses: @js($opnameStatuses),
          urls: @js($opnameUrls),
          csrf: @js(csrf_token()),
+         reviewTargets: @js($reviewTargets),
+         failedReviewId: @js(old('review_line')),
      })"
-     @opname:review.window="review = $event.detail; $dispatch('open-modal', 'review-baris')">
+     {{-- Klik Review hanya membawa id baris; payload-nya diambil dari peta yang
+          dibangun server. Detail yang kosong tidak lagi bisa menimpa state, dan
+          baris yang gagal divalidasi bisa dibuka ulang dari id yang sama. --}}
+     @opname:review.window="openReview($event.detail)">
 
     {{-- Galat validasi dari empat form di halaman ini. Semuanya mengirim lewat
          `back()`, jadi pesannya sampai di sini setelah dialog tertutup. --}}
@@ -119,8 +124,21 @@
                         </form>
                     @else
                         <p class="text-label-sm text-text-muted">
-                            Sesi terkunci untuk penghitungan. Alasan tiap selisih dibuka saat review.
+                            Sesi terkunci untuk penghitungan; alasan tiap selisih dibuka saat review.
+                            Stok yang bergerak setelah sesi diajukan tidak lagi menggagalkan keputusan --
+                            selisih dihitung ulang terhadap keadaan terkini saat Anda memutuskan. Buka
+                            ulang hanya bila angka hitungnya sendiri perlu diperbaiki.
                         </p>
+                        {{-- Buka ulang adalah jalur koreksi hitungan sebelum ada
+                             keputusan, bukan lagi pelarian dari baris basi: gerakan
+                             stok sudah diserap otomatis saat review. Service menutup
+                             pintu ini begitu satu baris diputuskan. --}}
+                        <form method="POST"
+                              action="{{ route('inventory.stok-opname.buka-ulang', $open) }}"
+                              onsubmit="return confirm('Buka ulang sesi ini? Angka yang sudah dihitung tetap tersimpan; sesi kembali ke penghitungan agar koreksinya bisa dimasukkan, lalu diajukan lagi.');">
+                            @csrf
+                            <button type="submit" class="btn-secondary">Buka Ulang Sesi</button>
+                        </form>
                     @endif
                 </div>
             </div>
@@ -282,12 +300,7 @@
                                                  direview oleh orang yang membuka halaman. --}}
                                             @if ($row->status === \App\Enums\OpnameLineStatus::Counted)
                                                 <button type="button" class="btn-secondary h-9 px-3"
-                                                        @click="review = {
-                                                            url: @js(route('inventory.stok-opname.review', [$open, $row])),
-                                                            sku: @js($row->lot?->sku ?? ''),
-                                                            diff: {{ (int) $row->diff_qty }},
-                                                            positive: {{ $row->diff_qty > 0 ? 'true' : 'false' }},
-                                                        }; $dispatch('opname:review')">
+                                                        @click="$dispatch('opname:review', {{ $row->getKey() }})">
                                                     Review
                                                 </button>
                                             @else
@@ -311,70 +324,30 @@
             @endif
         </x-ui.section-card>
     @else
+        {{-- CTA mulai ada satu saja, di header halaman; kartu ini murni
+             penjelasan supaya tidak ada dua tombol yang melakukan hal sama di
+             satu layar. --}}
         <x-ui.section-card title="Belum Ada Sesi Berjalan">
-            <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <p class="text-body-sm text-text-muted">
-                        Mulai satu sesi opname untuk seluruh gudang, satu rak, atau satu SKU. Saat sesi berjalan,
-                        angka sistem tidak dikirim ke layar penghitung -- ia baru muncul bersama selisih ketika sesi
-                        diajukan untuk direview.
-                    </p>
-                    <p class="mt-1 text-label-sm text-text-subtle">
-                        Hanya satu sesi yang boleh terbuka dalam satu waktu.
-                    </p>
-                </div>
-                <button type="button" class="btn-primary" @click="$dispatch('open-modal', 'mulai-opname')">Mulai Sesi Baru</button>
-            </div>
+            <x-ui.empty-state
+                title="Tidak ada opname yang sedang terbuka"
+                description="Mulai sesi baru lewat tombol di kanan atas untuk menghitung seluruh gudang, satu rak, atau satu SKU. Selama sesi berjalan, angka sistem tidak dikirim ke layar penghitung -- ia muncul bersama selisih hanya setelah sesi diajukan. Hanya satu sesi yang boleh terbuka dalam satu waktu."
+            />
         </x-ui.section-card>
     @endif
 
-    <x-ui.section-card title="Riwayat Sesi">
-        @if ($history->isEmpty())
-            <p class="text-body-sm text-text-muted">Belum ada sesi opname yang pernah dijalankan.</p>
-        @else
-            <div class="table-scroll">
-                <table class="w-full min-w-max text-left">
-                    <thead class="thead-dense">
-                        <tr>
-                            <th class="px-6 py-3 font-semibold">No. Sesi</th>
-                            <th class="px-6 py-3 font-semibold">Cakupan</th>
-                            <th class="px-6 py-3 font-semibold">Dimulai Oleh</th>
-                            <th class="px-6 py-3 font-semibold">Mulai</th>
-                            <th class="px-6 py-3 font-semibold">Status</th>
-                            <th class="px-6 py-3 text-right font-semibold">Baris</th>
-                            <th class="px-6 py-3 text-right font-semibold">Selisih</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-border-subtle">
-                        @foreach ($history as $item)
-                            @php
-                                $cakupan = $item->scope->label();
-                                if ($item->scope === OpnameScope::Rack && $item->rack !== null) {
-                                    $cakupan .= ' · '.$item->rack->code;
-                                } elseif ($item->scope === OpnameScope::Sku && $item->scope_value !== null) {
-                                    $cakupan .= ' · '.$item->scope_value;
-                                }
-                            @endphp
-                            <tr class="row-dense transition hover:bg-canvas">
-                                <td class="px-6 py-3 font-mono text-body-sm text-text-strong">{{ $item->opname_no }}</td>
-                                <td class="px-6 py-3 text-body-sm text-text-muted">{{ $cakupan }}</td>
-                                <td class="px-6 py-3 text-body-sm text-text-muted">{{ $item->creator?->name ?? '—' }}</td>
-                                <td class="px-6 py-3 text-body-sm text-text-muted">{{ Format::datetime($item->started_at) }}</td>
-                                <td class="px-6 py-3">
-                                    <x-ui.badge-status :type="Format::statusType($item->status->value)">
-                                        {{ Format::statusLabel($item->status->value) }}
-                                    </x-ui.badge-status>
-                                </td>
-                                <td class="px-6 py-3 text-right font-mono text-body-sm text-text-strong tabular-nums">{{ $item->lines_count }}</td>
-                                <td class="px-6 py-3 text-right font-mono text-body-sm tabular-nums {{ $item->selisih_count > 0 ? 'text-warning-text' : 'text-text-muted' }}">
-                                    {{ $item->selisih_count }}
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
-        @endif
+    <x-ui.section-card title="Riwayat Sesi" :pad="false">
+        <x-ui.data-table :table="$historyTable">
+            <x-slot:filters>
+                <select name="status" class="select-base filter-select" aria-label="Filter status sesi">
+                    <option value="">Semua Status</option>
+                    @foreach ($historyStatusOptions as $value => $label)
+                        <option value="{{ $value }}" @selected(request()->query('status') === (string) $value)>
+                            {{ $label }}
+                        </option>
+                    @endforeach
+                </select>
+            </x-slot:filters>
+        </x-ui.data-table>
     </x-ui.section-card>
 
     {{-- Dialog mulai sesi. Cakupan memakai `x-model` biasa: opsi lain sengaja
@@ -382,7 +355,10 @@
          DOM dan nilai kosongnya ikut terkirim -- server yang memutuskan apakah
          rak atau SKU wajib, sesuai cakupan yang dipilih. --}}
     <x-modal name="mulai-opname" focusable>
-        <form method="POST" action="{{ route('inventory.stok-opname.store') }}">
+        <form method="POST" action="{{ route('inventory.stok-opname.store') }}"
+              @if ($openShiftCount > 0)
+                  onsubmit="return confirm('Shift kasir masih terbuka. Penjualan akan terus berjalan selama opname dan gerakan stoknya ikut dihitung saat keputusan. Lanjutkan? Tutup shift kasir lebih dulu bila ingin hitungan benar-benar bersih.');"
+              @endif>
             @csrf
             <div class="space-y-5 p-6">
                 <div>
@@ -392,6 +368,18 @@
                         Hitung fisik satu per satu, lalu ajukan seluruh sesi untuk direview.
                     </p>
                 </div>
+
+                @if ($openShiftCount > 0)
+                    {{-- Sesi opname tidak menghentikan penjualan. Peringatan ini
+                         membuat konsekuensinya disadari di awal, bukan ditemukan
+                         saat notifikasi "stok bergerak" muncul di tengah sesi. --}}
+                    <x-ui.banner tone="warning">
+                        <strong>Shift kasir masih terbuka.</strong>
+                        Penjualan tetap berjalan selama opname; barang yang laku setelah dihitung
+                        tidak menggagalkan sesi -- selisihnya disesuaikan otomatis saat keputusan.
+                        Untuk hitungan benar-benar bersih, tutup shift kasir lebih dulu.
+                    </x-ui.banner>
+                @endif
 
                 <div>
                     <p class="mb-2 text-label-md text-text-muted">Cakupan <span class="text-error-text">*</span></p>
@@ -439,6 +427,9 @@
         <template x-if="review">
             <form method="POST" :action="review.url">
                 @csrf
+                {{-- Dibawa serta saat submit agar baris yang gagal divalidasi tahu
+                     dirinya sendiri ketika halaman dimuat ulang. --}}
+                <input type="hidden" name="review_line" :value="review?.id">
                 <div class="space-y-5 p-6">
                     <div>
                         <h2 class="text-headline-sm text-text-strong">Review Selisih</h2>

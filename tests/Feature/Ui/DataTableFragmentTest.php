@@ -205,19 +205,16 @@ class DataTableFragmentTest extends TestCase
         $this->assertStringContainsString('Penitip tidak ditemukan', $html);
     }
 
+    /**
+     * Segarkan fragmen oleh Staff kini ditolak: halaman Master Owner-only.
+     */
     #[Test]
-    public function a_refresh_still_obeys_the_readers_permissions(): void
+    public function a_refresh_is_forbidden_for_staff(): void
     {
         $this->penitip('Penitip Satu');
 
-        $staff = User::factory()->staff()->create();
-
-        $html = $this->actingAs($staff)
+        $this->actingAs(User::factory()->staff()->create())
             ->get(route('master.penitip'), [Fragment::HEADER => '1'])
-            ->assertOk()
-            ->getContent();
-
-        // A refresh is a way of asking sooner, not a way of asking for more.
-        $this->assertStringNotContainsString('Tambah Penitip', $html);
+            ->assertForbidden();
     }
 }

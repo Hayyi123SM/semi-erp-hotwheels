@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\Auth\PinController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Dev\MenuController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\Inbound\ProductSearchController;
 use App\Http\Controllers\Master\ConsignorController;
@@ -29,8 +30,7 @@ Route::get('/', HomeController::class)->middleware('auth')->name('home');
 // Satu-satunya batas peran di aplikasi ini: Owner memegang semua modul, Staff
 // hanya POS. Karena itu setiap section non-POS dibungkus middleware `owner` di
 // sini, bukan ditempel per-route, supaya jawabannya terbaca di satu tempat.
-Route::middleware(['auth', 'owner'])->group(function () {
-    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+Route::middleware(['auth', 'owner', 'feature'])->group(function () {
 
     // ===== 1. Master Data =====
     Route::get('/master/penitip', [ConsignorController::class, 'index'])->name('master.penitip');
@@ -184,11 +184,22 @@ Route::middleware(['auth', 'owner'])->group(function () {
     Route::patch('/inventory/live-stock/{lot}/rak', [InventoryController::class, 'pindahRak'])->name('inventory.live-stock.rak');
     Route::get('/inventory/kartu-stok/{lot}', [InventoryController::class, 'kartuStok'])->name('inventory.kartu-stok');
     Route::get('/inventory/karantina', [InventoryController::class, 'karantina'])->name('inventory.karantina');
-    // Siklus opname (FR-IC-20..23). Empat perubahan keadaan memakai POST biasa
+    // Siklus karantina (Fase 2). POST biasa untuk setiap tombol: ada CSRF, galat
+    // validasi kembali ke halaman yang sama, dan riwayat yang bisa dibaca lewat
+    // tombol kembali peramban. Seluruh modul sudah `owner`, jadi registrasi
+    // maupun resolusi memang hanya untuk Owner.
+    Route::post('/inventory/karantina', [InventoryController::class, 'storeKarantina'])->name('inventory.karantina.store');
+    Route::post('/inventory/karantina/{case}/assign', [InventoryController::class, 'assignKarantina'])->name('inventory.karantina.assign');
+    Route::post('/inventory/karantina/{case}/eskalasi', [InventoryController::class, 'eskalasiKarantina'])->name('inventory.karantina.eskalasi');
+    Route::post('/inventory/karantina/{case}/write-off', [InventoryController::class, 'writeOffKarantina'])->name('inventory.karantina.write-off');
+    // Siklus opname (FR-IC-20..23). Seluruh perubahan keadaan memakai POST biasa
     // supaya setiap tombol tetap berbentuk form: ada CSRF, ada galat validasi
     // yang kembali ke halaman yang sama, dan ada riwayat yang bisa dibaca
     // pengguna lewat tombol kembali peramban.
     Route::get('/inventory/stok-opname', [OpnameController::class, 'index'])->name('inventory.stok-opname');
+    // Detail satu sesi yang sudah lewat: fakta, baris, dan jejak auditnya.
+    // Sesi yang masih terbuka tetap tunduk pada aturan blind count di halaman ini.
+    Route::get('/inventory/stok-opname/{opname}', [OpnameController::class, 'detail'])->name('inventory.stok-opname.detail');
     Route::post('/inventory/stok-opname', [OpnameController::class, 'store'])->name('inventory.stok-opname.store');
     // `scopeBindings()` pada tiga route bersarang: tanpanya `{line}` diambil
     // dari `opname_lines` mana pun yang id-nya cocok, sehingga baris sesi lama
@@ -203,6 +214,10 @@ Route::middleware(['auth', 'owner'])->group(function () {
     // memutuskan selisih memang hanya sampai ke Owner.
     Route::post('/inventory/stok-opname/{opname}/baris/{line}/review', [OpnameController::class, 'review'])->scopeBindings()->name('inventory.stok-opname.review');
     Route::post('/inventory/stok-opname/{opname}/batal', [OpnameController::class, 'batal'])->name('inventory.stok-opname.batal');
+    // Buka ulang tetap tersedia untuk mengoreksi hitungan sebelum ada keputusan:
+    // sesi kembali ke penghitungan, lalu bisa diajukan lagi. Setelah satu baris
+    // diputuskan, pintunya tertutup di service.
+    Route::post('/inventory/stok-opname/{opname}/buka-ulang', [OpnameController::class, 'bukaUlang'])->name('inventory.stok-opname.buka-ulang');
     Route::get('/inventory/retur-rtv', [RtvController::class, 'index'])->name('inventory.retur-rtv');
     Route::post('/inventory/retur-rtv', [RtvController::class, 'store'])->name('inventory.retur-rtv.store');
     Route::post('/inventory/retur-rtv/{rtv}/staging', [RtvController::class, 'staging'])->name('inventory.retur-rtv.staging');
@@ -269,6 +284,9 @@ Route::middleware('auth')->group(function () {
      * ramai.
      */
     Route::post('/pos/transaksi', [PosController::class, 'store'])->name('pos.transaksi.store');
+    Route::get('/pos/draft', [PosController::class, 'loadDraft'])->name('pos.draft.load');
+    Route::post('/pos/draft', [PosController::class, 'saveDraft'])->name('pos.draft.save');
+    Route::delete('/pos/draft', [PosController::class, 'cancelDraft'])->name('pos.draft.cancel');
 
     /**
      * Halaman shift kasir. `GET` karena ini halaman, bukan aksi: tidak ada
@@ -309,37 +327,21 @@ Route::middleware('auth')->group(function () {
         ->name('pos.produk.cari');
 });
 
-// Reports & Analisis dan Pengaturan: Owner saja, sama seperti section non-POS
-// lain. Endpoint ekspor tetap punya penjaga sendiri di controller karena bisa
-// dipanggil langsung tanpa melewati halaman.
-Route::middleware(['auth', 'owner'])->group(function () {
-    // ===== 5. Reports & Analisis =====
-    // Settlement dan Margin membeberkan uang toko (saldo hak penitip, HPP,
-    // laba), jadi Owner-only. Pembatasan di controller juga dibuat untuk
-    // melindungi endpoint ekspor -- middleware di route melindungi halaman,
-    // `abort_unless` di controller menahan unduhan yang dipanggil langsung.
+// Reports & Analisis dan Pengaturan (kecuali Pengguna & Role): Owner saja,
+// sama seperti section non-POS lain. Endpoint ekspor tetap punya penjaga
+// sendiri di controller karena bisa dipanggil langsung tanpa melewati halaman.
+Route::middleware(['auth', 'owner', 'feature'])->group(function () {
     Route::get('/reports/consignor-settlement', [ReportController::class, 'settlement'])->name('report.settlement');
     Route::get('/reports/profit-margin', [ReportController::class, 'margin'])->name('report.margin');
     Route::get('/reports/laporan-penjualan-stok', [ReportController::class, 'laporan'])->name('report.laporan');
     Route::get('/reports/audit-log', [ReportController::class, 'auditLog'])->name('report.audit-log');
+    // Dashboard route terpisah untuk Owner (menghindari redirect loop dengan root 'home')
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('owner.dashboard');
 
     // ===== 6. Pengaturan =====
-    // Managing users is Owner-only across the board -- including the index.
-    // The sidebar already hides the entry from Staff, but a hidden menu is not
-    // access control: the route was reachable directly, and `index()` has no
-    // gate of its own, so Staff could read every user's name, username, email
-    // and role by typing the URL. The whole group is wrapped so the answer is
-    // readable in one place instead of per-method `abort_unless` calls that
-    // can be forgotten.
-    Route::prefix('/settings/pengguna-role')->group(function (): void {
-        Route::get('/', [UserManagementController::class, 'index'])->name('setting.pengguna');
-        Route::get('/create', [UserManagementController::class, 'create'])->name('setting.pengguna.create');
-        Route::post('/', [UserManagementController::class, 'store'])->name('setting.pengguna.store');
-        Route::get('/{user}/edit', [UserManagementController::class, 'edit'])->name('setting.pengguna.edit');
-        Route::put('/{user}', [UserManagementController::class, 'update'])->name('setting.pengguna.update');
-        Route::patch('/{user}/toggle', [UserManagementController::class, 'toggleActive'])->name('setting.pengguna.toggle');
-    });
-
+    // Pengguna & Role tidak ada di grup ini: mengelola akun adalah pekerjaan
+    // teknis, jadi Owner dan Developer sama-sama boleh -- grupnya sendiri ada
+    // di bawah. Sisanya tetap Owner saja.
     Route::get('/settings/perangkat', [SettingController::class, 'perangkat'])->name('setting.perangkat');
 
     /**
@@ -397,6 +399,22 @@ Route::middleware(['auth', 'owner'])->group(function () {
         ->name('setting.parameter.update');
 });
 
+// Pengguna & Role: Owner dan Developer. Owner mengelola akun operasional
+// (Owner/Staff) tetapi tidak pernah melihat, membuat, atau menyentuh akun
+// Developer -- Developer hanya lahir dari seeder atau dari Developer lain.
+// `manage-users` menjaga pintunya, `feature` menjaga visibilitas menunya, dan
+// aturan role per aktor hidup di `User::assignableRoles()`.
+Route::middleware(['auth', 'manage-users', 'feature'])
+    ->prefix('/settings/pengguna-role')
+    ->group(function (): void {
+        Route::get('/', [UserManagementController::class, 'index'])->name('setting.pengguna');
+        Route::get('/create', [UserManagementController::class, 'create'])->name('setting.pengguna.create');
+        Route::post('/', [UserManagementController::class, 'store'])->name('setting.pengguna.store');
+        Route::get('/{user}/edit', [UserManagementController::class, 'edit'])->name('setting.pengguna.edit');
+        Route::put('/{user}', [UserManagementController::class, 'update'])->name('setting.pengguna.update');
+        Route::patch('/{user}/toggle', [UserManagementController::class, 'toggleActive'])->name('setting.pengguna.toggle');
+    });
+
 // Profil dan PIN: milik semua role. Staff mengganti password sendiri dan
 // menutup shift memakai PIN Owner, jadi keduanya tidak boleh Owner-only.
 Route::middleware('auth')->group(function () {
@@ -413,3 +431,9 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+Route::middleware(['auth', 'dev'])->prefix('dev')->name('dev.')->group(function () {
+    Route::get('/menu', [MenuController::class, 'index'])->name('menu');
+    Route::put('/menu/{role}', [MenuController::class, 'update'])->name('menu.update');
+    Route::post('/menu/{role}/reset', [MenuController::class, 'reset'])->name('menu.reset');
+});

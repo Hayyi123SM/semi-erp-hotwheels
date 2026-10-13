@@ -6,6 +6,7 @@ namespace App\Http\Requests\Pos;
 
 use App\Enums\InputMethod;
 use App\Enums\PaymentMethod;
+use App\Models\StockLot;
 use App\Services\Pos\CheckoutPayment;
 use App\Services\Pos\PosSettings;
 use Illuminate\Foundation\Http\FormRequest;
@@ -44,6 +45,8 @@ class CheckoutRequest extends FormRequest
             'items.*.lot_id' => ['required', 'integer', 'min:1'],
             'items.*.qty' => ['required', 'integer', 'min:1', 'max:9999'],
             'items.*.input_method' => ['nullable', Rule::in(self::inputMethods())],
+            'items.*.discount_type' => ['nullable', Rule::in(['percent', 'amount'])],
+            'items.*.discount_value' => ['nullable', 'numeric', 'min:0', 'max:999999999'],
 
             'payments' => ['required', 'array', 'min:1', 'max:5'],
             'payments.*.method' => ['required', Rule::in(self::paymentMethods())],
@@ -52,6 +55,19 @@ class CheckoutRequest extends FormRequest
 
             'tender' => ['nullable', 'integer', 'min:0', 'max:'.PosSettings::MAX_AMOUNT],
         ];
+    }
+
+    /**
+     * Menerima uang adalah pekerjaan kasir, dan rutenya sudah dijaga `auth`.
+     *
+     * Batas diskon tidak ditegakkan di sini: penolakan lewat `authorize()`
+     * datang sebagai 403 tanpa pesan, dan kasir yang menekan tombol diskon
+     * berhak tahu alasannya. Karena itu pemeriksaan peran dan batas nilainya
+     * ada di {@see self::after()} sebagai galat validasi yang bisa dibaca.
+     */
+    public function authorize(): bool
+    {
+        return true;
     }
 
     /**
@@ -71,8 +87,77 @@ class CheckoutRequest extends FormRequest
                         'Satu lot tidak boleh muncul dua kali dalam satu nota. Muat ulang halaman bila ini terjadi.',
                     );
                 }
+
+                $this->guardDiscounts($validator);
             },
         ];
+    }
+
+    /**
+     * Batas diskon per baris, diperiksa terhadap harga lot yang sebenarnya.
+     *
+     * Harga yang menentukan adalah `list_price * qty`, bukan angka yang dikirim
+     * layar: layar bisa saja sudah basi, dan diskon yang sah menurutnya bisa
+     * melebihi harga barang yang benar-benar keluar. Batas persen dijaga di 100%
+     * dan nominal di harga barisnya, sehingga baris tidak pernah menjadi negatif.
+     *
+     * Diskon hanya untuk Staff dan Owner. Peran lain tidak punya alasan
+     * memotong harga, dan pesannya ditulis per peran yang benar-benar ada.
+     */
+    private function guardDiscounts(Validator $validator): void
+    {
+        $items = $this->input('items', []);
+        $lotIds = collect($items)->pluck('lot_id')->filter()->values()->all();
+
+        if ($lotIds === []) {
+            return;
+        }
+
+        $user = $this->user();
+        $mayDiscount = $user !== null && ($user->isOwner() || $user->isStaff());
+        $lots = StockLot::whereIn('id', $lotIds)->get()->keyBy('id');
+
+        foreach ($items as $index => $item) {
+            $value = (int) ($item['discount_value'] ?? 0);
+
+            if ($value <= 0) {
+                continue;
+            }
+
+            if (! $mayDiscount) {
+                $validator->errors()->add(
+                    "items.{$index}.discount_value",
+                    'Hanya Staff atau Owner yang dapat memberikan diskon.',
+                );
+
+                continue;
+            }
+
+            $lot = $lots->get($item['lot_id'] ?? null);
+
+            if ($lot === null) {
+                continue;
+            }
+
+            $type = $item['discount_type'] ?? null;
+            $lineAmount = (int) $lot->list_price * (int) ($item['qty'] ?? 1);
+
+            if ($type === 'percent' && $value > 100) {
+                $validator->errors()->add(
+                    "items.{$index}.discount_value",
+                    'Diskon persentase tidak boleh lebih dari 100%.',
+                );
+
+                continue;
+            }
+
+            if ($type === 'amount' && $value > $lineAmount) {
+                $validator->errors()->add(
+                    "items.{$index}.discount_value",
+                    'Diskon tidak boleh melebihi harga per baris.',
+                );
+            }
+        }
     }
 
     /**

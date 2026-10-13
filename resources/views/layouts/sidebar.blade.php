@@ -1,11 +1,14 @@
 @php
-    $active = request()->route()?->getName();
+    $currentRoute = request()->route()?->getName();
+    $menuVis = app(\App\Support\Visibility\MenuVisibility::class);
+    $currentUser = auth()->user();
+    $currentUser = auth()->user();
 
     $navigation = [
         [
             'label' => 'Dashboard',
             'owner' => true,
-            'route' => 'dashboard',
+            'route' => auth()->user()?->homeRoute() ?? 'home',
             'icon' => 'M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1h3a1 1 0 001-1V10',
         ],
         [
@@ -71,7 +74,7 @@
     // Halaman muka mengikuti peran: Owner ke dashboard, Staff ke kasir. Logo
     // memakai tujuan yang sama supaya tidak ada satu pun tautan navigasi yang
     // menjatuhkan Staff ke halaman yang menolaknya.
-    $homeRoute = auth()->user()?->homeRoute() ?? 'dashboard';
+    $homeRoute = auth()->user()?->homeRoute() ?? 'home';
 
     // Satu batas peran: Staff hanya melihat POS. Section non-POS ditandai
     // `owner` dan dibuang seluruhnya untuk Staff; grup POS tidak bertanda dan
@@ -79,25 +82,28 @@
     // menggantung tanpa isinya. Flag `owner` per-item tetap dipertahankan
     // sebagai penanda halus bila nanti ada item Owner-only di dalam grup campuran.
     $navigation = array_values(array_filter(
-        array_map(function (array $section) use ($isOwner): array {
+        array_map(function (array $section) use ($menuVis, $currentUser): array {
             if (! isset($section['items'])) {
-                return $section;
+                $route = $section['route'] ?? null;
+                if ($route === null) {
+                    return $section;
+                }
+                return $menuVis->menuVisible($currentUser, $route) ? $section : null;
             }
 
             return [
                 ...$section,
                 'items' => array_values(array_filter(
                     $section['items'],
-                    fn (array $item): bool => $isOwner || ! ($item['owner'] ?? false),
+                    fn (array $item): bool => $menuVis->menuVisible($currentUser, $item['route'] ?? '')
                 )),
             ];
         }, $navigation),
-        function (array $section) use ($isOwner): bool {
-            if (! $isOwner && ($section['owner'] ?? false)) {
-                return false;
+        function (array $section): bool {
+            if (! isset($section['items'])) {
+                return $section !== null;
             }
-
-            return ! isset($section['items']) || $section['items'] !== [];
+            return $section['items'] !== [];
         },
     ));
 
@@ -107,12 +113,12 @@
     // (`master.penitip` -> `master.penitip.create`), so a child is recognised
     // by its separator. Comparing with str_contains() instead would light up a
     // sibling the moment its name extended the prefix.
-    $isActive = function (string $route) use ($active): bool {
-        if ($active === null) {
+    $isActive = function (string $route) use ($currentRoute): bool {
+        if ($currentRoute === null) {
             return false;
         }
 
-        return $active === $route || str_starts_with($active, $route.'.');
+        return $currentRoute === $route || str_starts_with($currentRoute, $route.'.');
     };
 @endphp
 
@@ -132,7 +138,7 @@
        @keydown.escape.window="open && closeDrawer()">
     <div class="flex h-16 shrink-0 items-center gap-2 border-b border-border-subtle px-3 md:px-5"
          :class="isLabelled ? 'justify-between' : 'justify-center'">
-        <a href="{{ route($homeRoute) }}" class="flex min-w-0 items-center gap-2.5" title="SemiERP HotWheels">
+        <a href="{{ route(auth()->user()?->homeRoute() ?? 'home') }}" class="flex min-w-0 items-center gap-2.5" title="SemiERP HotWheels">
             <img class="w-8 ml-[5px] flex-none" src="/assets/images/167_LOGO.png"
                         alt="image" />
             <span class="sidebar-label text-headline-sm font-semibold text-text-strong" x-show="isLabelled">167 Diecast</span>
@@ -167,7 +173,7 @@
                                         <path d="{{ $item['icon'] }}"/>
                                     </svg>
                                     <span class="sidebar-label" x-show="isLabelled">{{ $item['label'] }}</span>
-                                    @if ($active === 'inventory.karantina' && $item['route'] === 'inventory.karantina')
+                                    @if (($active ?? null) === 'inventory.karantina' && $item['route'] === 'inventory.karantina')
                                         {{-- A count badge does not fit in the rail; the dot carries the same signal. --}}
                                         <span class="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-karantina-bg px-1.5 text-label-sm text-karantina-text" x-show="isLabelled">{{ $quarantine['count'] }}</span>
                                         <span class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-karantina-text" x-show="! isLabelled">

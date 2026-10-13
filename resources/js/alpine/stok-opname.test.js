@@ -194,4 +194,48 @@ describe('stokOpname', () => {
         expect(comp.rowStatusClass(2)).toContain('bg-success-bg');
         expect(comp.rowStatusIcon(2)).toContain('M5 13l4 4L19 7');
     });
+
+    describe('dialog review', () => {
+        const reviewTargets = {
+            1: {
+                id: 1,
+                url: '/inventory/stok-opname/7/baris/1/review',
+                sku: 'CN-01-HW-001',
+                diff: -2,
+                positive: false,
+            },
+        };
+
+        it('mengambil payload dari peta server berdasarkan id', () => {
+            const comp = stokOpname(config({ reviewTargets }));
+
+            comp.openReview(1);
+
+            expect(comp.review).toEqual(reviewTargets[1]);
+        });
+
+        it('membiarkan dialog tertutup untuk id yang tidak dikenal', () => {
+            const dispatch = vi.spyOn(window, 'dispatchEvent');
+            const comp = stokOpname(config({ reviewTargets }));
+
+            comp.openReview(999);
+
+            expect(comp.review).toBe(null);
+            expect(dispatch).not.toHaveBeenCalled();
+            dispatch.mockRestore();
+        });
+
+        it('membuka kembali baris yang gagal divalidasi saat halaman dimuat', () => {
+            const dispatch = vi.spyOn(window, 'dispatchEvent');
+            const comp = stokOpname(config({ reviewTargets, failedReviewId: 1 }));
+
+            comp.init();
+
+            expect(comp.review).toEqual(reviewTargets[1]);
+            expect(dispatch).toHaveBeenCalledWith(
+                expect.objectContaining({ detail: 'review-baris' }),
+            );
+            dispatch.mockRestore();
+        });
+    });
 });

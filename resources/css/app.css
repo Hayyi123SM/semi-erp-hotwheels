@@ -233,6 +233,17 @@
         @apply line-clamp-2;
     }
 
+    /*
+     * The companion opt-out for Column::unclamped(): a cell deliberately built
+     * as more than two lines must not be clipped, so it leaves the -webkit-box
+     * display of line-clamp-2 behind and becomes a plain block again.
+     */
+    .cell-text-unclamped {
+        display: block;
+        overflow: visible;
+        -webkit-line-clamp: unset;
+    }
+
     .table-scroll {
         @apply overflow-x-auto overscroll-x-contain;
         -webkit-overflow-scrolling: touch;

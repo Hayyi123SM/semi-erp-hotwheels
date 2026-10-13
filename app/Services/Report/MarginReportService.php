@@ -142,7 +142,7 @@ class MarginReportService
                  coalesce(sum(case when stock_lots.owner_type = ? then sale_items.cost_price_snapshot * sale_items.qty else 0 end), 0) as hpp,
                  coalesce(sum(sale_items.fee_toko), 0) as fee,
                  coalesce(sum(sale_items.hak_penitip), 0) as hak", [OwnerType::Own->value, OwnerType::Own->value])
-            ->groupBy($key)
+            ->groupByRaw($key)
             ->orderByDesc('bruto')
             ->get();
 
@@ -249,6 +249,13 @@ class MarginReportService
     /**
      * Ekspresi `GROUP BY` satu dimensi. Satu tempat, supaya label dan agregasi
      * tidak bisa menunjuk dua kolom yang berbeda.
+     *
+     * Dipasang lewat `groupByRaw()` di pemanggil, bukan `groupBy()`: dimensi
+     * `hari` bernilai `date(sales.sold_at)`, dan `groupBy()` memperlakukan
+     * string apa pun sebagai nama kolom -- tanda kurungnya ikut di-backtick dan
+     * MySQL membacanya sebagai kolom literal `date(sales.sold_at)`. Kolom biasa
+     * lain tetap benar tanpa kutip karena semuanya identifier yang aman, dan
+     * `$dimension` sudah divalidasi terhadap `DIMENSIONS` sebelum sampai ke sini.
      */
     private function dimensionKey(string $dimension): string
     {
