@@ -524,7 +524,13 @@ export function createNotify(options = {}) {
                         releaseBodyLock();
                     }
 
-                    destroyTree(popup);
+                    try {
+                        if (popup) {
+                            destroyTree(popup);
+                        }
+                    } catch (_) {
+                        // Ignore Alpine cleanup errors after unmount
+                    }
                 },
                 preConfirm: onConfirm ?? undefined,
             });

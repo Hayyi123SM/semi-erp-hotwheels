@@ -208,7 +208,17 @@ class ImportController extends Controller
         $this->ensureModule($module);
         $this->import->destroy($token);
 
-        return back()->with('toast', ['type' => 'info', 'message' => 'Impor dibatalkan.']);
+        $moduleRoutes = [
+            'katalog' => 'master.katalog-produk.create',
+            'rak' => 'master.rak.create',
+            'consignor' => 'master.consignor.create',
+        ];
+        $target = $moduleRoutes[$module] ?? 'home';
+
+        return redirect()->route($target)->with('toast', [
+            'type' => 'info',
+            'message' => 'Impor dibatalkan.',
+        ]);
     }
 
     private function ensureModule(string $module): void

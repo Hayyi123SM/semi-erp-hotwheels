@@ -210,6 +210,7 @@
                                                 <select class="h-8 shrink-0 rounded-md border border-border-subtle bg-surface-lowest pl-2 pr-6 text-label-sm text-text-strong outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/15 touch-manipulation"
                                                         x-model="item.discountType"
                                                         @change="onDiscountTypeChange(item)"
+                                                        data-allow-focus
                                                         aria-label="Tipe diskon">
                                                     <option value="">Tanpa</option>
                                                     <option value="percent">%</option>
@@ -310,7 +311,8 @@
                                 <div class="mt-2 flex flex-wrap items-center gap-1.5">
                                     <select class="h-8 rounded-md border border-border-subtle bg-surface-lowest pl-2 pr-6 text-label-sm touch-manipulation"
                                             x-model="item.discountType"
-                                            @change="onDiscountTypeChange(item)">
+                                            @change="onDiscountTypeChange(item)"
+                                            data-allow-focus>
                                         <option value="">Tanpa diskon</option>
                                         <option value="percent">Diskon %</option>
                                         <option value="amount">Diskon Rp</option>
@@ -358,7 +360,7 @@
             one screen's worth of height without needing a scroll to finish a
             sale.
         --}}
-        <div class="flex flex-col gap-5 border-t border-border-subtle bg-surface-lowest p-4 sm:p-5 lg:min-h-0 lg:gap-0 lg:border-l lg:border-t-0 lg:p-6">
+        <div class="hidden lg:flex flex-col gap-5 border-t border-border-subtle bg-surface-lowest p-4 sm:p-5 lg:min-h-0 lg:gap-0 lg:border-l lg:border-t-0 lg:p-6">
 
             {{-- Total. Above `lg` this sits alone at the top of the column; below
                  it shares the first row with the payment methods. --}}
@@ -437,6 +439,7 @@
                        inputmode="numeric"
                        autocomplete="off"
                        x-money-model="tender"
+                       data-allow-focus
                        aria-label="Uang diterima"
                        class="input-base mt-3 text-right text-headline-md font-semibold tabular-nums"
                        placeholder="Masukkan nominal...">

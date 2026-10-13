@@ -30,10 +30,16 @@ function focusBelongsToSomeoneElse(active, el) {
         return false;
     }
 
-    return (
-        active.closest("[data-allow-focus]") !== null ||
-        active.closest(DIALOG_SELECTOR) !== null
-    );
+    if (active.closest("[data-allow-focus]") !== null || active.closest(DIALOG_SELECTOR) !== null) {
+        return true;
+    }
+
+    const tag = active.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") {
+        return true;
+    }
+
+    return false;
 }
 
 export function registerScanDirective(Alpine) {
@@ -70,9 +76,11 @@ export function registerScanDirective(Alpine) {
          * the input first would hand it an empty string.
          */
         const flush = () => {
-            if (!buffer) return;
-            const value = buffer.trim();
+            let value = buffer.trim();
             buffer = "";
+            if (!value && el.value) {
+                value = el.value.trim();
+            }
             if (!value) return;
 
             // The receiver is a no-op. Alpine hands it whatever the expression
@@ -85,6 +93,16 @@ export function registerScanDirective(Alpine) {
 
             el.value = "";
         };
+
+        el.addEventListener("paste", (event) => {
+            event.preventDefault();
+            const text = (event.clipboardData || window.clipboardData)?.getData("text") || "";
+            const trimmed = text.trim();
+            if (trimmed) {
+                buffer = trimmed;
+                flush();
+            }
+        });
 
         el.addEventListener("keydown", (event) => {
             if (event.key === "Enter") {

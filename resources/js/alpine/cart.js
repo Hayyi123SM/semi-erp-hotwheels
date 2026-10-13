@@ -205,7 +205,12 @@ export function registerCart(Alpine) {
          * halaman dan test.
          */
         get checkoutUrl() {
-            return this.$root?.dataset?.checkoutUrl ?? "";
+            return (
+                this.$root?.dataset?.checkoutUrl ??
+                document.querySelector('[data-checkout-url]')?.dataset
+                    ?.checkoutUrl ??
+                ""
+            );
         },
 
         get notify() {
@@ -310,6 +315,10 @@ export function registerCart(Alpine) {
 
         get discountTotal() {
             return this.items.reduce((sum, item) => sum + this.discountFor(item), 0);
+        },
+
+        get total() {
+            return this.subtotal;
         },
 
         /**

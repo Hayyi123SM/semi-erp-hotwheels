@@ -34,6 +34,8 @@ class PreviewImportRequest extends FormRequest
             'map.*' => ['nullable', 'string', 'max:3'],
             'defaults' => ['nullable', 'array'],
             'defaults.*' => ['nullable', 'string', 'max:255'],
+            'options' => ['nullable', 'array'],
+            'options.auto_create_series' => ['nullable', 'in:true,false,1,0,YA,TIDAK,ya,tidak'],
         ];
     }
 }

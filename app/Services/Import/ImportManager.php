@@ -293,9 +293,12 @@ class ImportManager
                 continue;
             }
 
+            $lookupValue = mb_strtolower(preg_replace('/\s+/', ' ', trim((string) $value)));
+            $lookupValue = $lookupValue === '' ? mb_strtolower(trim((string) $value)) : $lookupValue;
+
             $resolved = match ($item['lookup']) {
-                'series' => $this->seriesLookup()[$value] ?? null,
-                'consignor' => $this->consignorLookup()[$value] ?? null,
+                'series' => $this->seriesLookup()[$lookupValue] ?? $this->seriesLookup()[mb_strtolower(trim((string) $value))] ?? $this->findSeriesFuzzy((string) $value),
+                'consignor' => $this->consignorLookup()[$lookupValue] ?? $this->consignorLookup()[mb_strtolower(trim((string) $value))] ?? null,
                 default => null,
             };
 
@@ -316,8 +319,14 @@ class ImportManager
         if ($this->seriesLookup === null) {
             $this->seriesLookup = [];
             foreach (ProductSeries::select('id', 'name', 'code')->get() as $series) {
-                $this->seriesLookup[$series->code] = $series->id;
-                $this->seriesLookup[mb_strtolower($series->name)] = $series->id;
+                $code = $series->code;
+                if ($code !== null && $code !== '') {
+                    $this->seriesLookup[mb_strtolower(trim($code))] = $series->id;
+                }
+                $name = $series->name;
+                if ($name !== null && $name !== '') {
+                    $this->seriesLookup[mb_strtolower(preg_replace('/\s+/', ' ', trim($name)))] = $series->id;
+                }
             }
         }
 
@@ -329,8 +338,14 @@ class ImportManager
         if ($this->consignorLookup === null) {
             $this->consignorLookup = [];
             foreach (Consignor::select('id', 'name', 'consignor_code')->get() as $consignor) {
-                $this->consignorLookup[$consignor->consignor_code] = $consignor->id;
-                $this->consignorLookup[mb_strtolower($consignor->name)] = $consignor->id;
+                $code = $consignor->consignor_code;
+                if ($code !== null && $code !== '') {
+                    $this->consignorLookup[mb_strtolower(trim($code))] = $consignor->id;
+                }
+                $name = $consignor->name;
+                if ($name !== null && $name !== '') {
+                    $this->consignorLookup[mb_strtolower(preg_replace('/\s+/', ' ', trim($name)))] = $consignor->id;
+                }
             }
         }
 
@@ -388,5 +403,83 @@ class ImportManager
         }
 
         return sprintf('%04d-%02d-%02d', $parsed['year'], $parsed['month'] ?: 1, $parsed['day'] ?: 1);
+    }
+
+    private function normalizeAlnum(string $value): string
+    {
+        return mb_strtolower(preg_replace('/[^a-z0-9]+/', '', trim($value)));
+    }
+
+    private function tokenSet(string $value): array
+    {
+        $tokens = preg_split('/\s+/', mb_strtolower(trim($value)));
+        $tokens = array_filter($tokens ?? [], fn ($t) => $t !== '');
+
+        return array_values(array_unique($tokens));
+    }
+
+    private function jaccard(array $a, array $b): float
+    {
+        if ($a === [] || $b === []) {
+            return 0.0;
+        }
+        $intersect = count(array_intersect($a, $b));
+        $union = count(array_unique(array_merge($a, $b)));
+
+        return $union === 0 ? 0.0 : $intersect / $union;
+    }
+
+    private function findSeriesFuzzy(string $value): ?int
+    {
+        $lookup = $this->seriesLookup();
+        $keys = array_keys($lookup);
+        if ($keys === []) {
+            return null;
+        }
+
+        $targetAlnum = $this->normalizeAlnum($value);
+        $targetTokens = $this->tokenSet($value);
+        $bestId = null;
+        $bestScore = 0.0;
+        $hasAmbiguity = false;
+
+        foreach (ProductSeries::select('id', 'name', 'code')->get() as $series) {
+            $cands = [];
+            if ($series->code !== null && $series->code !== '') {
+                $cands[] = (string) $series->code;
+            }
+            if ($series->name !== null && $series->name !== '') {
+                $cands[] = (string) $series->name;
+            }
+            foreach ($cands as $cand) {
+                $score = 0.0;
+                if ($this->normalizeAlnum($cand) === $targetAlnum) {
+                    $score = 1.0;
+                } else {
+                    $j = $this->jaccard($this->tokenSet($cand), $targetTokens);
+                    if ($j > $score) {
+                        $score = $j;
+                    }
+                }
+                if ($score >= 0.9 && $bestScore < 0.9) {
+                    $bestScore = $score;
+                    $bestId = $series->id;
+                    $hasAmbiguity = false;
+                } elseif ($score >= 0.85) {
+                    if ($bestId !== null && $bestId !== $series->id) {
+                        $hasAmbiguity = true;
+                    } elseif ($bestScore < $score) {
+                        $bestScore = $score;
+                        $bestId = $series->id;
+                    }
+                }
+            }
+        }
+
+        if ($hasAmbiguity) {
+            return null;
+        }
+
+        return $bestScore >= 0.9 ? $bestId : null;
     }
 }

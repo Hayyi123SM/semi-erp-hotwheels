@@ -49,6 +49,18 @@
         <a href="{{ route($createRoute) }}" class="btn-ghost h-9 px-3">Ganti File</a>
     </div>
 
+    @if ($module === 'katalog')
+        <div class="mb-5 rounded-lg border border-border-subtle bg-canvas px-4 py-3">
+            <label class="flex items-start gap-3">
+                <input type="checkbox" name="defaults[auto_create_series]" value="YA" class="mt-1 h-4 w-4 rounded border-border-strong text-primary focus:ring-primary/30" @checked(old('defaults.auto_create_series') === 'YA')>
+                <span class="text-body-sm text-text-muted">
+                    <span class="font-medium text-text-strong">Buat Seri baru otomatis jika tidak ditemukan</span>
+                    <span class="block mt-0.5">Berdasarkan nilai kolom "Seri (nama atau kode)". Hanya berlaku untuk modul Katalog. Default tidak dicentang (perlu konfirmasi Owner).</span>
+                </span>
+            </label>
+        </div>
+    @endif
+
     <x-ui.section-card title="Tentukan Baris Header" class="mb-6">
         <div class="grid gap-5 lg:grid-cols-3">
             <div>

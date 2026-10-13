@@ -264,6 +264,10 @@ class ImportTemplateService
         }
 
         if ($item['type'] === 'lookup') {
+            if (($item['lookup'] ?? null) === 'series') {
+                return 'Nama atau Kode Seri yang sudah terdaftar (huruf besar/kecil tidak berpengaruh). Bisa juga menggunakan nama tanpa spasi/tanda hubung (akan dicocokkan secara otomatis).';
+            }
+
             return 'Nama yang sudah terdaftar di Master Data (huruf besar/kecil tidak berpengaruh)';
         }
 

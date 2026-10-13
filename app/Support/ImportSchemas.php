@@ -96,7 +96,7 @@ class ImportSchemas
             'items' => [
                 ['key' => 'name:p1', 'label' => 'Nama Produk — Kolom 1', 'store' => 'name', 'combineOrder' => 1, 'type' => 'string', 'required' => true, 'rules' => ['name' => ['required', 'max:255']]],
                 ['key' => 'name:p2', 'label' => 'Nama Produk — Kolom 2 (opsional)', 'store' => 'name', 'combineOrder' => 2, 'type' => 'string'],
-                ['key' => 'series_id', 'label' => 'Seri (nama atau ID)', 'store' => 'series_id', 'type' => 'lookup', 'lookup' => 'series', 'rules' => ['series_id' => ['nullable', 'integer', 'exists:product_series,id']]],
+                ['key' => 'series_id', 'label' => 'Seri (nama atau kode)', 'store' => 'series_id', 'type' => 'lookup', 'lookup' => 'series', 'rules' => ['series_id' => ['nullable', 'integer', 'exists:product_series,id']]],
                 ['key' => 'casting_code', 'label' => 'Kode Casting', 'store' => 'casting_code', 'type' => 'string', 'rules' => ['casting_code' => ['nullable', 'max:255']]],
                 ['key' => 'year', 'label' => 'Tahun', 'store' => 'year', 'type' => 'integer', 'rules' => ['year' => ['nullable', 'integer', 'between:1900,2100']]],
                 ['key' => 'color', 'label' => 'Warna', 'store' => 'color', 'type' => 'string', 'rules' => ['color' => ['nullable', 'max:191']]],

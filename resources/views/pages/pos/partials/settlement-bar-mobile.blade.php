@@ -57,7 +57,8 @@
                            inputmode="numeric"
                            class="h-9 w-full rounded-md border border-border-subtle bg-surface-lowest pl-7 pr-2 text-body-sm tabular-nums text-text-strong outline-none focus:border-primary focus:ring-[3px] focus:ring-primary/15"
                            placeholder="Uang diterima"
-                           x-model="tender"
+                           x-money-model="tender"
+                           data-allow-focus
                            @keyup.enter="pay()">
                 </div>
 
