@@ -13,6 +13,15 @@
 
 import { rupiah } from "../format";
 
+/**
+ * Jeda sebelum daftar benar-benar dikirim ke server, dalam milidetik.
+ *
+ * Mengetik qty beberapa baris berturut-turut tidak perlu menulis satu
+ * permintaan per ketukan; yang penting keadaan terakhir, dan itulah yang
+ * dikirim setelah ketukan terakhir.
+ */
+const AUTOSAVE_DELAY_MS = 400;
+
 export function stockInPribadiForm(options = {}) {
     const lookupUrl = options.lookupUrl ?? "";
     const racks = Array.isArray(options.racks) ? options.racks : [];
@@ -21,6 +30,10 @@ export function stockInPribadiForm(options = {}) {
     const initialItems = Array.isArray(options.initialItems)
         ? options.initialItems
         : [];
+    // False kalau server baru saja mengembalikan form karena validasi gagal.
+    // `old()` di situ sudah berisi apa yang harus benar, dan draft di server
+    // bisa saja lebih lama -- menimpanya berarti membatalkan perbaikan Owner.
+    const restorable = options.restorable !== false;
 
     return {
         items: [],
@@ -32,11 +45,75 @@ export function stockInPribadiForm(options = {}) {
         cardConditions,
         blisterConditions,
         initialItems,
+        restorable,
         highlightedIndex: -1,
         highlightTimeout: null,
 
-        init() {
-            this.items = initialItems.map((item) => ({
+        // --- Draft ---
+        submitting: false,
+        draftExists: false,
+        saveTimer: null,
+        // Isi draft terakhir yang dikonfirmasi server, sebagai JSON. Dipakai
+        // supaya memulihkan draft tidak langsung menulisnya kembali, dan supaya
+        // mengosongkan daftar yang memang tidak punya draft tidak membuang-buang
+        // satu permintaan DELETE.
+        lastSaved: null,
+        // Menunggu pemulihan draft selesai sebelum menulis: menulis lebih dulu
+        // bisa menimpa draft di server dengan daftar yang masih kosong.
+        draftPromise: Promise.resolve(),
+
+        /**
+         * Endpoint draft, dibaca dari `data-*` seperti `lookupUrl`.
+         *
+         * File ini tidak bisa melihat route, jadi URL yang tertanam di markup
+         * adalah satu-satunya sumber kebenarannya -- dan test bisa memberikannya
+         * tanpa memalsukan lokasi. String kosong berarti "halaman ini tidak
+         * memakai draft", sehingga tidak satu pun permintaan dikirim.
+         */
+        get draftLoadUrl() {
+            return this.$root?.dataset?.draftLoad ?? "";
+        },
+
+        get draftSaveUrl() {
+            return this.$root?.dataset?.draftSave ?? "";
+        },
+
+        get draftCancelUrl() {
+            return this.$root?.dataset?.draftCancel ?? "";
+        },
+
+        async init() {
+            this.items = initialItems.map((item) =>
+                this.hydrateDraftItem(item),
+            );
+
+            this.scanCode = "";
+            this.scanError = "";
+            this.highlightedIndex = -1;
+
+            this.$nextTick(() => {
+                this.$refs?.scanInput?.focus?.();
+            });
+
+            this.draftPromise = this.restorable
+                ? this.loadDraft()
+                : Promise.resolve();
+
+            await this.draftPromise;
+        },
+
+        /**
+         * Satu baris tersimpan menjadi satu baris daftar.
+         *
+         * Dipakai untuk `old()` dan untuk draft, supaya keduanya melewati
+         * jalur penyebaran yang sama -- kalau berbeda, daftar hasil pemulihan
+         * bisa berbeda bentuk dengan daftar yang baru saja dikirim.
+         *
+         * @param {object} item
+         * @returns {object}
+         */
+        hydrateDraftItem(item) {
+            return {
                 id: item.id ?? this.generateId(),
                 product_id: item.product_id,
                 casting_code: item.casting_code ?? "",
@@ -47,15 +124,231 @@ export function stockInPribadiForm(options = {}) {
                 card_condition: item.card_condition ?? "MINT",
                 blister_condition: item.blister_condition ?? "CLEAR",
                 rack_id: item.rack_id ?? "",
+            };
+        },
+
+        /**
+         * Daftar draft dari server, kalau ada.
+         *
+         * Dipanggil sekali saat komponen hidup, dan isinya langsung dipasang --
+         * tidak ditawarkan lagi lewat dialog. Pemulihan diam-diam seperti ini
+         * membuat muat ulang terasa tidak menghapus pekerjaan; Owner yang
+         * memang ingin mulai dari kosong tinggal menghapus barisnya, dan daftar
+         * yang kosong tidak akan ditawarkan lagi.
+         */
+        async loadDraft() {
+            if (this.draftLoadUrl === "" || this.items.length > 0) {
+                return;
+            }
+
+            try {
+                const res = await fetch(this.draftLoadUrl, {
+                    headers: {
+                        Accept: "application/json",
+                        "X-CSRF-TOKEN": this.csrf(),
+                    },
+                });
+
+                const data = await res.json();
+
+                if (
+                    !data?.has_draft ||
+                    !Array.isArray(data.draft?.items) ||
+                    data.draft.items.length === 0
+                ) {
+                    return;
+                }
+
+                // Pengguna bisa saja sudah menambahkan produk selagi menunggu.
+                // Yang di tangan lebih baru daripada yang di server.
+                if (this.items.length > 0) {
+                    return;
+                }
+
+                this.items = data.draft.items.map((item) =>
+                    this.hydrateDraftItem(item),
+                );
+                this.draftExists = true;
+                this.lastSaved = JSON.stringify(this.draftItems());
+            } catch {
+                // Draft adalah kenyamanan, bukan transaksi: jaringan putus atau
+                // sesi lewat berarti "tidak ada draft", bukan halaman rusak.
+            }
+        },
+
+        /**
+         * Daftar dalam bentuk yang dikirim ke server.
+         *
+         * @returns {object[]}
+         */
+        draftItems() {
+            return this.items.map((item) => ({
+                id: item.id,
+                product_id: item.product_id,
+                casting_code: item.casting_code,
+                name: item.name,
+                series_code: item.series_code,
+                qty: item.qty,
+                cost_price: item.cost_price,
+                card_condition: item.card_condition,
+                blister_condition: item.blister_condition,
+                rack_id: item.rack_id,
             }));
+        },
 
-            this.scanCode = "";
-            this.scanError = "";
-            this.highlightedIndex = -1;
+        /**
+         * Jadwalkan penyimpanan setelah Owner berhenti mengetik.
+         *
+         * Dipanggil dari `x-effect` pada kartu Daftar Produk, jadi tidak ada
+         * satu pun field form yang perlu mengingat bahwa ia perlu disimpan.
+         * Membaca `items` dari dalam effect itulah yang mendaftarkan
+         * dependensinya -- tanpa itu effect tidak akan pernah berjalan lagi
+         * setelah sekali di awal.
+         */
+        scheduleSave() {
+            if (this.submitting) {
+                return;
+            }
 
-            this.$nextTick(() => {
-                this.$refs?.scanInput?.focus?.();
-            });
+            const payload = this.draftItems();
+            const fingerprint = JSON.stringify(payload);
+
+            if (fingerprint === this.lastSaved) {
+                return;
+            }
+
+            // Daftar kosong yang tidak pernah tersimpan bukan draft yang perlu
+            // dibuang: setiap halaman kosong akan mengirim DELETE tanpa guna.
+            if (payload.length === 0 && !this.draftExists) {
+                return;
+            }
+
+            if (this.saveTimer !== null) {
+                clearTimeout(this.saveTimer);
+            }
+
+            this.saveTimer = setTimeout(
+                () => this.flushSave(payload),
+                AUTOSAVE_DELAY_MS,
+            );
+        },
+
+        /**
+         * Kirim daftar sekarang, atau buang draftnya bila daftarnya kosong.
+         *
+         * @param {object[] | null} payload sudah dihitung pemanggil, supaya
+         *   penyimpanan yang dijadwalkan dan penyimpanan saat submit tidak
+         *   menghitung dua kali.
+         */
+        async flushSave(payload = null) {
+            if (this.saveTimer !== null) {
+                clearTimeout(this.saveTimer);
+                this.saveTimer = null;
+            }
+
+            await this.draftPromise;
+
+            const body = payload ?? this.draftItems();
+            const fingerprint = JSON.stringify(body);
+
+            if (fingerprint === this.lastSaved) {
+                return;
+            }
+
+            if (body.length === 0) {
+                this.lastSaved = fingerprint;
+
+                if (this.draftExists) {
+                    await this.cancelDraft();
+                    this.draftExists = false;
+                }
+
+                return;
+            }
+
+            if (this.draftSaveUrl === "") {
+                return;
+            }
+
+            try {
+                const res = await fetch(this.draftSaveUrl, {
+                    method: "POST",
+                    headers: {
+                        Accept: "application/json",
+                        "Content-Type": "application/json",
+                        "X-CSRF-TOKEN": this.csrf(),
+                    },
+                    body: JSON.stringify({ items: body }),
+                });
+
+                if (!res.ok) {
+                    return;
+                }
+
+                // Ditandai hanya bila server benar-benar menerima: bila tidak,
+                // perubahan berikutnya harus mencoba lagi, bukan menganggap
+                // keadaan terakhir sudah tersimpan.
+                this.lastSaved = fingerprint;
+                this.draftExists = true;
+            } catch {
+                // Draft adalah kenyamanan, bukan transaksi. Kegagalan
+                // menyimpannya tidak boleh menghalangi pengisian form, dan
+                // perubahan berikutnya akan menulis keadaan yang lebih baru.
+            }
+        },
+
+        /**
+         * Buang draft daftar produk yang sedang berjalan.
+         */
+        async cancelDraft() {
+            if (this.draftCancelUrl === "") {
+                return;
+            }
+
+            try {
+                await fetch(this.draftCancelUrl, {
+                    method: "DELETE",
+                    headers: {
+                        Accept: "application/json",
+                        "X-CSRF-TOKEN": this.csrf(),
+                    },
+                });
+            } catch {
+                // Pembersihan draft; gagal pun tidak menghentikan apa pun.
+            }
+        },
+
+        /**
+         * Kirim draft lebih dulu, baru kirim formnya.
+         *
+         * `HTMLFormElement.submit()` tidak memancarkan event `submit`, jadi
+         * tidak akan terpicu dua kali, dan validasi browser sudah selesai
+         * sebelum handler ini berjalan. Yang dikejar di sini adalah urutannya:
+         * tanpa `await`, draft yang mengandung baris yang sama bisa mendarat di
+         * server setelah commit -- dan commit membatalkan draft, sehingga
+         * draft yang telat itu akan memunculkan kembali daftar yang sudah jadi
+         * stok.
+         *
+         * @param {SubmitEvent} event
+         */
+        async onSubmit(event) {
+            if (this.submitting) {
+                return;
+            }
+
+            this.submitting = true;
+
+            try {
+                await this.flushSave();
+            } finally {
+                event.target.submit();
+            }
+        },
+
+        csrf() {
+            return (
+                document.querySelector('meta[name="csrf-token"]')?.content ?? ""
+            );
         },
 
         generateId() {
@@ -142,10 +435,7 @@ export function stockInPribadiForm(options = {}) {
                     method: "POST",
                     headers: {
                         Accept: "application/json",
-                        "X-CSRF-TOKEN":
-                            document
-                                .querySelector('meta[name="csrf-token"]')
-                                ?.content ?? "",
+                        "X-CSRF-TOKEN": this.csrf(),
                     },
                     body: new URLSearchParams({ barcode }),
                 });
@@ -283,11 +573,89 @@ export function stockInPribadiForm(options = {}) {
             }, 1500);
         },
 
-        remove(index) {
-            this.items.splice(index, 1);
-            if (this.highlightedIndex === index) {
+        /**
+         * Menghapus satu baris setelah pengguna menyetujuinya.
+         *
+         * Ikon hapus bersebelahan dengan seluruh isian baris, jadi salah klik
+         * berarti kehilangan qty, HPP, dan kondisi yang barusan diisi. Dialog
+         * datang lebih dulu dan barisnya baru hilang setelah "Hapus" ditekan.
+         *
+         * Parameternya `id`, bukan index: menunggu dialog membuat indeks yang
+         * dihitung di awal bisa saja menunjuk baris lain ketika jawaban tiba.
+         * Posisinya dicari ulang lewat id setelah konfirmasi, dan id yang tidak
+         * ditemukan berarti barisnya sudah tidak ada -- bukan baris ke-n yang
+         * harus ikut hilang.
+         *
+         * @param {string} id
+         * @returns {Promise<boolean>} true bila baris benar-benar dihapus
+         */
+        async remove(id) {
+            const index = this.items.findIndex((item) => item.id === id);
+
+            if (index === -1) {
+                return false;
+            }
+
+            const item = this.items[index];
+
+            if (!(await this.confirmRemove(item))) {
+                return false;
+            }
+
+            const current = this.items.findIndex((entry) => entry.id === id);
+
+            if (current === -1) {
+                return false;
+            }
+
+            this.items.splice(current, 1);
+
+            if (this.highlightedIndex === current) {
                 this.highlightedIndex = -1;
             }
+
+            return true;
+        },
+
+        /**
+         * Konfirmasi penghapusan satu baris.
+         *
+         * `notify.dangerConfirm` adalah jalur yang sama dengan tombol hapus di
+         * tabel lain (`row-confirm`), dan `danger` di dalamnya bukan hiasan:
+         * fokus mendarat di "Batal", sementara backdrop, Escape, dan tombol X
+         * dimatikan -- kelimanya berarti "hapus" kalau dibiarkan hidup.
+         *
+         * Tanpa helper konfirmasi jawabannya `false`, bukan `true`. Halaman
+         * yang tidak bisa menawarkan pertanyaan tidak boleh menghapus diam-diam
+         * juga, karena itu persis kecelakaan yang diminta dialog ini cegah.
+         *
+         * Nominalnya ikut disebut seperti baris kasir: tanpa qty dan HPP yang
+         * lenyap, alasan menekan "Batal" tidak ada. HPP boleh masih kosong --
+         * form ini bisa diisi Operator -- jadi bagian nominalnya dilepas,
+         * bukan dipaksakan menjadi `Rp0`.
+         *
+         * @param {object} item
+         * @returns {Promise<boolean>}
+         */
+        async confirmRemove(item) {
+            const notify = window.notify;
+
+            if (typeof notify?.dangerConfirm !== "function") {
+                return false;
+            }
+
+            const hpp = Number(item.cost_price || 0);
+            const description =
+                hpp > 0
+                    ? `${item.name} — ${item.qty} × ${rupiah(hpp)} = ${rupiah(hpp * item.qty)}`
+                    : `${item.name} — Qty ${item.qty}`;
+
+            return notify.dangerConfirm({
+                title: "Hapus dari daftar?",
+                description,
+                confirmText: "Hapus",
+                cancelText: "Batal",
+            });
         },
 
         getConditionOptions(conditions) {

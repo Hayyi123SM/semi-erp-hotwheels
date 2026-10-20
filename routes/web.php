@@ -93,7 +93,26 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
 
     // ===== 2. Inbound =====
     Route::get('/inbound/stock-in-pribadi', [InboundController::class, 'stockInPribadi'])->name('inbound.stock-in-pribadi');
+    Route::get('/inbound/stock-in-pribadi/impor', [InboundController::class, 'importStockInPribadi'])->name('inbound.stock-in-pribadi.impor');
     Route::post('/inbound/stock-in-pribadi', [InboundController::class, 'stockInPribadiStore'])->name('inbound.stock-in-pribadi.store');
+
+    /*
+     * Draft daftar produk Stock In Pribadi.
+     *
+     * Pola yang sama dengan draft kasir: `GET` membaca, `POST` menulis,
+     * `DELETE` membuang -- ketiganya halaman yang sama, dibedakan oleh method
+     * karena tidak ada satu pun di antaranya yang layak dibookmark. Berbeda
+     * dengan draft consignment, tidak ada id dokumen di URL: daftar ini cuma
+     * satu per (pengguna, perangkat), jadi identitasnya sudah dibawa oleh
+     * session dan cookie device, bukan oleh parameter.
+     *
+     * Ikut grup ini, bukan grup auth saja: halaman simpannya sudah Owner-only
+     * lewat middleware `owner`, dan draft yang bisa disimpan tanpa halamannya
+     * berarti Staff bisa menulis baris yang tidak pernah bisa dilihat siapa pun.
+     */
+    Route::get('/inbound/stock-in-pribadi/draft', [InboundController::class, 'stockInPribadiDraftLoad'])->name('inbound.stock-in-pribadi.draft.load');
+    Route::post('/inbound/stock-in-pribadi/draft', [InboundController::class, 'stockInPribadiDraftSave'])->name('inbound.stock-in-pribadi.draft.save');
+    Route::delete('/inbound/stock-in-pribadi/draft', [InboundController::class, 'stockInPribadiDraftCancel'])->name('inbound.stock-in-pribadi.draft.cancel');
     /*
      * Pencarian produk untuk popup Stock In Pribadi.
      *
@@ -110,6 +129,7 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
         ->middleware('throttle:120,1')
         ->name('inbound.produk.cari');
     Route::get('/inbound/consignment-in', [InboundController::class, 'consignmentIn'])->name('inbound.consignment-in');
+    Route::get('/inbound/consignment-in/impor', [InboundController::class, 'importConsignmentIn'])->name('inbound.consignment-in.impor');
     Route::post('/inbound/consignment-in', [InboundController::class, 'consignmentStore'])->name('inbound.consignment-in.store');
     Route::post('/inbound/consignment-in/drafts', [InboundController::class, 'draftStore'])->name('inbound.consignment-in.drafts.store');
     Route::get('/inbound/consignment-in/drafts/{draftId}', [InboundController::class, 'draftShow'])->name('inbound.consignment-in.drafts.show');

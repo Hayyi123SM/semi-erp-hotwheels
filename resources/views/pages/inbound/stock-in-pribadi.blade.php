@@ -3,6 +3,9 @@
     subtitle="Terima stok milik toko (OW00). Harga modal (HPP) hanya diisi Owner dan hanya Commit oleh Owner."
     :crumbs="['Inbound', 'Stock In Pribadi']"
 >
+    <x-slot:actions>
+        <a href="{{ route('inbound.stock-in-pribadi.impor') }}" class="btn-secondary">Impor Excel</a>
+    </x-slot:actions>
 </x-ui.page-header>
 
 <div
@@ -12,13 +15,17 @@
         cardConditions: @js($card_conditions),
         blisterConditions: @js($blister_conditions),
         initialItems: @js($initialItems),
+        restorable: {{ $errors->isEmpty() ? 'true' : 'false' }},
     })"
+    data-draft-load="{{ route('inbound.stock-in-pribadi.draft.load') }}"
+    data-draft-save="{{ route('inbound.stock-in-pribadi.draft.save') }}"
+    data-draft-cancel="{{ route('inbound.stock-in-pribadi.draft.cancel') }}"
     class="space-y-6"
     @keydown.esc.window="if(pickerOpen) closePicker()"
     @stock-in-pribadi:add-product.window="onProductPicked($event)"
     x-effect="document.body.style.overflow = pickerOpen ? 'hidden' : ''"
 >
-    <form method="POST" action="{{ route('inbound.stock-in-pribadi.store') }}" class="space-y-6">
+    <form method="POST" action="{{ route('inbound.stock-in-pribadi.store') }}" class="space-y-6" @submit.prevent="onSubmit($event)">
         @csrf
 
         @if ($errors->any())
@@ -63,7 +70,11 @@
         </x-ui.section-card>
 
         <!-- Tier 2: Daftar Produk -->
-        <x-ui.section-card pad="false">
+        {{-- `scheduleSave()` dipanggil Alpine tiap ada yang berubah di daftar ini:
+             membaca `items` dari dalam effect itulah yang mendaftarkan dependensinya,
+             jadi menambah, menghapus, dan mengubah qty/HPP semuanya tersimpan
+             tanpa satu pun field perlu tahu bahwa ia layak disimpan. --}}
+        <x-ui.section-card pad="false" x-effect="scheduleSave()">
             <div class="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h3 class="text-title-sm font-semibold">Daftar Produk</h3>
                 <button type="button" class="btn-secondary" @click="openPicker()">
@@ -103,7 +114,7 @@
                             </div>
                             <button
                                 type="button"
-                                @click="remove(idx)"
+                                @click="remove(item.id)"
                                 class="btn-ghost shrink-0 text-error-text"
                                 :title="`Hapus ${item.name} dari daftar`"
                                 aria-label="Hapus baris"
@@ -132,12 +143,17 @@
                                 <label class="text-label-sm text-text-muted">HPP / Unit</label>
                                 <div class="mt-1 flex">
                                     <span class="inline-flex items-center rounded-l-lg border border-r-0 border-border-subtle bg-canvas px-3 text-text-muted">Rp</span>
+                                    {{-- Bentuk tersembunyi membawa `name` supaya yang dikirim server adalah
+                                         angka polos. Input yang terlihat sengaja tanpa `name`: ia memakai
+                                         mask `x-money-model` yang membuat cermin sendiri bila ada `name`,
+                                         dan cermin itu tidak ikut terikat ulang saat `idx` bergeser --
+                                         akibatnya satu baris bisa terkirim dua kali dengan `name` basi. --}}
+                                    <input type="hidden" :name="`items[${idx}][cost_price]`" :value="item.cost_price">
                                     <input
-                                        type="number"
-                                        :name="`items[${idx}][cost_price]`"
-                                        x-model.number="item.cost_price"
-                                        min="0"
-                                        step="1000"
+                                        type="text"
+                                        inputmode="numeric"
+                                        autocomplete="off"
+                                        x-money-model="item.cost_price"
                                         required
                                         placeholder="0"
                                         class="input-base rounded-l-none text-right tabular-nums"
@@ -202,10 +218,10 @@
                     Saya telah memverifikasi fisik unit sesuai daftar (<b class="tabular-nums" x-text="totalQty()"></b>&nbsp;unit)
                 </label>
                 <div class="flex flex-wrap items-center gap-3">
-                    <button type="submit" class="btn-primary" :disabled="items.length === 0">
-                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
-                        Simpan &amp; Buat Label
-                    </button>
+                <button type="submit" class="btn-primary" :disabled="submitting || items.length === 0">
+                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+                    <span x-text="submitting ? 'Menyimpan…' : 'Simpan &amp; Buat Label'"></span>
+                </button>
                 </div>
             </div>
         </div>

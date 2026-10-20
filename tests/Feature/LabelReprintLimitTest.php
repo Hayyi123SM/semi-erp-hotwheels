@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Enums\LabelReason;
+use App\Http\Middleware\EnsureFeatureVisible;
 use App\Http\Middleware\OwnerOnly;
 use App\Models\AuditLog;
 use App\Models\LabelPrintJob;
@@ -545,6 +546,11 @@ class LabelReprintLimitTest extends TestCase
 
     private function searchPage(StockLot $lot): string
     {
+        // Halaman ini Owner-only dan disembunyikan dari Staff di produksi.
+        // Kedua gerbang itu dilewati di sini supaya logika batas/PIN dan
+        // tampilan "sisa"-nya tetap teruji dari sisi Staff.
+        $this->withoutMiddleware([OwnerOnly::class, EnsureFeatureVisible::class]);
+
         $html = $this->actingAs($this->staff)
             ->get(route('inbound.cetak-label', ['q' => $lot->sku]))
             ->assertOk()

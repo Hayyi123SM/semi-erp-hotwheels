@@ -37,7 +37,7 @@ class AuthenticationTest extends TestCase
         $this->post('/login', [
             'username' => $user->username,
             'password' => 'password',
-        ])->assertRedirect(route('dashboard', absolute: false));
+        ])->assertRedirect(route('owner.dashboard', absolute: false));
     }
 
     public function test_users_cannot_authenticate_with_invalid_password(): void

@@ -44,7 +44,7 @@ class UserHeaderIdentityTest extends TestCase
     public function the_owner_sees_the_owner_role_label(): void
     {
         $html = $this->actingAs(User::factory()->owner()->create(['name' => 'Budi Santoso']))
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 

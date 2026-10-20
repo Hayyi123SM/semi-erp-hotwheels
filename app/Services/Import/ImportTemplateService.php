@@ -54,6 +54,18 @@ class ImportTemplateService
         'tags' => 'hotwheels;retro',
         'status' => 'ACTIVE',
 
+        // Modul Inbound: barisnya merujuk produk yang sudah ada, bukan membuat
+        // produk baru, jadi contohnya harus berbentuk nama/ kode yang memang
+        // bisa dicocokkan oleh lookup.
+        'series_name' => 'HW',
+        'product_id' => 'Nama Produk yang sudah ada',
+        'consignor_id' => 'CN01',
+        'rack_id' => 'A-01-01',
+        'qty' => '1',
+        'cost_price' => '275000',
+        'list_price' => '500000',
+        'consignment_date' => '2026-01-15',
+
         'wa_number' => '6281234567890',
         'address' => 'Alamat contoh',
         'agreement_date' => '2026-01-15',
@@ -264,8 +276,22 @@ class ImportTemplateService
         }
 
         if ($item['type'] === 'lookup') {
-            if (($item['lookup'] ?? null) === 'series') {
+            $lookup = (string) ($item['lookup'] ?? '');
+
+            if ($lookup === 'series') {
                 return 'Nama atau Kode Seri yang sudah terdaftar (huruf besar/kecil tidak berpengaruh). Bisa juga menggunakan nama tanpa spasi/tanda hubung (akan dicocokkan secara otomatis).';
+            }
+
+            if ($lookup === 'product') {
+                return 'Nama Produk yang sudah terdaftar di Katalog. Cocokkan dengan kolom Kode Casting bila nama sama untuk lebih dari satu produk.';
+            }
+
+            if ($lookup === 'rack') {
+                return 'Kode Rak yang sudah terdaftar (huruf besar/kecil tidak berpengaruh). Kosongkan bila barang belum dirapatkan ke rak.';
+            }
+
+            if ($lookup === 'consignor') {
+                return 'Kode Penitip (mis. CN01) atau nama Penitip yang sudah terdaftar.';
             }
 
             return 'Nama yang sudah terdaftar di Master Data (huruf besar/kecil tidak berpengaruh)';

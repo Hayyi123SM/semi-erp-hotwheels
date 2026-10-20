@@ -2,19 +2,9 @@
 @use('App\Support\ImportSteps')
 
 @php
-    $moduleRoute = [
-        'penitip' => 'master.penitip',
-        'katalog' => 'master.katalog-produk',
-        'rak' => 'master.lokasi-rak',
-        'pengguna' => 'setting.pengguna',
-    ][$module];
-
-    $createRoute = [
-        'penitip' => 'master.penitip.create',
-        'katalog' => 'master.katalog-produk.create',
-        'rak' => 'master.lokasi-rak.create',
-        'pengguna' => 'setting.pengguna.create',
-    ][$module];
+    $crumbGroup = \App\Support\ImportSchemas::crumb($module);
+    $moduleRoute = \App\Support\ImportSchemas::moduleRoute($module);
+    $createRoute = \App\Support\ImportSchemas::createRoute($module);
 
     $failed = $result->failureCount();
     $ready = $result->successCount();
@@ -23,7 +13,7 @@
 <x-ui.page-header
     :title="$schema['title']"
     :subtitle="'Impor selesai. ' . $schema['subtitle']"
-    :crumbs="['Master Data', 'Impor Excel', 'Selesai']"
+    :crumbs="[$crumbGroup, 'Impor Excel', 'Selesai']"
 >
     <x-slot:actions>
         <a href="{{ route($moduleRoute) }}" class="btn-secondary">Lihat Daftar {{ $schema['title'] }}</a>

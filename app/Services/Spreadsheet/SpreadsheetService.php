@@ -3,6 +3,7 @@
 namespace App\Services\Spreadsheet;
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Reader\Csv as CsvReader;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 
@@ -12,6 +13,15 @@ class SpreadsheetService
     {
         $reader = IOFactory::createReaderForFile($path);
         $reader->setReadDataOnly(false);
+
+        // Berkas CSV kita ditulis dengan pemisah koma (lihat `ExportService`).
+        // Membiarkan pembaca menebak sendiri berbahaya: satu nama orang yang
+        // memuat spasi (mis. "Budi Santoso") cukup untuk membuatnya memilih
+        // spasi sebagai pemisah, dan seluruh barisnya bergeser tanpa error.
+        if ($reader instanceof CsvReader) {
+            $reader->setDelimiter(',');
+            $reader->setEnclosure('"');
+        }
 
         $filter = new class($maxRows) implements IReadFilter
         {

@@ -36,6 +36,7 @@ class PreviewImportRequest extends FormRequest
             'defaults.*' => ['nullable', 'string', 'max:255'],
             'options' => ['nullable', 'array'],
             'options.auto_create_series' => ['nullable', 'in:true,false,1,0,YA,TIDAK,ya,tidak'],
+            'options.auto_create_consignor' => ['nullable', 'in:true,false,1,0,YA,TIDAK,ya,tidak'],
         ];
     }
 }

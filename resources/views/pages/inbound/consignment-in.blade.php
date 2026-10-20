@@ -23,6 +23,7 @@
     :crumbs="['Inbound', 'Consignment In']"
 >
     <x-slot:actions>
+        <a href="{{ route('inbound.consignment-in.impor') }}" class="btn-secondary">Impor Excel</a>
         <a href="{{ route('inbound.consignment-in.riwayat') }}" class="btn-secondary">Riwayat</a>
     </x-slot:actions>
 </x-ui.page-header>

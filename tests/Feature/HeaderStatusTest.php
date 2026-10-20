@@ -27,7 +27,7 @@ class HeaderStatusTest extends TestCase
     public function the_store_identity_falls_back_to_the_seeded_defaults(): void
     {
         $html = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 
@@ -41,7 +41,7 @@ class HeaderStatusTest extends TestCase
         Setting::set('store.branch', 'Central Park');
 
         $html = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 
@@ -66,7 +66,7 @@ class HeaderStatusTest extends TestCase
             ->save();
 
         $html = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 
@@ -83,7 +83,7 @@ class HeaderStatusTest extends TestCase
         QuarantineCase::factory()->create(['status' => QuarantineStatus::Closed]);
 
         $html = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 
@@ -108,7 +108,7 @@ class HeaderStatusTest extends TestCase
     public function the_mock_header_numbers_are_gone(): void
     {
         $html = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 

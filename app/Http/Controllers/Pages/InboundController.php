@@ -21,6 +21,7 @@ use App\Http\Requests\Inbound\RenderLabelsRequest;
 use App\Http\Requests\Inbound\ReprintLabelsRequest;
 use App\Http\Requests\Inbound\RetryLabelsRequest;
 use App\Http\Requests\Inbound\SaveConsignmentDraftRequest;
+use App\Http\Requests\Inbound\SaveStockInPribadiDraftRequest;
 use App\Http\Requests\Inbound\StoreConsignmentInRequest;
 use App\Http\Requests\Inbound\StoreStockInPribadiRequest;
 use App\Models\AuditLog;
@@ -30,6 +31,7 @@ use App\Models\Consignor;
 use App\Models\LabelPrintJob;
 use App\Models\Product;
 use App\Models\Rack;
+use App\Models\StockInPribadiDraft;
 use App\Services\AuditLogger;
 use App\Services\Consignment\ReceiptPrinterSettings;
 use App\Services\Consignment\ReceiptSheet;
@@ -39,6 +41,7 @@ use App\Services\Inventory\InboundLine;
 use App\Services\Inventory\InboundService;
 use App\Services\Inventory\LabelPrintService;
 use App\Services\Inventory\ReprintLimitExceeded;
+use App\Services\Inventory\StockInPribadiDraftService;
 use App\Services\Inventory\StockLotSearch;
 use App\Services\Label\LabelContent;
 use App\Services\Label\LabelPage;
@@ -54,10 +57,14 @@ use App\Services\Print\PrintSettings;
 use App\Services\Print\Thermal\ReceiptRenderer;
 use App\Support\DataTable\Column;
 use App\Support\DataTable\DataTable;
+use App\Support\DeviceId;
 use App\Support\Enums;
 use App\Support\Format;
+use App\Support\ImportSchemas;
 use App\Support\WhatsappNumber;
+use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -81,6 +88,7 @@ class InboundController extends Controller
     public function __construct(
         private readonly InboundService $inbound,
         private readonly ConsignmentDraftService $drafts,
+        private readonly StockInPribadiDraftService $pribadiDrafts,
         private readonly LabelPrintService $labels,
         private readonly AuditLogger $audit,
         private readonly NotificationSender $notifications,
@@ -142,6 +150,42 @@ class InboundController extends Controller
         ], 'Stock In Pribadi');
     }
 
+    public function importStockInPribadi()
+    {
+        abort_unless(request()->user()?->isOwner(), 403, 'Hanya Owner yang dapat mengimpor Stock In Pribadi.');
+
+        return $this->importPage('stock_in_pribadi');
+    }
+
+    public function importConsignmentIn()
+    {
+        return $this->importPage('consignment_in');
+    }
+
+    /**
+     * Halaman unggah berkas impor untuk modul Inbound.
+     *
+     * Langkah berikutnya (pemetaan, validasi, konfirmasi) ditangani alur impor
+     * yang sama dengan impor Master Data; komponennya dibagikan lewat
+     * `pages.inbound.import` sehingga halaman ini hanya menyiapkan kerangka
+     * yang dibutuhkan tombol "Unggah & Deteksi Kolom".
+     *
+     * @return RedirectResponse|View
+     */
+    private function importPage(string $module)
+    {
+        $schema = ImportSchemas::for($module);
+
+        return $this->page('pages.inbound.import', [
+            'module' => $module,
+            'schema' => $schema,
+            'action' => route('master.import.upload', $module),
+            'templateUrl' => route('master.import.template', $module),
+            'listUrl' => route(ImportSchemas::moduleRoute($module)),
+            'crumbs' => [ImportSchemas::crumb($module), 'Impor Excel', $schema['title']],
+        ], $schema['title']);
+    }
+
     public function stockInPribadiStore(StoreStockInPribadiRequest $request)
     {
         abort_unless($request->user()->isOwner(), 403, 'Hanya Owner yang dapat commit Stock In Pribadi.');
@@ -163,10 +207,82 @@ class InboundController extends Controller
             'lots' => count($lots),
         ]);
 
+        // Daftar yang barusan jadi stok sudah tidak layak dipulihkan. Kalau
+        // draftnya dibiarkan ACTIVE, halaman berikutnya akan menawarkan
+        // kembali daftar yang sudah berubah menjadi barang diterima.
+        $this->pribadiDrafts->cancel(DeviceId::current());
+
         return redirect()->route('inbound.stock-in-pribadi')->with('toast', [
             'type' => 'success',
             'message' => "{$qty} unit stok pribadi diterima (".count($lots).' SKU, OW00).',
         ]);
+    }
+
+    /**
+     * Daftar produk draft yang sedang berjalan, sebagai JSON untuk Alpine.
+     *
+     * Balasan tanpa draft adalah balasan yang normal, bukan kesalahan: draft
+     * adalah kenyamanan, dan halaman yang terbuka tanpanya harus tetap bisa
+     * dipakai.
+     */
+    public function stockInPribadiDraftLoad(): JsonResponse
+    {
+        $draft = $this->pribadiDrafts->getActive(DeviceId::current());
+
+        if ($draft === null || $draft->items === [] || $draft->items === null) {
+            return response()->json([
+                'has_draft' => false,
+                'draft' => null,
+            ]);
+        }
+
+        return response()->json([
+            'has_draft' => true,
+            'draft' => $this->pribadiDraftPayload($draft),
+        ]);
+    }
+
+    /**
+     * Auto-save daftar produk.
+     *
+     * Daftar kosong diterjemahkan menjadi pembatalan oleh layanan, jadi
+     * `draft_id` bernilai `null` bila pengguna menghapus seluruh barisnya.
+     */
+    public function stockInPribadiDraftSave(SaveStockInPribadiDraftRequest $request): JsonResponse
+    {
+        $draft = $this->pribadiDrafts->save($request->validated('items') ?? [], DeviceId::current());
+
+        return response()->json([
+            'ok' => true,
+            'draft_id' => $draft?->id,
+            'draft' => $draft === null ? null : $this->pribadiDraftPayload($draft),
+        ]);
+    }
+
+    /**
+     * Buang draft daftar produk -- dipakai saat daftar dikosongkan.
+     */
+    public function stockInPribadiDraftCancel(): JsonResponse
+    {
+        $this->pribadiDrafts->cancel(DeviceId::current());
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Bentuk draft yang dibaca Alpine.
+     *
+     * `user_id` dan `expired_at` sengaja tidak dikirim: keduanya urusan server,
+     * dan klien tidak mengambil keputusan apa pun berdasarkannya.
+     *
+     * @return array{id: int, items: array<int, array<string, mixed>>}
+     */
+    private function pribadiDraftPayload(StockInPribadiDraft $draft): array
+    {
+        return [
+            'id' => $draft->id,
+            'items' => $draft->items ?? [],
+        ];
     }
 
     public function consignmentIn()

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Consignor;
 use App\Models\Product;
+use App\Models\ProductSeries;
 use App\Models\Rack;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -253,6 +254,116 @@ class ImportTest extends TestCase
         $this->assertSame(12.5, (float) Consignor::where('name', 'Siti Nurbaya')->firstOrFail()->scheme_rate);
     }
 
+    /**
+     * Centang "Buat Seri baru otomatis" membuat Seri dari kolom teks, bukan
+     * menuntut kolom berisi id.
+     *
+     * Kolom Seri pada skema adalah sebuah lookup: selnya berisi nama, bukan
+     * id. Tanpa jalur ini, nama yang belum pernah ada membuat barisnya gagal
+     * walau datanya benar. Yang dipin di sini juga bahwa satu nilai yang sama
+     * dipakai dua baris hanya menghasilkan satu Seri.
+     */
+    #[Test]
+    public function owner_can_auto_create_series_while_importing_the_catalog(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $file = UploadedFile::fake()->createWithContent(
+            'katalog.csv',
+            "kategori,nama,harga\nHot Wheels,Redline,100000\nHot Wheels,Blue Streak,120000\n",
+        );
+
+        $upload = $this->actingAs($owner)
+            ->post('/master/import/katalog/upload', ['import_file' => $file])
+            ->assertRedirect();
+
+        $this->previewThenCommit($owner, $this->urlFromResponse($upload), [
+            'header_row' => '0',
+            'map' => ['series_id' => 'A', 'name:p1' => 'B', 'default_list_price' => 'C'],
+            'defaults' => ['auto_create_series' => 'YA'],
+        ])->assertOk()->assertSee('Berhasil');
+
+        $this->assertDatabaseCount('product_series', 1);
+        $series = ProductSeries::where('name', 'Hot Wheels')->firstOrFail();
+
+        $this->assertSame(2, Product::count());
+        $this->assertSame($series->id, Product::where('name', 'Redline')->firstOrFail()->series_id);
+        $this->assertSame($series->id, Product::where('name', 'Blue Streak')->firstOrFail()->series_id);
+    }
+
+    /**
+     * Tanpa centang, nama Seri yang tidak dikenal tetap menggelar barisnya
+     * gagal -- pembuatan otomatis harus tetap keputusan sadar, bukan bawaan.
+     */
+    #[Test]
+    public function an_unknown_series_is_rejected_when_auto_create_is_not_checked(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $file = UploadedFile::fake()->createWithContent(
+            'katalog.csv',
+            "kategori,nama,harga\nHot Wheels,Redline,100000\n",
+        );
+
+        $upload = $this->actingAs($owner)
+            ->post('/master/import/katalog/upload', ['import_file' => $file])
+            ->assertRedirect();
+
+        $this->actingAs($owner)
+            ->post($this->urlFromResponse($upload).'/preview', [
+                'header_row' => '0',
+                'map' => ['series_id' => 'A', 'name:p1' => 'B', 'default_list_price' => 'C'],
+            ])
+            ->assertOk()
+            ->assertSee('tidak ditemukan')
+            ->assertSee('Tidak Ada yang Bisa Diimpor');
+
+        $this->assertDatabaseCount('product_series', 0);
+        $this->assertDatabaseCount('products', 0);
+    }
+
+    /**
+     * Impor katalog yang sama dua kali tidak boleh melipatgandakan produk.
+     *
+     * Katalog tidak punya kunci unik di database, jadi baris identik harus
+     * dikenali sebagai baris yang sama. Satu duplikat pun cukup untuk
+     * menjegal impor stok berikutnya: satu nama tumbuh jadi beberapa kandidat
+     * yang isinya sama persis dan tak lagi bisa dibedakan.
+     */
+    #[Test]
+    public function importing_the_same_catalog_row_twice_keeps_one_product(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $content = "nama,harga\nSkyline R34,200000\n";
+
+        $this->importCatalog($owner, $content);
+        $this->importCatalog($owner, $content);
+
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseHas('products', [
+            'name' => 'Skyline R34',
+            'default_list_price' => 200000,
+        ]);
+    }
+
+    /**
+     * Impor ulang membawa data terbaru, bukan salinan kedua: baris yang
+     * identitasnya sama ikut diperbarui. Isi yang diunggah menang atas isi
+     * yang tersimpan, dengan asumsi file terbaru memang paling benar.
+     */
+    #[Test]
+    public function reimporting_the_catalog_updates_the_existing_row(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $this->importCatalog($owner, "nama,harga\nSkyline R34,200000\n");
+        $this->importCatalog($owner, "nama,harga\nSkyline R34,250000\n");
+
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseHas('products', [
+            'name' => 'Skyline R34',
+            'default_list_price' => 250000,
+        ]);
+    }
+
     #[Test]
     public function import_cancel_clears_session(): void
     {
@@ -285,6 +396,27 @@ class ImportTest extends TestCase
         $rakUrl = preg_replace('#/penitip/#', '/rak/', $url);
 
         $this->actingAs($owner)->get($rakUrl)->assertNotFound();
+    }
+
+    /**
+     * Unggah satu file katalog, lalu jalankan validasi dan simpan sampai
+     * habis, memakai mapping kolom yang dipakai impor katalog.
+     */
+    private function importCatalog(User $owner, string $content): TestResponse
+    {
+        $upload = $this->actingAs($owner)
+            ->post('/master/import/katalog/upload', [
+                'import_file' => UploadedFile::fake()->createWithContent('katalog.csv', $content),
+            ])
+            ->assertRedirect();
+
+        return $this->previewThenCommit($owner, $this->urlFromResponse($upload), [
+            'header_row' => '0',
+            'map' => [
+                'name:p1' => 'A',
+                'default_list_price' => 'B',
+            ],
+        ])->assertOk();
     }
 
     /**

@@ -176,6 +176,36 @@ class SkuServiceTest extends TestCase
     }
 
     #[Test]
+    public function it_truncates_a_long_series_code_to_the_sku_category_segment(): void
+    {
+        // Kode seri dipakai juga sebagai nama tampilan ("REGULER"), sedangkan
+        // segmen kategori SKU hanya 3 huruf. Nilai mentahnya melebihi kolom
+        // `sku_sequences.category_code` yang pendek, jadi harus dipotong --
+        // kalau tidak, counter nomor urutnya berbicara tentang kategori yang
+        // berbeda dari SKU yang tercetak.
+        $series = ProductSeries::factory()->create(['code' => 'REGULER']);
+        $product = Product::factory()->for($series, 'series')->create();
+
+        $consignor = Consignor::factory()->create(['consignor_code' => 'CN09']);
+
+        $lots = app(StockLotService::class)->receiveMany([
+            ReceiveStock::forConsignment(
+                Consignment::factory()->for($consignor)->create(),
+                $consignor,
+                $product,
+                2,
+            ),
+        ]);
+
+        $this->assertSame('CN09-REG-001', $lots[0]->sku);
+
+        $this->assertSame(1, (int) SkuSequence::query()
+            ->where('owner_code', 'CN09')
+            ->where('category_code', 'REG')
+            ->value('last_seq'), 'Counter memakai segmen kategori yang sama dengan SKU.');
+    }
+
+    #[Test]
     public function it_falls_back_to_default_category_when_series_code_is_empty(): void
     {
         $series = ProductSeries::factory()->create(['code' => null]);

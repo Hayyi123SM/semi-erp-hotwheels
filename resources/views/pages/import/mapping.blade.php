@@ -1,20 +1,11 @@
+@use('App\Enums\Role')
 @use('App\Support\Format')
 @use('App\Support\ImportSteps')
 
 @php
-    $moduleRoute = [
-        'penitip' => 'master.penitip',
-        'katalog' => 'master.katalog-produk',
-        'rak' => 'master.lokasi-rak',
-        'pengguna' => 'setting.pengguna',
-    ][$module];
-
-    $createRoute = [
-        'penitip' => 'master.penitip.create',
-        'katalog' => 'master.katalog-produk.create',
-        'rak' => 'master.lokasi-rak.create',
-        'pengguna' => 'setting.pengguna.create',
-    ][$module];
+    $crumbGroup = \App\Support\ImportSchemas::crumb($module);
+    $moduleRoute = \App\Support\ImportSchemas::moduleRoute($module);
+    $createRoute = \App\Support\ImportSchemas::createRoute($module);
 
     $dataCount = max(0, count($rows) - $headerLine - 1);
     $previewCount = min(10, count($columns));
@@ -23,7 +14,7 @@
 <x-ui.page-header
     :title="$schema['title']"
     :subtitle="'Memetakan kolom berkas ke field sistem. ' . $schema['subtitle']"
-    :crumbs="['Master Data', 'Impor Excel', $schema['title']]"
+    :crumbs="[$crumbGroup, 'Impor Excel', $schema['title']]"
 >
     <x-slot:actions>
         <a href="{{ route($moduleRoute) }}" class="btn-secondary">Kembali ke Daftar</a>
@@ -48,18 +39,6 @@
         </div>
         <a href="{{ route($createRoute) }}" class="btn-ghost h-9 px-3">Ganti File</a>
     </div>
-
-    @if ($module === 'katalog')
-        <div class="mb-5 rounded-lg border border-border-subtle bg-canvas px-4 py-3">
-            <label class="flex items-start gap-3">
-                <input type="checkbox" name="defaults[auto_create_series]" value="YA" class="mt-1 h-4 w-4 rounded border-border-strong text-primary focus:ring-primary/30" @checked(old('defaults.auto_create_series') === 'YA')>
-                <span class="text-body-sm text-text-muted">
-                    <span class="font-medium text-text-strong">Buat Seri baru otomatis jika tidak ditemukan</span>
-                    <span class="block mt-0.5">Berdasarkan nilai kolom "Seri (nama atau kode)". Hanya berlaku untuk modul Katalog. Default tidak dicentang (perlu konfirmasi Owner).</span>
-                </span>
-            </label>
-        </div>
-    @endif
 
     <x-ui.section-card title="Tentukan Baris Header" class="mb-6">
         <div class="grid gap-5 lg:grid-cols-3">
@@ -128,6 +107,36 @@
     <form method="POST" action="{{ route('master.import.preview', [$module, $token]) }}" class="space-y-6">
         @csrf
         <input type="hidden" name="header_row" value="{{ $headerLine }}">
+
+        {{-- Checkbox ini harus berada di dalam form preview: nilainya ikut
+             terkirim bersama pemetaan kolom. Hanya Owner yang melihat dan
+             memakainya, karena pembuatan Seri baru dibatasi ke Owner. --}}
+        @if ($module === 'katalog' && auth()->user()?->role === Role::Owner)
+            <div class="rounded-lg border border-border-subtle bg-canvas px-4 py-3">
+                <label class="flex items-start gap-3">
+                    <input type="checkbox" name="defaults[auto_create_series]" value="YA" class="mt-1 h-4 w-4 rounded border-border-strong text-primary focus:ring-primary/30" @checked(old('defaults.auto_create_series') === 'YA')>
+                    <span class="text-body-sm text-text-muted">
+                        <span class="font-medium text-text-strong">Buat Seri baru otomatis jika tidak ditemukan</span>
+                        <span class="block mt-0.5">Berdasarkan nilai kolom "Seri (nama atau kode)". Hanya berlaku untuk modul Katalog. Default tidak dicentang (perlu konfirmasi Owner).</span>
+                    </span>
+                </label>
+            </div>
+        @endif
+
+        {{-- Penitip baru dibuat dengan default sistem (skema bagi hasil,
+             kebijakan diskon, dsb.), jadi checkbox ini perlu keputusan sadar
+             Owner. Nilai yang berbentuk kode (CNxx) tidak pernah dibuatkan. --}}
+        @if ($module === 'consignment_in' && auth()->user()?->role === Role::Owner)
+            <div class="rounded-lg border border-border-subtle bg-canvas px-4 py-3">
+                <label class="flex items-start gap-3">
+                    <input type="checkbox" name="options[auto_create_consignor]" value="YA" class="mt-1 h-4 w-4 rounded border-border-strong text-primary focus:ring-primary/30" @checked(old('options.auto_create_consignor') === 'YA')>
+                    <span class="text-body-sm text-text-muted">
+                        <span class="font-medium text-text-strong">Buat Penitip baru otomatis jika tidak ditemukan</span>
+                        <span class="block mt-0.5">Berdasarkan nilai kolom "Kode Penitip". Penitip baru memakai skema bawaan (bagi hasil, diskon, siklus setelmen) dan wajib dilengkapi belakangan di menu Penitip. Default tidak dicentang (perlu konfirmasi Owner).</span>
+                    </span>
+                </label>
+            </div>
+        @endif
 
         <x-ui.section-card title="Petakan Kolom">
             <p class="mb-4 text-body-sm text-text-muted">

@@ -171,6 +171,31 @@ class Format
         return $value === null || trim($value) === '' ? $empty : $value;
     }
 
+    /**
+     * Nomor baris pada dokumen asli, dirapatkan jadi satu rentang.
+     *
+     * Dipakai di mana pun beberapa baris spreadsheet perlu disebut sebagai
+     * satu kesatuan, mis. saat baris-baris digabung oleh sel merge Excel:
+     * `#2` untuk satu baris, `#2–#6` untuk rentangnya.
+     *
+     * @param  array<int, int>  $rows
+     */
+    public static function rowRange(array $rows): string
+    {
+        $rows = array_values(array_unique(array_map('intval', $rows)));
+        sort($rows);
+
+        if ($rows === []) {
+            return self::EMPTY;
+        }
+
+        if (count($rows) === 1) {
+            return '#'.$rows[0];
+        }
+
+        return '#'.$rows[0].'–#'.$rows[array_key_last($rows)];
+    }
+
     public static function statusLabel(BackedEnum|string|null $value): string
     {
         $raw = $value instanceof BackedEnum ? $value->value : $value;

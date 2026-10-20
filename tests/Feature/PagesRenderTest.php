@@ -32,8 +32,8 @@ class PagesRenderTest extends TestCase
      * Berkas `hot` itu milik `npm run dev`, dan bentuknya disengaja: kalau
      * ada, `@vite` menunjuk ke dev server; kalau tidak, ke `/build/assets/`.
      * Menebak `/build/assets/` membuat seluruh suite gagal di mesin yang
-     * sedang menjalankan dev server -- 23 halaman sekaligus, tanpa satu pun
-     * yang benar-benar rusak.
+     * sedang menjalankan dev server -- semua halaman sekaligus, tanpa satu
+     * pun yang benar-benar rusak.
      */
     private function assertAssetsAreReferenced(TestResponse $response): void
     {
@@ -109,6 +109,11 @@ class PagesRenderTest extends TestCase
         $response->assertSee('@mouseleave="$store.toast.resume(t.id)"', false);
     }
 
+    /**
+     * Halaman yang benar-benar ada di `routes/web.php`. Kunci memakai nama
+     * routenya, jadi kalau sebuah halaman berubah nama atau dihapus dari
+     * aplikasi, daftar ini ikut -- bukan tetap menembak 404 diam-diam.
+     */
     public static function appRoutes(): array
     {
         return [
@@ -118,6 +123,8 @@ class PagesRenderTest extends TestCase
             'inbound.stock-in-pribadi' => ['/inbound/stock-in-pribadi'],
             'inbound.consignment-in' => ['/inbound/consignment-in'],
             'inbound.consignment-in.riwayat' => ['/inbound/consignment-in/riwayat'],
+            'inbound.stock-in-pribadi.impor' => ['/inbound/stock-in-pribadi/impor'],
+            'inbound.consignment-in.impor' => ['/inbound/consignment-in/impor'],
             'inbound.cetak-label' => ['/inbound/cetak-label'],
             'inventory.live-stock' => ['/inventory/live-stock'],
             'inventory.karantina' => ['/inventory/karantina'],
@@ -127,13 +134,11 @@ class PagesRenderTest extends TestCase
             'pos.riwayat' => ['/pos/riwayat-transaksi'],
             'pos.shift-kasir' => ['/pos/shift-kasir'],
             'report.settlement' => ['/reports/consignor-settlement'],
-            'report.penjualan' => ['/reports/penjualan'],
-            'report.kinerja-penitip' => ['/reports/kinerja-penitip'],
-            'report.laporan-transaksi' => ['/reports/laporan-transaksi'],
-            'report.harian-pos' => ['/reports/harian-pos'],
-            'report.kartu-stok' => ['/reports/kartu-stok'],
-            'setting.perangkat' => ['/setting/perangkat'],
-            'setting.pengguna' => ['/setting/pengguna'],
+            'report.margin' => ['/reports/profit-margin'],
+            'report.laporan' => ['/reports/laporan-penjualan-stok'],
+            'report.audit-log' => ['/reports/audit-log'],
+            'setting.perangkat' => ['/settings/perangkat'],
+            'setting.pengguna' => ['/settings/pengguna-role'],
         ];
     }
 }

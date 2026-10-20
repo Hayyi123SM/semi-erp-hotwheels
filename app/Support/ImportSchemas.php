@@ -28,13 +28,86 @@ use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
  *  - type       : string | money | integer | date | boolean | tags | enum | lookup
  *  - enum       : kelas enum (saat type = enum)
  *  - lookup     : 'series' | 'consignor' (saat type = lookup)
+ *  - autoCreate : master yang boleh dibuat otomatis saat lookup gagal dan
+ *                 opsi auto-create dicentang ('consignor'). Modul Katalog
+ *                 memakai jalur Seri yang setara; penanda ini menyatakannya
+ *                 per item supaya resolver tidak perlu tahu nama modulnya.
  *  - rules      : rule validasi (kunci = store key)
+ *  - identity   : penanda kolom identitas produk pada modul Inbound, dipakai
+ *                 `InboundRowMerger` untuk mengenali baris lanjutan sel merge
  */
 class ImportSchemas
 {
     public static function all(): array
     {
+        return [...self::masterModules(), ...self::inboundModules()];
+    }
+
+    /**
+     * Modul Master Data: baris impor membuat satu record master data baru.
+     *
+     * @return list<string>
+     */
+    public static function masterModules(): array
+    {
         return ['penitip', 'katalog', 'rak', 'pengguna'];
+    }
+
+    /**
+     * Modul Inbound: baris impor bukan master data, melainkan baris penerimaan
+     * barang yang diteruskan ke draft atau dokumen consignment.
+     *
+     * @return list<string>
+     */
+    public static function inboundModules(): array
+    {
+        return ['stock_in_pribadi', 'consignment_in'];
+    }
+
+    public static function isInbound(string $module): bool
+    {
+        return in_array($module, self::inboundModules(), true);
+    }
+
+    /**
+     * Nama grup pada breadcrumb, supaya halaman impor Inbound tidak mengaku
+     * berada di bawah "Master Data".
+     */
+    public static function crumb(string $module): string
+    {
+        return self::isInbound($module) ? 'Inbound' : 'Master Data';
+    }
+
+    /**
+     * Halaman daftar modul -- tujuan "Kembali ke Daftar".
+     */
+    public static function moduleRoute(string $module): string
+    {
+        return match ($module) {
+            'penitip' => 'master.penitip',
+            'katalog' => 'master.katalog-produk',
+            'rak' => 'master.lokasi-rak',
+            'pengguna' => 'setting.pengguna',
+            'stock_in_pribadi' => 'inbound.stock-in-pribadi',
+            'consignment_in' => 'inbound.consignment-in',
+            default => throw new \InvalidArgumentException("Modul impor [$module] tidak dikenal."),
+        };
+    }
+
+    /**
+     * Halaman yang menampung area unggah -- tujuan "Ganti File"/"Impor File Lain".
+     */
+    public static function createRoute(string $module): string
+    {
+        return match ($module) {
+            'penitip' => 'master.penitip.create',
+            'katalog' => 'master.katalog-produk.create',
+            'rak' => 'master.lokasi-rak.create',
+            'pengguna' => 'setting.pengguna.create',
+            'stock_in_pribadi' => 'inbound.stock-in-pribadi.impor',
+            'consignment_in' => 'inbound.consignment-in.impor',
+            default => throw new \InvalidArgumentException("Modul impor [$module] tidak dikenal."),
+        };
     }
 
     public static function for(string $module): array
@@ -44,6 +117,8 @@ class ImportSchemas
             'katalog' => self::katalog(),
             'rak' => self::rak(),
             'pengguna' => self::pengguna(),
+            'stock_in_pribadi' => self::stockInPribadi(),
+            'consignment_in' => self::consignmentIn(),
             default => throw new \InvalidArgumentException("Modul impor [$module] tidak dikenal."),
         };
     }
@@ -142,6 +217,90 @@ class ImportSchemas
                 ['key' => 'pin', 'label' => 'PIN (6 digit, opsional)', 'store' => 'pin', 'type' => 'string', 'rules' => ['pin' => ['nullable', 'digits:6']]],
                 ['key' => 'password', 'label' => 'Password Awal', 'store' => 'password', 'type' => 'string', 'required' => true, 'rules' => ['password' => ['required', 'string', 'min:8']]],
             ],
+        ];
+    }
+
+    private static function stockInPribadi(): array
+    {
+        return [
+            'module' => 'stock_in_pribadi',
+            'title' => 'Import Stock In Pribadi',
+            'subtitle' => 'Baris diisi ke form Stock In Pribadi sebagai draft; commit tetap dilakukan Owner dari form.',
+            'items' => [
+                ...self::inboundProductItems(),
+                self::inboundQtyItem(),
+                ['key' => 'cost_price', 'label' => 'Harga (HPP)', 'store' => 'cost_price', 'type' => 'money', 'required' => true, 'rules' => ['cost_price' => ['required', 'integer', 'min:0']]],
+                ...self::inboundConditionItems(),
+                ['key' => 'rack_id', 'label' => 'Rak (kode)', 'store' => 'rack_id', 'type' => 'lookup', 'lookup' => 'rack', 'rules' => ['rack_id' => ['nullable', 'integer', 'exists:racks,id']]],
+            ],
+        ];
+    }
+
+    private static function consignmentIn(): array
+    {
+        return [
+            'module' => 'consignment_in',
+            'title' => 'Import Consignment In',
+            'subtitle' => 'Berkas boleh memuat banyak penitip sekaligus; tiap "Kode Penitip" menjadi satu dokumen.',
+            'items' => [
+                ...self::inboundProductItems(),
+                self::inboundQtyItem(),
+                ['key' => 'consignor_id', 'label' => 'Kode Penitip', 'store' => 'consignor_id', 'type' => 'lookup', 'lookup' => 'consignor', 'autoCreate' => 'consignor', 'required' => true, 'rules' => ['consignor_id' => ['required', 'integer', 'exists:consignors,id']]],
+                ['key' => 'list_price', 'label' => 'Harga Jual', 'store' => 'list_price', 'type' => 'money', 'rules' => ['list_price' => ['nullable', 'integer', 'min:0']]],
+                ['key' => 'consignment_date', 'label' => 'Tgl Masuk', 'store' => 'consignment_date', 'type' => 'date', 'default' => now()->toDateString(), 'rules' => ['consignment_date' => ['nullable', 'date', 'before_or_equal:today']]],
+                ...self::inboundConditionItems(),
+                ['key' => 'rack_id', 'label' => 'Rak (kode)', 'store' => 'rack_id', 'type' => 'lookup', 'lookup' => 'rack', 'rules' => ['rack_id' => ['nullable', 'integer', 'exists:racks,id']]],
+            ],
+        ];
+    }
+
+    /**
+     * Jumlah unit per baris. Berkas acuan tidak memuat kolom qty, jadi nilai
+     * bawaannya 1 dan kolomnya tetap bisa dipetakan bila berkas memilikinya.
+     *
+     * @return array<string, mixed>
+     */
+    private static function inboundQtyItem(): array
+    {
+        return ['key' => 'qty', 'label' => 'Jumlah (Qty)', 'store' => 'qty', 'type' => 'integer', 'default' => 1, 'rules' => ['qty' => ['required', 'integer', 'min:1']]];
+    }
+
+    /**
+     * Kolom identitas produk yang dipakai bersama oleh kedua modul Inbound.
+     *
+     * `product_id` adalah kolom nama produk: nilainya dicocokkan ke produk
+     * nyata di dalam `ImportManager`, dengan "Kategori / Seri", "Kode Casting",
+     * dan "Warna" sebagai penentu bila namanya tidak unik. Kode Casting boleh
+     * kosong di katalog, jadi warna ikut dijadikan penyempit -- dan bila dua
+     * kandidat ternyata isinya sama sekali identik, satu di antaranya dipakai
+     * dengan sebuah peringatan.
+     *
+     * Empat item di bawah bertanda `identity` karena merekalah yang
+     * menentukan sebuah baris menyebut produk mana. Berkas yang blok
+     * identitasnya di-merge di Excel menyisakan sel kosong pada baris
+     * lanjutannya, dan `InboundRowMerger` memakai penanda ini untuk
+     * mengenali baris lanjutan tersebut -- bukan menganggapnya baris rusak.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function inboundProductItems(): array
+    {
+        return [
+            ['key' => 'series_name', 'label' => 'Kategori / Seri', 'store' => 'series_name', 'type' => 'string', 'identity' => true],
+            ['key' => 'product_id', 'label' => 'Nama Produk', 'store' => 'product_id', 'type' => 'lookup', 'lookup' => 'product', 'required' => true, 'identity' => true, 'rules' => ['product_id' => ['required', 'integer', 'exists:products,id']]],
+            ['key' => 'casting_code', 'label' => 'Kode Casting', 'store' => 'casting_code', 'type' => 'string', 'identity' => true],
+            ['key' => 'color', 'label' => 'Warna', 'store' => 'color', 'type' => 'string', 'identity' => true],
+        ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function inboundConditionItems(): array
+    {
+        return [
+            ['key' => 'card_condition', 'label' => 'Kondisi Kardus', 'store' => 'card_condition', 'type' => 'enum', 'enum' => CardCondition::class, 'default' => 'MINT', 'rules' => ['card_condition' => ['in:'.implode(',', Enums::values(CardCondition::class))]]],
+            ['key' => 'blister_condition', 'label' => 'Kondisi Blister', 'store' => 'blister_condition', 'type' => 'enum', 'enum' => BlisterCondition::class, 'default' => 'CLEAR', 'rules' => ['blister_condition' => ['in:'.implode(',', Enums::values(BlisterCondition::class))]]],
         ];
     }
 }

@@ -237,15 +237,15 @@ final class ReceiveStock
 
     /**
      * Kategori SKU diturunkan dari kode seri produk, jatuh ke HW bila kosong.
+     *
+     * Normalisasinya diserahkan ke `SkuService` supaya kunci counter
+     * (`sku_sequences.category_code`) persis sama dengan segmen kategori yang
+     * tercetak di SKU. Kode seri kini berupa nama tampilan yang panjang
+     * (mis. "REGULER"), dan memakai nilainya mentah-mentah melebihi kolom
+     * counter yang pendek.
      */
     public function categoryCode(): string
     {
-        $code = $this->product->series?->code;
-
-        if ($code === null || trim($code) === '') {
-            return SkuService::DEFAULT_CATEGORY;
-        }
-
-        return strtoupper(trim($code));
+        return app(SkuService::class)->categoryCode($this->product->series?->code);
     }
 }

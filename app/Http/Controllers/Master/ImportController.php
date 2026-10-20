@@ -15,6 +15,7 @@ use App\Services\Import\HeaderMatcher;
 use App\Services\Import\ImportManager;
 use App\Services\Import\ImportResult;
 use App\Services\Import\ImportTemplateService;
+use App\Services\Import\InboundImportCommitter;
 use App\Services\Master\ConsignorCodeService;
 use App\Services\Spreadsheet\SpreadsheetService;
 use App\Support\ImportSchemas;
@@ -32,6 +33,7 @@ class ImportController extends Controller
         private readonly AuditLogger $audit,
         private readonly ImportTemplateService $templates,
         private readonly HeaderMatcher $matcher,
+        private readonly InboundImportCommitter $inboundCommit,
     ) {}
 
     /**
@@ -120,6 +122,9 @@ class ImportController extends Controller
         $payload = $this->payload($module, $token);
         $mapping = $request->validated();
 
+        $this->import->preCreateSeries($module, $payload, $mapping);
+        $this->import->preCreateConsignors($module, $payload, $mapping);
+
         $result = $this->import->buildResult($module, $payload, $mapping);
         $this->import->rememberMapping($token, $mapping);
 
@@ -144,7 +149,7 @@ class ImportController extends Controller
      * ulang pemeriksaan terhadap keadaan saat menulis membuat angka di
      * halaman hasil selalu benar tentang apa yang benar-benar tersimpan.
      */
-    public function commit(string $module, string $token)
+    public function commit(string $module, string $token, Request $request)
     {
         $this->ensureModule($module);
         $payload = $this->payload($module, $token);
@@ -158,16 +163,18 @@ class ImportController extends Controller
 
         $result = $this->import->buildResult($module, $payload, $mapping);
 
-        // Tidak ada satu pun baris yang tersimpan berarti tidak ada yang
-        // disetujui: halaman Validasi memang tidak pernah menampilkan tombol
-        // nya, jadi commit di sini hanya bisa datang dari permintaan yang dibuat
-        // langsung. Ditolak sebelum `destroy()`, supaya sesinya masih utuh dan
-        // orang bisa memperbaiki pemetaan kolomnya lalu mencoba lagi.
         abort_if(
             $result->successCount() === 0,
             422,
             'Tidak ada baris yang bisa disimpan dari berkas ini. Perbaiki pemetaan kolom atau datanya, lalu validasi lagi.'
         );
+
+        if (ImportSchemas::isInbound($module)) {
+            $redirect = $this->inboundCommit->commit($module, $result, $request->user(), $token);
+            $this->import->destroy($token);
+
+            return $redirect;
+        }
 
         $summary = $this->persistRows($module, $result);
 
@@ -208,12 +215,7 @@ class ImportController extends Controller
         $this->ensureModule($module);
         $this->import->destroy($token);
 
-        $moduleRoutes = [
-            'katalog' => 'master.katalog-produk.create',
-            'rak' => 'master.rak.create',
-            'consignor' => 'master.consignor.create',
-        ];
-        $target = $moduleRoutes[$module] ?? 'home';
+        $target = ImportSchemas::createRoute($module);
 
         return redirect()->route($target)->with('toast', [
             'type' => 'info',
@@ -249,15 +251,59 @@ class ImportController extends Controller
 
     private function createRow(string $module, array $data): void
     {
+        if ($module === 'katalog') {
+            $this->upsertProduct($data);
+
+            return;
+        }
+
         $model = match ($module) {
             'penitip' => $this->createConsignor($data),
-            'katalog' => Product::create($data),
             'rak' => Rack::create($this->normalizeRack($data)),
             'pengguna' => User::create($data),
             default => throw new \LogicException('Modul tidak didukung.'),
         };
 
         $this->audit->created($model);
+    }
+
+    /**
+     * Daftarkan produk baru, atau perbarui baris yang sudah ada kalau
+     * identitasnya sama.
+     *
+     * Katalog tidak punya kunci unik di database, jadi baris yang sudah
+     * terdaftar akan melipatgandakan produk begitu diimpor ulang. Satu
+     * duplikat pun cukup untuk menjegal impor stok berikutnya: satu nama
+     * menjadi beberapa kandidat yang isinya sama persis dan tidak lagi bisa
+     * dibedakan.
+     *
+     * Identitasnya adalah isi yang membedakan satu produk dari produk lain di
+     * katalog. Isi yang diunggah menang, karena mengimpor katalog berarti
+     * membawa data terbaru.
+     */
+    private function upsertProduct(array $data): Product
+    {
+        $existing = Product::query()
+            ->where('series_id', $data['series_id'] ?? null)
+            ->where('name', $data['name'] ?? null)
+            ->where('casting_code', $data['casting_code'] ?? null)
+            ->where('color', $data['color'] ?? null)
+            ->where('year', $data['year'] ?? null)
+            ->first();
+
+        if ($existing === null) {
+            $product = Product::create($data);
+
+            $this->audit->created($product);
+
+            return $product;
+        }
+
+        $before = $existing->getAttributes();
+        $existing->fill($data)->save();
+        $this->audit->updated($existing, $before);
+
+        return $existing;
     }
 
     private function createConsignor(array $data): Consignor

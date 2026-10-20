@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Enums\DiscountPolicy;
 use App\Enums\SchemeType;
+use App\Http\Middleware\EnsureFeatureVisible;
 use App\Http\Middleware\OwnerOnly;
 use App\Models\Consignment;
 use App\Models\Consignor;
@@ -379,7 +380,7 @@ class ConsignmentTermsTest extends TestCase
     public function a_rejected_commit_hands_the_token_back_so_it_is_not_asked_for_twice(): void
     {
         // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
-        $this->withoutMiddleware(OwnerOnly::class);
+        $this->withoutMiddleware([OwnerOnly::class, EnsureFeatureVisible::class]);
 
         // Server menolak commit ini karena satu sel, bukan karena tokennya. Halaman
         // dimuat ulang, jadi kalau token tidak ikut dikembalikan, kasir mengetik
@@ -421,7 +422,7 @@ class ConsignmentTermsTest extends TestCase
     public function a_refused_token_is_not_handed_back(): void
     {
         // rute ini Owner-only di produksi; tes ini menguji aturan bisnisnya
-        $this->withoutMiddleware(OwnerOnly::class);
+        $this->withoutMiddleware([OwnerOnly::class, EnsureFeatureVisible::class]);
 
         // Token yang ditolak harus dibuang, bukan disimpan. Memakainya lagi akan
         // membuat commit berikutnya ditolak dengan alasan yang sama, tanpa dialog

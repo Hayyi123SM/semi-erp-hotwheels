@@ -47,7 +47,7 @@ class NotificationCenterTest extends TestCase
         Opname::factory()->pendingApproval()->create();
 
         $ownerHtml = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 
@@ -73,7 +73,7 @@ class NotificationCenterTest extends TestCase
         LabelPrintJob::factory()->sent()->create();
 
         $html = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 
@@ -99,7 +99,7 @@ class NotificationCenterTest extends TestCase
         $label->update(['status' => LabelStatus::Confirmed, 'confirmed_at' => now()]);
 
         $html = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 
@@ -116,7 +116,7 @@ class NotificationCenterTest extends TestCase
         LabelPrintJob::factory()->sent()->create();
 
         $html = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 
@@ -131,7 +131,7 @@ class NotificationCenterTest extends TestCase
         $case->forceFill(['created_at' => now()->subDays(3)])->save();
 
         $html = $this->actingAs(User::factory()->owner()->create())
-            ->get(route('dashboard'))
+            ->get(route('owner.dashboard'))
             ->assertOk()
             ->content();
 

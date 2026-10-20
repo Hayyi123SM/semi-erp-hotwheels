@@ -5,6 +5,7 @@ namespace App\Services\Inventory;
 use App\Support\Sql\UniqueViolation;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 /**
  * Alokasi nomor urut SKU.
@@ -56,6 +57,11 @@ class SkuService
     public const string DEFAULT_CATEGORY = 'HW';
 
     /**
+     * Panjang segmen kategori pada SKU (2-3 huruf, sesuai regex SRS).
+     */
+    private const int CATEGORY_SEGMENT_LENGTH = 3;
+
+    /**
      * Digit minimal pada nomor urut; melebar otomatis menjadi 4 digit ke atas.
      */
     private const int MIN_SEQUENCE_DIGITS = 3;
@@ -105,11 +111,32 @@ class SkuService
     }
 
     /**
+     * Normalisasi kode seri menjadi segmen kategori SKU.
+     *
+     * Kode seri dipakai juga sebagai nama tampilan (mis. "REGULER",
+     * "AKSESORIS"), sedangkan segmen kategori pada SKU hanya 2-3 huruf
+     * (`format()` dan regex SRS). Memotongnya di satu tempat menjaga
+     * `sku_sequences.category_code` tetap sama dengan segmen yang benar-benar
+     * tercetak di SKU -- kalau tidak, counter nomor urut dan SKU akan
+     * berbicara tentang kategori yang berbeda.
+     */
+    public function categoryCode(?string $seriesCode): string
+    {
+        if ($seriesCode === null || trim($seriesCode) === '') {
+            return self::DEFAULT_CATEGORY;
+        }
+
+        return $this->segment($seriesCode, self::CATEGORY_SEGMENT_LENGTH);
+    }
+
+    /**
      * Rakit SKU dari komponen-komponennya.
      */
     public function format(string $ownerCode, string $categoryCode, int $sequence): string
     {
-        return $this->segment($ownerCode, 4).'-'.$this->segment($categoryCode, 3).'-'.$this->pad($sequence);
+        return $this->segment($ownerCode, 4)
+            .'-'.$this->segment($categoryCode, self::CATEGORY_SEGMENT_LENGTH)
+            .'-'.$this->pad($sequence);
     }
 
     /**
@@ -148,8 +175,10 @@ class SkuService
             if ($row === null) {
                 // insertOrIgnore diam-diam melewati baris yang tidak lolos
                 // validasi. Jangan sampai last_seq terbaca null lalu jadi nol.
-                throw new QueryException(
-                    null,
+                // `RuntimeException`, bukan `QueryException`: ini kegagalan
+                // asumsi kode, bukan galat SQL yang punya errorInfo untuk
+                // dibaca UniqueViolation.
+                throw new RuntimeException(
                     sprintf('Baris urut SKU untuk %s/%s tidak ditemukan.', $ownerCode, $categoryCode),
                 );
             }
