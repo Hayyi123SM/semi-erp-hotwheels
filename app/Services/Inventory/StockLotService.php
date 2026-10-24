@@ -36,6 +36,7 @@ class StockLotService
     public function __construct(
         private readonly SkuService $skus,
         private readonly LabelPrinterSettings $printer,
+        private readonly RackCapacityService $rackCapacity,
     ) {}
 
     /**
@@ -44,6 +45,8 @@ class StockLotService
     public function receive(ReceiveStock $request): StockLot
     {
         return DB::transaction(function () use ($request): StockLot {
+            $this->guardCapacity([$request]);
+
             $lot = $this->createLot($request);
 
             $this->recordMovement($lot, $request);
@@ -81,6 +84,8 @@ class StockLotService
         $consignment = $this->sharedConsignment($rows);
 
         return DB::transaction(function () use ($rows, $consignment): array {
+            $this->guardCapacity($rows);
+
             $lots = [];
 
             foreach ($rows as $request) {
@@ -97,6 +102,33 @@ class StockLotService
 
             return $lots;
         }, self::TX_ATTEMPTS);
+    }
+
+    /**
+     * Kumpulkan qty per rak lebih dulu, lalu periksa sekali per rak.
+     *
+     * Satu dokumen bisa berisi beberapa baris untuk rak yang sama; memeriksa
+     * baris satu per satu akan meloloskan penumpukan yang sebenarnya melebihi
+     * kapasitas.
+     *
+     * @param  list<ReceiveStock>  $rows
+     *
+     * @throws ValidationException
+     */
+    private function guardCapacity(array $rows): void
+    {
+        $incomingByRack = [];
+
+        foreach ($rows as $request) {
+            if ($request->rack === null || $request->qty < 1) {
+                continue;
+            }
+
+            $rackId = (int) $request->rack->getKey();
+            $incomingByRack[$rackId] = ($incomingByRack[$rackId] ?? 0) + $request->qty;
+        }
+
+        $this->rackCapacity->assertIncomingFits($incomingByRack);
     }
 
     private function createLot(ReceiveStock $request): StockLot

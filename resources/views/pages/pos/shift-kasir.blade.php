@@ -98,119 +98,167 @@
         </div>
 
         <div class="grid gap-5 lg:grid-cols-2">
-            <x-ui.section-card title="Tutup Shift">
-                <form method="POST" action="{{ route('pos.shift-kasir.close', $shift) }}"
-                      x-data="shiftCloseForm({
-                          endpoint: '{{ route('pos.shift-kasir.close', $shift) }}',
-                          redirectTo: '{{ route('pos.shift-kasir') }}',
-                          context: 'pos.close-shift',
-                          expectedCash: @js($summary->expectedCash),
-                          threshold: @js($cashThreshold),
-                          isOwner: @js(auth()->user()?->isOwner() ?? false),
-                      })"
-                      @submit="window.pin ? submit($event) : null"
-                      class="space-y-5">
-                    @csrf
+            @if ($shift->isPendingApproval())
+                {{-- ===================== Menunggu persetujuan ===================== --}}
+                <x-ui.section-card title="Menunggu Persetujuan Owner">
+                    <div class="space-y-5">
+                        <x-ui.banner tone="warning">
+                            Hitungan laci sudah dikirim dan shift ini berhenti menerima penjualan.
+                            Penjualan baru bisa dilanjutkan setelah Owner menyetujui atau menolak hitungan ini.
+                        </x-ui.banner>
 
-                    {{-- Disimpan di DOM supaya form tetap bisa dikirim tanpa
-                         Alpine. `shift-close-form.js` tetap menulis token dari
-                         state-nya sendiri, karena `x-model` baru sampai ke sini
-                         setelah flush. --}}
-                    <input type="hidden" name="pin_token" x-model="token" value="">
+                        <dl class="grid gap-3 rounded border border-border-subtle bg-canvas px-4 py-3 sm:grid-cols-2">
+                            <div>
+                                <dt class="text-label-md text-text-muted">Shift dibuka</dt>
+                                <dd class="text-body-md font-medium text-text-strong">{{ Format::datetime($shift->opened_at) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-label-md text-text-muted">Perangkat</dt>
+                                <dd class="text-body-md font-medium text-text-strong">{{ $shift->device_id ?? 'Tidak terdeteksi' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-label-md text-text-muted">Uang penutup di laci</dt>
+                                <dd class="text-body-md font-medium text-text-strong tabular-nums">{{ Format::rupiah($shift->closing_cash ?? 0) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-label-md text-text-muted">Selisih</dt>
+                                <dd class="text-body-md font-medium tabular-nums {{ ($shift->cash_diff ?? 0) === 0 ? 'text-success-text' : 'text-warning-text' }}">
+                                    {{ Format::rupiah($shift->cash_diff ?? 0) }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-label-md text-text-muted">Diajukan</dt>
+                                <dd class="text-body-md font-medium text-text-strong">{{ Format::datetime($shift->closing_requested_at) }}</dd>
+                            </div>
+                        </dl>
 
-                    <dl class="grid gap-3 rounded border border-border-subtle bg-canvas px-4 py-3 sm:grid-cols-2">
-                        <div>
-                            <dt class="text-label-md text-text-muted">Shift dibuka</dt>
-                            <dd class="text-body-md font-medium text-text-strong">{{ Format::datetime($shift->opened_at) }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-label-md text-text-muted">Perangkat</dt>
-                            <dd class="text-body-md font-medium text-text-strong">{{ $shift->device_id ?? 'Tidak terdeteksi' }}</dd>
-                        </div>
-                    </dl>
+                        @if ($shift->closing_notes)
+                            <div>
+                                <p class="text-label-md text-text-muted">Catatan kasir</p>
+                                <p class="mt-1 whitespace-pre-line text-body-md text-text-strong">{{ $shift->closing_notes }}</p>
+                            </div>
+                        @endif
 
-                    {{--
-                        `x-money` memindahkan `name` ke input tersembunyi di
-                        sebelahnya dan mengisi yang tersembunyi itu dengan angka
-                        polos, jadi yang sampai ke validasi tetap `1600000` bukan
-                        `1.600.000`. `x-model` membaca field yang sama untuk
-                        pratinjau selisihnya di bawah, dan `shift-close-form.js`
-                        membuang karakter selain digit -- jadi keduanya melihat angka
-                        yang sama meski fieldnya sudah dikelompokkan.
-                    --}}
-                    <x-ui.field label="Uang penutup di laci" name="closing_cash" required
-                                hint="Nominal yang benar-benar ada di laci sekarang, termasuk kembalian.">
-                        <input type="text" name="closing_cash"
-                               inputmode="numeric" autocomplete="off"
-                               x-money="money"
-                               x-model="closing"
-                               value="{{ old('closing_cash', '') }}"
-                               class="input-base tabular-nums @error('closing_cash') border-error-border @enderror"
-                               required>
-                        @error('closing_cash')<p class="mt-1 text-label-sm text-error-text">{{ $message }}</p>@enderror
-                    </x-ui.field>
-
-                    {{--
-                        Pratinjau selisih, hanya untuk dibaca kasir.
-
-                        Hitungannya diulang di sini, bukan dikirim ulang dari
-                        server untuk setiap ketikan: server hanya menjawab sekali
-                        lagi setelah form dikirim, sedangkan kasir yang sedang
-                        menghitung uang perlu tahu sekarang apakah angkanya cocok,
-                        bukan setelah menekan tombol.
-
-                        Yang menentukan apakah PIN Owner diminta tetap server, dari
-                        rekap yang dihitung ulang dari database. Kalau pratinjau ini
-                        yang menentukan, mengetik angka yang kebetulan cocok akan
-                        melewati persetujuan yang seharusnya diminta -- dan itu
-                        persis yang harus dicegah.
-                    --}}
-                    <div x-show="difference !== null" x-cloak>
-                        <div x-show="difference === 0">
-                            <x-ui.banner tone="success">
-                                <span x-text="'Uang di laci cocok dengan rekap: ' + format.rupiah(expectedCash) + '.'"></span>
+                        <a href="{{ route('pos.kasir') }}" class="btn-secondary">Kembali ke Kasir</a>
+                    </div>
+                </x-ui.section-card>
+            @else
+                <x-ui.section-card title="Tutup Shift">
+                    @if ($shift->closing_rejection_reason)
+                        <div class="mb-4">
+                            <x-ui.banner tone="error">
+                                Hitungan laci terakhir ditolak Owner: {{ $shift->closing_rejection_reason }}
+                                Hitung ulang uang di laci lalu kirim lagi.
                             </x-ui.banner>
                         </div>
-                        <div x-show="difference !== 0" x-cloak>
-                            <x-ui.banner tone="warning">
-                                <span x-text="
-                                    'Selisih ' + format.rupiah(Math.abs(difference)) + ': uang di laci '
-                                    + (difference < 0 ? 'kurang' : 'lebih')
-                                    + ' dari yang seharusnya. Angka ini akan tercatat atas namamu.'
-                                "></span>
-                            </x-ui.banner>
+                    @endif
+
+                    <form method="POST" action="{{ route('pos.shift-kasir.close', $shift) }}"
+                          x-data="shiftCloseForm({
+                              endpoint: '{{ route('pos.shift-kasir.close', $shift) }}',
+                              redirectTo: '{{ route('pos.shift-kasir') }}',
+                              expectedCash: @js($summary->expectedCash),
+                              threshold: @js($cashThreshold),
+                              isOwner: @js(auth()->user()?->isOwner() ?? false),
+                          })"
+                          @submit="submit($event)"
+                          class="space-y-5">
+                        @csrf
+
+                        <dl class="grid gap-3 rounded border border-border-subtle bg-canvas px-4 py-3 sm:grid-cols-2">
+                            <div>
+                                <dt class="text-label-md text-text-muted">Shift dibuka</dt>
+                                <dd class="text-body-md font-medium text-text-strong">{{ Format::datetime($shift->opened_at) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-label-md text-text-muted">Perangkat</dt>
+                                <dd class="text-body-md font-medium text-text-strong">{{ $shift->device_id ?? 'Tidak terdeteksi' }}</dd>
+                            </div>
+                        </dl>
+
+                        {{--
+                            `x-money` memindahkan `name` ke input tersembunyi di
+                            sebelahnya dan mengisi yang tersembunyi itu dengan angka
+                            polos, jadi yang sampai ke validasi tetap `1600000` bukan
+                            `1.600.000`. `x-model` membaca field yang sama untuk
+                            pratinjau selisihnya di bawah, dan `shift-close-form.js`
+                            membuang karakter selain digit -- jadi keduanya melihat angka
+                            yang sama meski fieldnya sudah dikelompokkan.
+                        --}}
+                        <x-ui.field label="Uang penutup di laci" name="closing_cash" required
+                                    hint="Nominal yang benar-benar ada di laci sekarang, termasuk kembalian.">
+                            <input type="text" name="closing_cash"
+                                   inputmode="numeric" autocomplete="off"
+                                   x-money="money"
+                                   x-model="closing"
+                                   value="{{ old('closing_cash', '') }}"
+                                   class="input-base tabular-nums @error('closing_cash') border-error-border @enderror"
+                                   required>
+                            @error('closing_cash')<p class="mt-1 text-label-sm text-error-text">{{ $message }}</p>@enderror
+                        </x-ui.field>
+
+                        {{--
+                            Pratinjau selisih, hanya untuk dibaca kasir.
+
+                            Hitungannya diulang di sini, bukan dikirim ulang dari
+                            server untuk setiap ketikan: server hanya menjawab sekali
+                            lagi setelah form dikirim, sedangkan kasir yang sedang
+                            menghitung uang perlu tahu sekarang apakah angkanya cocok,
+                            bukan setelah menekan tombol.
+
+                            Yang menentukan apakah hitungan ini perlu persetujuan
+                            tetap server, dari rekap yang dihitung ulang dari
+                            database. Kalau pratinjau ini yang menentukan, mengetik
+                            angka yang kebetulan cocok akan melewati persetujuan yang
+                            seharusnya diminta -- dan itu persis yang harus dicegah.
+                        --}}
+                        <div x-show="difference !== null" x-cloak>
+                            <div x-show="difference === 0">
+                                <x-ui.banner tone="success">
+                                    <span x-text="'Uang di laci cocok dengan rekap: ' + format.rupiah(expectedCash) + '.'"></span>
+                                </x-ui.banner>
+                            </div>
+                            <div x-show="difference !== 0" x-cloak>
+                                <x-ui.banner tone="warning">
+                                    <span x-text="
+                                        'Selisih ' + format.rupiah(Math.abs(difference)) + ': uang di laci '
+                                        + (difference < 0 ? 'kurang' : 'lebih')
+                                        + ' dari yang seharusnya. Angka ini akan tercatat atas namamu.'
+                                    "></span>
+                                </x-ui.banner>
+                            </div>
+                            <div x-show="needsApproval()" x-cloak class="mt-2">
+                                <x-ui.banner tone="warning">
+                                    <span x-text="
+                                        'Selisih ini melewati ambang ' + format.rupiah(threshold)
+                                        + '. Shift akan menunggu persetujuan Owner sebelum benar-benar ditutup.'
+                                    "></span>
+                                </x-ui.banner>
+                            </div>
                         </div>
-                        <div x-show="needsOwnerPin()" x-cloak class="mt-2">
-                            <x-ui.banner tone="warning">
-                                <span x-text="
-                                    'Selisih ini melewati ambang ' + format.rupiah(threshold)
-                                    + ', jadi akan diminta PIN Owner saat menutup shift.'
-                                "></span>
-                            </x-ui.banner>
+
+                        <x-ui.field label="Catatan" name="notes"
+                                    hint="Isi kalau ada selisih, supaya selisihnya punya penjelasan.">
+                            <textarea id="notes" name="notes" rows="2"
+                                      class="input-base @error('notes') border-error-border @enderror"
+                                      placeholder="Contoh: kembalian Rp5.000 untuk nota yang dibatalkan.">{{ old('notes') }}</textarea>
+                            @error('notes')<p class="mt-1 text-label-sm text-error-text">{{ $message }}</p>@enderror
+                        </x-ui.field>
+
+                        <div class="flex flex-wrap items-center gap-3">
+                            <button type="submit" class="btn-primary" :disabled="!canSubmit()">
+                                <span x-show="!busy">Tutup Shift</span>
+                                <span x-show="busy" x-cloak>Menyimpan...</span>
+                            </button>
+                            <a href="{{ route('pos.kasir') }}" class="btn-secondary">Lanjut ke Kasir</a>
                         </div>
-                    </div>
 
-                    <x-ui.field label="Catatan" name="notes"
-                                hint="Isi kalau ada selisih, supaya selisihnya punya penjelasan.">
-                        <textarea id="notes" name="notes" rows="2"
-                                  class="input-base @error('notes') border-error-border @enderror"
-                                  placeholder="Contoh: kembalian Rp5.000 untuk nota yang dibatalkan.">{{ old('notes') }}</textarea>
-                        @error('notes')<p class="mt-1 text-label-sm text-error-text">{{ $message }}</p>@enderror
-                    </x-ui.field>
-
-                    <div class="flex flex-wrap items-center gap-3">
-                        <button type="submit" class="btn-primary" :disabled="!canSubmit()">
-                            <span x-show="!busy">Tutup Shift</span>
-                            <span x-show="busy" x-cloak>Menyimpan...</span>
-                        </button>
-                        <a href="{{ route('pos.kasir') }}" class="btn-secondary">Lanjut ke Kasir</a>
-                    </div>
-
-                    <div x-show="error !== ''" x-cloak>
-                        <x-ui.banner tone="error"><span x-text="error"></span></x-ui.banner>
-                    </div>
-                </form>
-            </x-ui.section-card>
+                        <div x-show="error !== ''" x-cloak>
+                            <x-ui.banner tone="error"><span x-text="error"></span></x-ui.banner>
+                        </div>
+                    </form>
+                </x-ui.section-card>
+            @endif
 
             <x-ui.section-card title="Rekap per Metode">
                 <div class="flex items-center justify-between">
@@ -278,6 +326,8 @@
                                     <p class="text-body-md text-text-strong">{{ $row->user?->name ?? 'Tidak diketahui' }}</p>
                                     @if ($row->status === ShiftStatus::Open)
                                         <x-ui.badge-status type="info" dot>BERJALAN</x-ui.badge-status>
+                                    @elseif ($row->status === ShiftStatus::PendingApproval)
+                                        <x-ui.badge-status type="warning" dot>MENUNGGU PERSETUJUAN</x-ui.badge-status>
                                     @endif
                                 </td>
                                 <td class="px-6 py-3 font-mono text-label-sm text-text-muted">{{ $row->device_id ?? '—' }}</td>

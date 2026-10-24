@@ -134,6 +134,24 @@ class SaleStrukSheetTest extends TestCase
     }
 
     #[Test]
+    public function the_sheet_separates_the_item_and_order_discounts(): void
+    {
+        $sale = $this->sale(User::factory()->staff()->create());
+
+        $sale->forceFill([
+            'discount_total' => 5_000,
+            'order_discount_type' => 'amount',
+            'order_discount_value' => 4_000,
+            'order_discount_total' => 4_000,
+        ])->save();
+
+        $sheet = $this->sheet($sale->fresh(['items', 'payments', 'cashier', 'shift']));
+
+        self::assertSame(5_000, $sheet->discountTotal());
+        self::assertSame(4_000, $sheet->orderDiscountTotal());
+    }
+
+    #[Test]
     public function payments_carry_label_amount_and_reference(): void
     {
         $sale = $this->sale(User::factory()->staff()->create());

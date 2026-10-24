@@ -57,7 +57,6 @@ use App\Services\Print\PrintSettings;
 use App\Services\Print\Thermal\ReceiptRenderer;
 use App\Support\DataTable\Column;
 use App\Support\DataTable\DataTable;
-use App\Support\DeviceId;
 use App\Support\Enums;
 use App\Support\Format;
 use App\Support\ImportSchemas;
@@ -129,6 +128,9 @@ class InboundController extends Controller
                         'casting_code' => (string) ($product->casting_code ?? ''),
                         'name' => $product->name,
                         'series_code' => $product->series?->code ?? '',
+                        'series_name' => $product->series?->name ?? '',
+                        'color' => (string) ($product->color ?? ''),
+                        'year' => $product->year,
                         'qty' => $row['qty'] ?? 1,
                         'cost_price' => $row['cost_price'] ?? '',
                         'rack_id' => $row['rack_id'] ?? '',
@@ -210,7 +212,7 @@ class InboundController extends Controller
         // Daftar yang barusan jadi stok sudah tidak layak dipulihkan. Kalau
         // draftnya dibiarkan ACTIVE, halaman berikutnya akan menawarkan
         // kembali daftar yang sudah berubah menjadi barang diterima.
-        $this->pribadiDrafts->cancel(DeviceId::current());
+        $this->pribadiDrafts->cancel();
 
         return redirect()->route('inbound.stock-in-pribadi')->with('toast', [
             'type' => 'success',
@@ -227,7 +229,7 @@ class InboundController extends Controller
      */
     public function stockInPribadiDraftLoad(): JsonResponse
     {
-        $draft = $this->pribadiDrafts->getActive(DeviceId::current());
+        $draft = $this->pribadiDrafts->getActive();
 
         if ($draft === null || $draft->items === [] || $draft->items === null) {
             return response()->json([
@@ -250,7 +252,7 @@ class InboundController extends Controller
      */
     public function stockInPribadiDraftSave(SaveStockInPribadiDraftRequest $request): JsonResponse
     {
-        $draft = $this->pribadiDrafts->save($request->validated('items') ?? [], DeviceId::current());
+        $draft = $this->pribadiDrafts->save($request->validated('items') ?? []);
 
         return response()->json([
             'ok' => true,
@@ -264,7 +266,7 @@ class InboundController extends Controller
      */
     public function stockInPribadiDraftCancel(): JsonResponse
     {
-        $this->pribadiDrafts->cancel(DeviceId::current());
+        $this->pribadiDrafts->cancel();
 
         return response()->json(['ok' => true]);
     }
@@ -594,13 +596,12 @@ class InboundController extends Controller
                 copies: $request->copies(),
                 reason: $request->reason(),
                 userId: $request->user()?->id,
-                approvedBy: $request->reprintApprover(),
             );
         } catch (ReprintLimitExceeded $e) {
             // Batasnya sudah dicek di `ReprintLabelsRequest`, jadi sampai ke
             // sini berarti angkanya berubah setelah form divalidasi -- job lain
-            // keluar dari printer sementara operator sedang mengetik PIN.
-            // 422, bukan 403: aksi yang sama akan lolos begitu membawa PIN.
+            // keluar dari printer sementara operator sedang menyiapkannya.
+            // 422, karena aksi yang sama akan lolos begitu form dikirim ulang.
             throw ValidationException::withMessages(['copies' => $e->verdict->summary()]);
         }
 
@@ -1317,8 +1318,15 @@ class InboundController extends Controller
         return [
             'racks' => Rack::query()
                 ->where('is_active', true)
+                ->withSum('stockLots as used_units', 'qty_on_hand')
                 ->orderBy('code')
-                ->get(),
+                ->get()
+                ->map(fn (Rack $rack): array => [
+                    'id' => $rack->id,
+                    'code' => $rack->code,
+                    'capacity' => $rack->capacity,
+                    'used' => (int) ($rack->used_units ?? 0),
+                ]),
             'card_conditions' => Enums::options(CardCondition::class),
             'blister_conditions' => Enums::options(BlisterCondition::class),
         ];

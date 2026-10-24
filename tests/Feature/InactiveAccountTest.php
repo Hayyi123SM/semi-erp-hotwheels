@@ -150,7 +150,7 @@ class InactiveAccountTest extends TestCase
         $user = User::factory()->staff()->inactive()->create();
 
         $this->actingAs($user)
-            ->postJson('/pin/verify', ['pin' => '123456'])
+            ->postJson(route('pos.shift-kasir.open'), ['opening_cash' => '0'])
             ->assertStatus(401)
             ->assertJsonPath('message', 'Akun ini dinonaktifkan. Minta Owner mengaktifkannya kembali di Pengaturan · Pengguna.');
 

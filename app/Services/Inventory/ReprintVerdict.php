@@ -35,17 +35,20 @@ final readonly class ReprintVerdict
     }
 
     /**
-     * Apakah aksi ini perlu PIN Owner.
+     * Apakah cetakan yang melewati batas ini di luar kewenangan pelaku.
      *
      * Batas harian tidak berlaku untuk Owner sama sekali -- matriks peran
-     * memberi Owner akses penuh pada re-print, dan memaksa dia mengetik PIN
-     * sendiri hanya menambah langkah tanpa menambah keamanan.
+     * memberi Owner akses penuh pada re-print, dan menyuruh dia melewati
+     * batasnya sendiri hanya menambah langkah tanpa menambah keamanan.
      *
      * Batas jumlah label tetap berlaku untuk Owner dalam arti lain: dia boleh
-     *enbach, tapi kejadiannya tetap dicatat sebagai anomali, supaya laporan
+     * melewati, tapi kejadiannya tetap dicatat sebagai anomali, supaya laporan
      * "cetak melebihi qty" (FR-RP-22) tidak bisa dilewati oleh Owner diam-diam.
+     *
+     * Pelaku yang bukan Owner tidak bisa melewati batas atas nama sendiri:
+     * cetakan seperti itu ditolak, bukan menunggu persetujuan.
      */
-    public function needsOwnerPin(): bool
+    public function isBreachedByNonOwner(): bool
     {
         return $this->isBreached() && ! $this->actorIsOwner;
     }

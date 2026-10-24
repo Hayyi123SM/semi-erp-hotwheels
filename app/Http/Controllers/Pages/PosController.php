@@ -7,9 +7,11 @@ use App\Enums\PaperSize;
 use App\Enums\PaymentMethod;
 use App\Enums\SaleStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Pos\ApproveShiftClosingRequest;
 use App\Http\Requests\Pos\CheckoutRequest;
 use App\Http\Requests\Pos\CloseShiftRequest;
 use App\Http\Requests\Pos\OpenShiftRequest;
+use App\Http\Requests\Pos\RejectShiftClosingRequest;
 use App\Models\Sale;
 use App\Models\Shift;
 use App\Models\User;
@@ -18,9 +20,12 @@ use App\Services\Pos\Checkout;
 use App\Services\Pos\CheckoutLine;
 use App\Services\Pos\CheckoutPayment;
 use App\Services\Pos\CheckoutService;
+use App\Services\Pos\PosSettings;
 use App\Services\Pos\SaleStrukSheet;
 use App\Services\Pos\ShiftAlreadyClosedException;
 use App\Services\Pos\ShiftAlreadyOpenException;
+use App\Services\Pos\ShiftAwaitingApprovalException;
+use App\Services\Pos\ShiftNotAwaitingApprovalException;
 use App\Services\Pos\ShiftService;
 use App\Services\Print\PrintSettings;
 use App\Services\Print\Thermal\PosStrukRenderer;
@@ -122,6 +127,10 @@ class PosController extends Controller
                 $request->validated('payments', []),
             ),
             tender: $request->validated('tender') === null ? null : (int) $request->validated('tender'),
+            orderDiscountType: $request->validated('order_discount_type'),
+            orderDiscountValue: $request->validated('order_discount_value') === null
+                ? null
+                : (int) $request->validated('order_discount_value'),
         );
 
         $sale = $service->checkout($checkout);
@@ -625,23 +634,42 @@ class PosController extends Controller
     public function closeShift(CloseShiftRequest $request, Shift $shift, ShiftService $shifts, CartDraftService $drafts): RedirectResponse
     {
         try {
-            $closed = $shifts->close(
+            $closed = $shifts->requestClose(
                 $shift,
                 $request->closingCash(),
                 $request->user(),
-                $request->cashDiffApprover(),
                 $request->notes(),
             );
 
-            // Keranjang yang tergantung di shift ini sudah tidak bisa dibayar
-            // lagi, jadi tidak ada gunanya menyimpannya sebagai ACTIVE. Disapu
-            // di sini supaya halaman kasir tidak menawarkan memulihkannya.
-            $drafts->expireOld();
+            // Keranjang yang tergantung di shift ini hanya dibuang setelah shift
+            // benar-benar tertutup. Selama masih menunggu keputusan, keranjangnya
+            // dipertahankan: kalau Owner menolak, kasir kembali ke shift yang
+            // sama dan tidak seharusnya kehilangan isi keranjangnya.
+            if ($closed->isClosed()) {
+                $drafts->expireOld();
+            }
         } catch (ShiftAlreadyClosedException) {
             return back()->withInput()->with('toast', [
                 'type' => 'warning',
                 'message' => 'Shift ini sudah ditutup. Buka shift baru untuk melanjutkan penjualan.',
             ]);
+        } catch (ShiftAwaitingApprovalException $e) {
+            return back()->withInput()->with('toast', [
+                'type' => 'warning',
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        if ($closed->isPendingApproval()) {
+            return redirect()
+                ->route('pos.shift-kasir')
+                ->with('toast', [
+                    'type' => 'warning',
+                    'message' => sprintf(
+                        'Hitungan laci dikirim dengan selisih %s. Shift menunggu persetujuan Owner dan tidak bisa dipakai berjualan sampai diputuskan.',
+                        Format::rupiah(abs($closed->cash_diff ?? 0)),
+                    ),
+                ]);
         }
 
         return redirect()
@@ -658,6 +686,80 @@ class PosController extends Controller
                             ? 'kasir yang menutup shift'
                             : 'Owner yang mengesahkannya',
                     ),
+            ]);
+    }
+
+    /**
+     * Halaman persetujuan tutup shift, khusus Owner.
+     *
+     * Daftar, bukan notifikasi sekali pakai: keputusan menyetujui uang harus
+     * dibaca dengan rekap penjualan di sebelahnya, dan itu tidak muat di satu
+     * baris notifikasi. Urutannya dari pengajuan paling lama supaya shift yang
+     * paling lama terkunci tidak tenggelam di bawah pengajuan baru.
+     */
+    public function shiftApprovals(ShiftService $shifts)
+    {
+        $pending = Shift::query()
+            ->pendingApproval()
+            ->with('user')
+            ->orderBy('closing_requested_at')
+            ->get();
+
+        return $this->page('pages.pos.persetujuan-shift', [
+            'pending' => $pending->map(fn (Shift $shift): array => [
+                'shift' => $shift,
+                'summary' => $shifts->summary($shift),
+            ]),
+            'cashThreshold' => $shifts->cashDifferenceThreshold(),
+        ], 'Persetujuan Shift', 'layouts.pos');
+    }
+
+    /**
+     * Owner menyetujui selisih dan menutup shift.
+     */
+    public function approveShift(ApproveShiftClosingRequest $request, Shift $shift, ShiftService $shifts, CartDraftService $drafts): RedirectResponse
+    {
+        try {
+            $shifts->approveClose($shift, $request->owner());
+            $drafts->expireOld();
+        } catch (ShiftNotAwaitingApprovalException $e) {
+            return redirect()
+                ->route('pos.persetujuan-shift')
+                ->with('toast', ['type' => 'warning', 'message' => $e->getMessage()]);
+        }
+
+        return redirect()
+            ->route('pos.persetujuan-shift')
+            ->with('toast', [
+                'type' => 'success',
+                'message' => sprintf(
+                    'Shift %s disetujui dan ditutup.',
+                    $shift->user?->name ?? 'kasir',
+                ),
+            ]);
+    }
+
+    /**
+     * Owner menolak hitungan laci; shift kembali berjalan untuk dihitung ulang.
+     */
+    public function rejectShift(RejectShiftClosingRequest $request, Shift $shift, ShiftService $shifts): RedirectResponse
+    {
+        try {
+            $shifts->rejectClose($shift, $request->owner(), $request->reason());
+        } catch (ShiftNotAwaitingApprovalException $e) {
+            return redirect()
+                ->route('pos.persetujuan-shift')
+                ->with('toast', ['type' => 'warning', 'message' => $e->getMessage()]);
+        }
+
+        return redirect()
+            ->route('pos.persetujuan-shift')
+            ->with('toast', [
+                'type' => 'warning',
+                'message' => sprintf(
+                    'Hitungan laci shift %s ditolak. Shift kembali berjalan dan harus dihitung ulang.',
+                    $shift->user?->name ?? 'kasir',
+                ),
             ]);
     }
 
@@ -682,6 +784,8 @@ class PosController extends Controller
             'draft' => [
                 'id' => $draft->id,
                 'items' => $draft->items,
+                'order_discount_type' => $draft->order_discount_type,
+                'order_discount_value' => $draft->order_discount_value,
                 'note' => $draft->note,
                 'shift_id' => $draft->shift_id,
                 'device_id' => $draft->device_id,
@@ -701,6 +805,8 @@ class PosController extends Controller
     {
         $validated = $request->validate([
             'items' => ['array'],
+            'order_discount_type' => ['nullable', 'in:percent,amount'],
+            'order_discount_value' => ['nullable', 'integer', 'min:0', 'max:'.PosSettings::MAX_AMOUNT],
             'note' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -709,6 +815,8 @@ class PosController extends Controller
             $this->currentShiftId($request, $shifts),
             DeviceId::current(),
             $validated['note'] ?? null,
+            $validated['order_discount_type'] ?? null,
+            isset($validated['order_discount_value']) ? (int) $validated['order_discount_value'] : null,
         );
 
         return response()->json(['ok' => true, 'draft_id' => $draft?->id]);

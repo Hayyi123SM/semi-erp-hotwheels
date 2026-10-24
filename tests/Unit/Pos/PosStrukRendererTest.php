@@ -108,6 +108,30 @@ class PosStrukRendererTest extends TestCase
         self::assertStringContainsString('Rp10.000', $withChange);
     }
 
+    #[Test]
+    public function the_bytes_keep_the_item_and_order_discounts_apart(): void
+    {
+        $sale = $this->sale();
+
+        $sale->forceFill([
+            'discount_total' => 5_000,
+            'order_discount_type' => 'amount',
+            'order_discount_value' => 4_000,
+            'order_discount_total' => 4_000,
+            'total' => 71_000,
+        ])->save();
+
+        $sale->items()->sole()->forceFill(['order_discount' => 4_000])->save();
+
+        $bytes = PosStrukRenderer::render($this->sheet($sale->fresh(['items', 'payments', 'cashier', 'shift'])));
+
+        // Dua diskon yang berbeda hukumnya tidak boleh terbaca sebagai satu baris
+        // "Diskon": kasir yang membandingkan struk dengan nota harus bisa melihat
+        // mana yang dipotong per barang dan mana yang dipotong dari nota.
+        self::assertStringContainsString('Diskon Item', $bytes);
+        self::assertStringContainsString('Diskon Total', $bytes);
+    }
+
     private function sheet(Sale $sale, PaperSize $paper = PaperSize::Mm80, ?int $changeDue = null): SaleStrukSheet
     {
         return new SaleStrukSheet(

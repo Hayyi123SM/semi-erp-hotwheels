@@ -21,13 +21,11 @@ class User extends Authenticatable
         'email_verified_at',
         'password',
         'role',
-        'pin',
         'is_active',
     ];
 
     protected $hidden = [
         'password',
-        'pin',
         'remember_token',
     ];
 
@@ -36,7 +34,6 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'pin' => 'hashed',
             'role' => Role::class,
             'is_active' => 'boolean',
         ];

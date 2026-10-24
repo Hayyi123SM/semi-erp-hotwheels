@@ -31,7 +31,7 @@
 
     @if ($allowImport)
         <x-slot:import>
-            <x-forms.import-step :action="route('master.import.upload', 'pengguna')" :template-url="route('master.import.template', 'pengguna')" :list-url="route('setting.pengguna')" label="Pilih berkas pengguna (.xlsx / .xls / .csv)" hint="Kolom password wajib. PIN boleh kosong." />
+            <x-forms.import-step :action="route('master.import.upload', 'pengguna')" :template-url="route('master.import.template', 'pengguna')" :list-url="route('setting.pengguna')" label="Pilih berkas pengguna (.xlsx / .xls / .csv)" hint="Kolom password wajib." />
         </x-slot:import>
     @endif
 </x-forms.form-tabs>

@@ -1,11 +1,10 @@
 {{--
     The request-agnostic overlays every authenticated page needs: the toast
-    container, the unsaved-changes guard, and the Owner PIN dialog. Shared by
-    `layouts.app` and `layouts.pos` for the same reason the toast container was
-    always kept in the layout and not a page -- the request is identical
-    wherever it comes from, and a caller must be able to use one without first
-    checking that its own page ships it. `window.pin` opens the PIN dialog
-    (shift close relies on it).
+    container and the unsaved-changes guard. Shared by `layouts.app` and
+    `layouts.pos` for the same reason the toast container was always kept in the
+    layout and not a page -- the request is identical wherever it comes from,
+    and a caller must be able to use one without first checking that its own
+    page ships it.
 --}}
 
 <!-- Global toasts. Anchored to both edges below sm so a 320px
@@ -67,25 +66,3 @@
      The warning it raises is the shared dialog, so there is no
      dialog markup here to fall out of step with the script. -->
 <div x-data="unsavedChanges"></div>
-
-{{-- Owner PIN. A template rather than markup here, because the
-     body only exists while the dialog is open: `notify.modal`
-     walks the subtree on open and tears it down on close, so the
-     listener and the scope are rebuilt per attempt instead of
-     stacking up over a shift's worth of reprints. --}}
-<template id="pin-dialog">
-    <form data-pin-form x-data="pinDialogForm" class="space-y-1" novalidate @submit.prevent>
-        <label for="pin-dialog-input" class="block text-label-md text-text-muted">
-            PIN Owner
-        </label>
-        <input id="pin-dialog-input" x-ref="input" x-model="pin" @input="onInput($event)"
-               type="password" inputmode="numeric" maxlength="6" autocomplete="off"
-               class="input-base text-center font-mono text-label-lg tracking-[0.5em]"
-               placeholder="••••••" required>
-        <p x-show="error !== ''" x-cloak x-text="error"
-           class="mt-1.5 text-label-sm text-error-text" role="alert"></p>
-        <p class="mt-1 text-label-sm text-text-subtle">
-            Pin ini hanya berlaku untuk aksi ini, selama 5 menit.
-        </p>
-    </form>
-</template>

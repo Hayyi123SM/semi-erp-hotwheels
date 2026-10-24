@@ -11,7 +11,7 @@
                     @click="openPayment = true">
                 <div class="flex flex-col items-start text-left">
                     <span class="text-label-sm opacity-90" x-text="'Total (' + cartCount + ' item)'"></span>
-                    <span class="text-body-md font-semibold tabular-nums" x-text="format.rupiah(subtotal)"></span>
+                    <span class="text-body-md font-semibold tabular-nums" x-text="format.rupiah(total)"></span>
                 </div>
                 <div class="flex items-center gap-1.5">
                     <span class="text-body-md font-semibold">Bayar</span>
@@ -32,11 +32,15 @@
             <div class="space-y-1.5 rounded-lg border border-border-subtle bg-canvas p-2 text-label-md">
                 <div class="flex items-center justify-between">
                     <span class="text-text-muted">Subtotal (<span x-text="cartCount"></span> item)</span>
-                    <span class="tabular-nums" x-text="format.rupiah(subtotal)"></span>
+                    <span class="tabular-nums" x-text="format.rupiah(grossSubtotal)"></span>
                 </div>
-                <div class="flex items-center justify-between">
-                    <span class="text-text-muted">Diskon</span>
-                    <span class="tabular-nums" x-text="format.rupiah(discountTotal)"></span>
+                <div x-show="discountTotal > 0" x-cloak class="flex items-center justify-between">
+                    <span class="text-text-muted">Diskon Item</span>
+                    <span class="tabular-nums" x-text="'− ' + format.rupiah(discountTotal)"></span>
+                </div>
+                <div x-show="orderDiscountTotal > 0" x-cloak class="flex items-center justify-between">
+                    <span class="text-text-muted">Diskon Total</span>
+                    <span class="tabular-nums" x-text="'− ' + format.rupiah(orderDiscountTotal)"></span>
                 </div>
                 <div class="flex items-center justify-between border-t border-border-subtle pt-1.5">
                     <span class="text-body-sm font-semibold text-text-strong">Total</span>
@@ -45,6 +49,35 @@
             </div>
 
             <div class="mt-2 space-y-1.5">
+                <div class="rounded-lg border border-border-subtle bg-canvas p-2">
+                    <div class="mb-1.5 flex items-center justify-between">
+                        <span class="text-label-md text-text-muted">Diskon Total</span>
+                        <span class="text-label-sm tabular-nums text-text-subtle"
+                              x-text="'Maks ' + format.rupiah(Math.max(0, subtotal - 1))"></span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <select class="h-8 shrink-0 rounded-md border border-border-subtle bg-surface-lowest pl-2 pr-6 text-label-sm touch-manipulation"
+                                x-model="orderDiscountType"
+                                @change="onOrderDiscountTypeChange()"
+                                data-allow-focus>
+                            <option value="">Tanpa</option>
+                            <option value="percent">%</option>
+                            <option value="amount">Rp</option>
+                        </select>
+                        <div class="relative min-w-0 flex-1" x-show="orderDiscountType" x-cloak>
+                            <span x-show="orderDiscountType === 'percent'" class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-label-sm text-text-subtle">%</span>
+                            <input type="text"
+                                   inputmode="numeric"
+                                   autocomplete="off"
+                                   class="h-8 w-full rounded-md border border-border-subtle bg-surface-lowest text-right text-label-sm tabular-nums"
+                                   :class="orderDiscountType === 'percent' ? 'pl-2 pr-6' : 'px-2'"
+                                   :value="_discountDisplayValue(this, orderDiscountType)"
+                                   @input="onOrderDiscountInput($event)"
+                                   @blur="clampOrderDiscount(); $event.target.value = _discountDisplayValue(this, orderDiscountType)">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex flex-wrap items-center gap-1.5">
                     <template x-for="amt in [50000,100000,200000,300000,500000]" :key="'qc-'+amt">
                         <button type="button" class="flex h-8 items-center rounded-md border border-border-subtle bg-surface-lowest px-2 text-label-sm hover:bg-canvas touch-manipulation" @click="quickTender(amt)" x-text="format.rupiah(amt)"></button>

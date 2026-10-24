@@ -1,6 +1,6 @@
 <x-ui.page-header
     title="Pengguna & Role"
-    subtitle="Kelola akun staf & owner. PIN opsional untuk transaksi internal."
+    subtitle="Kelola akun staf & owner beserta rolenya."
     :crumbs="['Pengaturan', 'Pengguna & Role']"
 />
 

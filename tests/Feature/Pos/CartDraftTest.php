@@ -108,6 +108,26 @@ class CartDraftTest extends TestCase
     }
 
     #[Test]
+    public function it_round_trips_the_order_level_discount(): void
+    {
+        [$actor] = $this->openShift();
+
+        $this->actingAs($actor)
+            ->withSession([DeviceId::SESSION_KEY => self::DEVICE])
+            ->postJson(route('pos.draft.save'), [
+                'items' => [$this->line()],
+                'order_discount_type' => 'percent',
+                'order_discount_value' => 5,
+            ])
+            ->assertOk();
+
+        $this->load($actor)
+            ->assertOk()
+            ->assertJsonPath('draft.order_discount_type', 'percent')
+            ->assertJsonPath('draft.order_discount_value', 5);
+    }
+
+    #[Test]
     public function an_empty_cart_is_saved_as_a_cancellation_not_an_empty_draft(): void
     {
         [$actor] = $this->openShift();

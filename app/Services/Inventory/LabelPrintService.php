@@ -159,9 +159,6 @@ class LabelPrintService
      * menghasilkan label dengan harga yang sama seperti cetakan pertama.
      *
      * @param  array<int, int>  $lotIds
-     * @param  int|null  $approvedBy  Owner yang menotorisasi cetakan yang melewati
-     *                                batas (FR-AUTH-01). `null` berarti tidak ada
-     *                                yang perlu dinotorisasi.
      * @return int jumlah job yang dibuat
      *
      * @throws ReprintLimitExceeded
@@ -171,9 +168,8 @@ class LabelPrintService
         int $copies,
         LabelReason $reason,
         ?int $userId,
-        ?int $approvedBy = null,
     ): int {
-        return DB::transaction(function () use ($lotIds, $copies, $reason, $userId, $approvedBy): int {
+        return DB::transaction(function () use ($lotIds, $copies, $reason, $userId): int {
             // Lot dibaca ulang DI DALAM transaksi dan dikunci. Kalau barisnya
             // dibaca di luar, dua operator yang menekan tombol hampir
             // bersamaan bisa dua-duanya melihat angka lama, dua-duanya lolos
@@ -192,16 +188,22 @@ class LabelPrintService
 
             // Diperiksa lagi di sini, bukan cuma di FormRequest. Angka yang
             // dipakai request sudah bisa basi: antara operator menekan tombol
-            // dan Owner mengetik PIN-nya, label lot yang sama bisa saja
-            // keluar dari printer sehingga `labels_printed`-nya sudah naik.
+            // dan label lot yang sama keluar dari printer, `labels_printed`-nya
+            // sudah naik -- sehingga batas yang lolos di layar bisa terlampaui
+            // saat job dibuat.
             $verdict = $this->limits->evaluate($lots, $copies, $actor);
 
-            if ($verdict->needsOwnerPin() && $approvedBy === null) {
+            if ($verdict->isBreachedByNonOwner()) {
                 throw new ReprintLimitExceeded($verdict);
             }
 
             $breached = $this->breachedLotIds($verdict);
-            $approver = $approvedBy ?? ($verdict->isBreached() ? $actor?->getKey() : null);
+            // Pelaku yang menekan tombol adalah orang yang bertanggung jawab atas
+            // cetakan yang melewati batas. Modul Inbound hanya bisa dibuka
+            // Owner, jadi ini selalu Owner -- dan itu yang membuat cetakan
+            // melebihi batas tetap boleh jalan: batas itu dilampaui atas
+            // keputusan Owner, bukan atas nama orang lain.
+            $approver = $verdict->isBreached() ? $actor?->getKey() : null;
             $created = 0;
 
             foreach ($lots as $lot) {
@@ -215,7 +217,7 @@ class LabelPrintService
                     'show_price' => true,
                     'status' => LabelStatus::Queued,
                     'requested_by' => $userId,
-                    // Hanya diisi kalau ada yang perlu dinotorisasi. Job yang
+                    // Hanya diisi kalau cetakannya melewati batas. Job yang
                     // normal dibiarkan `null` supaya "ada override" dan "tidak
                     // ada override" tidak tercampur di laporan.
                     'approved_by' => $isBreached ? $approver : null,

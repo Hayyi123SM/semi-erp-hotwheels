@@ -37,17 +37,19 @@ final class ShiftService
     ) {}
 
     /**
-     * Shift yang sedang dibuka oleh kasir ini di perangkat ini, atau `null`.
+     * Shift yang belum selesai dipegang kasir ini di perangkat ini, atau `null`.
      *
      * Dipakai halaman Shift Kasir untuk menentukan apakah ia harus menampilkan
-     * form buka shift atau rekap shift berjalan.
+     * form buka shift atau rekap shift berjalan. Shift yang menunggu keputusan
+     * Owner ikut terhitung: lacinya sudah dihitung, jadi kasir tidak boleh
+     * membuka shift baru di laci yang sama.
      */
     public function currentFor(?User $actor, ?string $deviceId = null): ?Shift
     {
         $deviceId ??= DeviceId::current();
 
-        $byDevice = Shift::openForDevice($deviceId);
-        $byUser = Shift::openForUser($actor?->getKey());
+        $byDevice = Shift::unclosedForDevice($deviceId);
+        $byUser = Shift::unclosedForUser($actor?->getKey());
 
         // Kalau dua baris berbeda ditemukan, yang dipakai kasir adalah miliknya
         // sendiri: itu shift yang sedang ia kerjakan, sedangkan yang lain milik
@@ -125,27 +127,31 @@ final class ShiftService
     }
 
     /**
-     * Tutup shift dan hitung selisih kasnya.
+     * Kasir mengajukan tutup shift dan hitung selisih kasnya.
      *
-     * Satu-satunya jalan untuk menutup shift. Semua pemanggil harus lewat sini,
-     * karena di sinilah angka laci dibandingkan dengan rekap dan di sinilah
-     * selisih yang di luar ambang berhenti sebelum sempat ditulis.
-     *
-     * @param  User|null  $approver  Owner yang mengesahkan selisih di luar ambang; `null` kalau selisihnya masih dalam ambang
+     * Satu-satunya jalan untuk menutup shift dari halaman kasir. Selisih yang
+     * masih di dalam ambang -- atau shift yang ditutup Owner sendiri -- langsung
+     * menjadi `CLOSED`. Selisih yang melewati ambang dan diajukan Staff berhenti
+     * di `PENDING_APPROVAL`: angkanya sudah tersimpan, shift berhenti menerima
+     * penjualan, tetapi keputusan menyetujui selisihnya milik Owner.
      *
      * @throws ShiftAlreadyClosedException
+     * @throws ShiftAwaitingApprovalException
      */
-    public function close(Shift $shift, int $closingCash, ?User $actor = null, ?User $approver = null, ?string $notes = null): Shift
+    public function requestClose(Shift $shift, int $closingCash, ?User $actor = null, ?string $notes = null): Shift
     {
-        return DB::transaction(function () use ($shift, $closingCash, $actor, $approver, $notes): Shift {
+        return DB::transaction(function () use ($shift, $closingCash, $actor, $notes): Shift {
             // Dikunci supaya dua permintaan tutup yang datang bersamaan tidak
-            // sama-sama membaca `OPEN` lalu sama-sama menulis `CLOSED` dengan
-            // angka yang berbeda. Tanpa kunci, audit mencatat dua penutupan atas
-            // satu shift.
+            // sama-sama membaca `OPEN` lalu sama-sama menulis dengan angka yang
+            // berbeda. Tanpa kunci, audit mencatat dua penutupan atas satu shift.
             $locked = Shift::query()->lockForUpdate()->findOrFail($shift->getKey());
 
-            if ($locked->status === ShiftStatus::Closed) {
+            if ($locked->isClosed()) {
                 throw new ShiftAlreadyClosedException;
+            }
+
+            if ($locked->isPendingApproval()) {
+                throw new ShiftAwaitingApprovalException;
             }
 
             // Dibaca SEBELUM ditulis. Setelah `save()`, `closing_cash` sudah berisi
@@ -154,17 +160,116 @@ final class ShiftService
             // hanyalah `status`, yang tidak bisa menjelaskan selisihnya.
             $before = $this->auditableState($locked);
 
+            $difference = $closingCash - $this->expectedCash($locked);
+            $needsApproval = $this->differenceNeedsApproval($difference);
+
+            if ($needsApproval && ! $actor?->isOwner()) {
+                $locked->forceFill([
+                    'closing_cash' => $closingCash,
+                    'cash_diff' => $difference,
+                    'closed_by' => $actor?->getKey(),
+                    'closing_notes' => $notes,
+                    'closing_requested_at' => now(),
+                    'closing_approved_at' => null,
+                    'closing_rejection_reason' => null,
+                    'status' => ShiftStatus::PendingApproval,
+                ])->save();
+
+                $this->audit->log('SUBMIT_SHIFT_CLOSING', Shift::class, $locked->getKey(), $before, $this->auditableState($locked));
+
+                return $locked->refresh();
+            }
+
             $locked->forceFill([
                 'closing_cash' => $closingCash,
-                'cash_diff' => $closingCash - $this->expectedCash($locked),
+                'cash_diff' => $difference,
                 'closed_at' => now(),
                 'closed_by' => $actor?->getKey(),
-                'cash_diff_approved_by' => $approver?->getKey(),
+                'cash_diff_approved_by' => $needsApproval ? $actor?->getKey() : null,
+                'closing_notes' => $notes,
+                'closing_requested_at' => null,
+                'closing_approved_at' => now(),
+                'closing_rejection_reason' => null,
                 'status' => ShiftStatus::Closed,
-                'notes' => $notes ?? $locked->notes,
             ])->save();
 
             $this->audit->log('CLOSE_SHIFT', Shift::class, $locked->getKey(), $before, $this->auditableState($locked));
+
+            return $locked->refresh();
+        });
+    }
+
+    /**
+     * Owner mengesahkan tutup shift yang menunggu keputusan.
+     *
+     * Yang menghitung uang tetap kasir yang mengajukan (`closed_by`), sedangkan
+     * yang menanggung selisihnya dicatat terpisah (`cash_diff_approved_by`).
+     * Dua nama di satu baris bukan duplikasi: pertanyaan "siapa yang memegang
+     * laci" dan "siapa yang mengesahkan angkanya" bisa dijawab berbeda.
+     *
+     * @throws ShiftNotAwaitingApprovalException
+     */
+    public function approveClose(Shift $shift, User $owner): Shift
+    {
+        return DB::transaction(function () use ($shift, $owner): Shift {
+            $locked = Shift::query()->lockForUpdate()->findOrFail($shift->getKey());
+
+            if (! $locked->isPendingApproval()) {
+                throw new ShiftNotAwaitingApprovalException;
+            }
+
+            $before = $this->auditableState($locked);
+
+            $locked->forceFill([
+                'closed_at' => now(),
+                'cash_diff_approved_by' => $owner->getKey(),
+                'closing_approved_at' => now(),
+                'closing_rejection_reason' => null,
+                'status' => ShiftStatus::Closed,
+            ])->save();
+
+            $this->audit->log('APPROVE_SHIFT_CLOSING', Shift::class, $locked->getKey(), $before, $this->auditableState($locked));
+
+            return $locked->refresh();
+        });
+    }
+
+    /**
+     * Owner menolak tutup shift; kasir harus menghitung ulang.
+     *
+     * Shift kembali `OPEN`, bukan tetap menunggu: penolakan berarti angka yang
+     * diajukan tidak boleh dipakai, dan satu-satunya orang yang bisa memperbaiki
+     * angka itu adalah kasir yang memegang laci. Alasan penolakan disimpan di
+     * baris shift supaya kasir membacanya di halaman yang sama, bukan di laporan
+     * audit.
+     *
+     * @throws ShiftNotAwaitingApprovalException
+     */
+    public function rejectClose(Shift $shift, User $owner, string $reason): Shift
+    {
+        return DB::transaction(function () use ($shift, $reason): Shift {
+            $locked = Shift::query()->lockForUpdate()->findOrFail($shift->getKey());
+
+            if (! $locked->isPendingApproval()) {
+                throw new ShiftNotAwaitingApprovalException;
+            }
+
+            $before = $this->auditableState($locked);
+
+            $locked->forceFill([
+                'closing_cash' => null,
+                'cash_diff' => null,
+                'closed_at' => null,
+                'closed_by' => null,
+                'cash_diff_approved_by' => null,
+                'closing_notes' => null,
+                'closing_requested_at' => null,
+                'closing_approved_at' => null,
+                'closing_rejection_reason' => $reason,
+                'status' => ShiftStatus::Open,
+            ])->save();
+
+            $this->audit->log('REJECT_SHIFT_CLOSING', Shift::class, $locked->getKey(), $before, $this->auditableState($locked));
 
             return $locked->refresh();
         });
@@ -202,6 +307,10 @@ final class ShiftService
             'closed_by' => $shift->closed_by,
             'cash_diff_approved_by' => $shift->cash_diff_approved_by,
             'notes' => $shift->notes,
+            'closing_notes' => $shift->closing_notes,
+            'closing_requested_at' => $shift->closing_requested_at?->toIso8601String(),
+            'closing_approved_at' => $shift->closing_approved_at?->toIso8601String(),
+            'closing_rejection_reason' => $shift->closing_rejection_reason,
         ];
     }
 
@@ -345,7 +454,7 @@ final class ShiftService
      */
     private function refuseDoubleOpen(?User $actor, ?string $deviceId): void
     {
-        $byUser = Shift::openForUser($actor?->getKey());
+        $byUser = Shift::unclosedForUser($actor?->getKey());
 
         if ($byUser !== null) {
             throw new ShiftAlreadyOpenException(
@@ -357,7 +466,7 @@ final class ShiftService
             );
         }
 
-        $byDevice = Shift::openForDevice($deviceId);
+        $byDevice = Shift::unclosedForDevice($deviceId);
 
         if ($byDevice !== null) {
             throw new ShiftAlreadyOpenException(

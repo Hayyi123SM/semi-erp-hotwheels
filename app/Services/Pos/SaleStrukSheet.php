@@ -98,6 +98,11 @@ final readonly class SaleStrukSheet
         return $this->sale->discount_total;
     }
 
+    public function orderDiscountTotal(): int
+    {
+        return $this->sale->order_discount_total;
+    }
+
     public function total(): int
     {
         return $this->sale->total;

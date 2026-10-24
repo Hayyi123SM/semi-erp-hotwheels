@@ -192,6 +192,12 @@ export function tableAsync(options = {}) {
             if (stripSlot !== null) {
                 initTree(stripSlot);
             }
+
+            // The rows the reader had selected from are gone, so whichever part
+            // of the page was counting them has to count the new ones -- or
+            // zero. Bubbling lets a page component listen from outside the
+            // table without the table having to know it exists.
+            this.$root.dispatchEvent(new CustomEvent('table:refreshed', { bubbles: true }));
         },
 
         /**

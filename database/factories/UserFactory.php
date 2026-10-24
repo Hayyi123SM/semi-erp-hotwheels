@@ -16,12 +16,6 @@ class UserFactory extends Factory
     protected static ?string $password;
 
     /**
-     * PIN default user uji. Pre-hash sekali agar tidak di-hash ulang
-     * pada setiap pemanggilan factory.
-     */
-    protected static ?string $pin;
-
-    /**
      * @return array<string, mixed>
      */
     public function definition(): array
@@ -32,7 +26,6 @@ class UserFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
-            'pin' => static::$pin ??= Hash::make('123456'),
             'role' => Role::Staff,
             'is_active' => true,
             'remember_token' => Str::random(10),
@@ -71,13 +64,6 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'is_active' => false,
-        ]);
-    }
-
-    public function withPin(string $pin = '123456'): static
-    {
-        return $this->state(fn (array $attributes) => [
-            'pin' => Hash::make($pin),
         ]);
     }
 }

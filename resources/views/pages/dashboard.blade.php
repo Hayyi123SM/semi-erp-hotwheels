@@ -60,6 +60,34 @@
                 delta-tone="info"
                 icon="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
             />
+            <x-ui.stat-card
+                label="Pengeluaran Hari Ini"
+                value="{{ Format::rupiah($cards['pengeluaranHariIni'] ?? 0) }}"
+                delta="catatan terpisah untuk Owner"
+                delta-tone="warning"
+                icon="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+            <x-ui.stat-card
+                label="Laba Bersih Estimasi Hari Ini"
+                value="{{ Format::rupiah($cards['labaBersihEstimasiHariIni'] ?? 0) }}"
+                delta="Margin Toko - Pengeluaran Operasional"
+                :delta-tone="($cards['labaBersihEstimasiHariIni'] ?? 0) >= 0 ? 'success' : 'error'"
+                icon="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+            />
+            <x-ui.stat-card
+                label="Pengeluaran Bulan Ini"
+                value="{{ Format::rupiah($cards['pengeluaranBulanIni'] ?? 0) }}"
+                delta="akumulasi bulan berjalan"
+                delta-tone="warning"
+                icon="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            />
+            <x-ui.stat-card
+                label="Laba Bersih Estimasi Bulan Ini"
+                value="{{ Format::rupiah($cards['labaBersihEstimasiBulanIni'] ?? 0) }}"
+                delta="Margin Toko Bulanan - Pengeluaran Operasional"
+                :delta-tone="($cards['labaBersihEstimasiBulanIni'] ?? 0) >= 0 ? 'success' : 'error'"
+                icon="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+            />
         @else
             <x-ui.stat-card
                 label="Nota Hari Ini"

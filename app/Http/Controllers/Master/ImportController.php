@@ -18,10 +18,13 @@ use App\Services\Import\ImportTemplateService;
 use App\Services\Import\InboundImportCommitter;
 use App\Services\Master\ConsignorCodeService;
 use App\Services\Spreadsheet\SpreadsheetService;
+use App\Support\Format;
 use App\Support\ImportSchemas;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redirect;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ImportController extends Controller
@@ -55,10 +58,23 @@ class ImportController extends Controller
         $file = $request->file('import_file');
 
         try {
-            $rows = $this->spreadsheet->rows($file->getPathname());
+            $sheet = $this->spreadsheet->rows($file->getPathname());
         } catch (\Throwable) {
             return back()->with('toast', ['type' => 'error', 'message' => 'Berkas tidak dapat dibaca, pastikan format .xlsx/.xls/.csv valid.']);
         }
+
+        if ($sheet['truncated']) {
+            return back()->with('toast', [
+                'type' => 'error',
+                'message' => sprintf(
+                    'Berkas berisi %s baris, melebihi batas %s baris per unggahan. Pisahkan berkasnya menjadi beberapa bagian lalu unggah satu per satu.',
+                    Format::number($sheet['totalRows']),
+                    Format::number(SpreadsheetService::MAX_ROWS),
+                ),
+            ]);
+        }
+
+        $rows = $sheet['rows'];
 
         if ($rows === []) {
             return back()->with('toast', ['type' => 'error', 'message' => 'Berkas tampak kosong.']);
@@ -140,6 +156,44 @@ class ImportController extends Controller
     }
 
     /**
+     * Langkah Validasi yang bisa dibuka ulang dengan GET.
+     *
+     * `preview()` hanya menjawab POST, dan halaman Validasi memang dituju lewat
+     * POST -- jadi begitu `commit` menolak berkas, tombol Back dan redirect
+     * bawaan Laravel sama-sama menunjuk ke URL yang hanya bisa dijawab POST dan
+     * berujung 405. Rute inilah yang membuat orang bisa kembali melihat tabel
+     * baris yang gagal tanpa mengirim ulang peta kolomnya.
+     *
+     * Sama seperti `preview()`: tidak ada satu pun baris yang ditulis, dan
+     * pre-create sengaja tidak dijalankan ulang supaya GET tidak pernah
+     * membuat data. Pre-create-nya sudah berjalan di `preview()`, jadi hasil
+     * pemeriksaan ulang ini identik dengan yang akan ditulis oleh `commit`.
+     */
+    public function validate(string $module, string $token)
+    {
+        $this->ensureModule($module);
+        $payload = $this->payload($module, $token);
+        $mapping = $this->import->mapping($token);
+
+        abort_if(
+            $mapping === null,
+            409,
+            'Peta kolom belum divalidasi. Kembali ke langkah Pemetaan dan jalankan validasi lebih dulu.'
+        );
+
+        $result = $this->import->buildResult($module, $payload, $mapping);
+        $schema = ImportSchemas::for($module);
+
+        return $this->page('pages.import.validate', [
+            'module' => $module,
+            'token' => $token,
+            'schema' => $schema,
+            'filename' => $payload['filename'],
+            'result' => $result,
+        ], $schema['title'].' — Validasi');
+    }
+
+    /**
      * Langkah Selesai: tulis baris yang lolos, lalu buang sesi.
      *
      * `buildResult()` dijalankan ulang, bukan memakai hasil yang sudah
@@ -148,6 +202,10 @@ class ImportController extends Controller
      * pratinjau dan konfirmasi bisa ada yang menambah baris. Menjalankan
      * ulang pemeriksaan terhadap keadaan saat menulis membuat angka di
      * halaman hasil selalu benar tentang apa yang benar-benar tersimpan.
+     *
+     * Modul master menulis baris yang lolos lalu melaporkan sisanya di halaman
+     * hasil. Inbound keluar lewat `commitInbound()`, yang berhenti lebih dulu
+     * begitu ada baris ditolak pemeriksaan ulang.
      */
     public function commit(string $module, string $token, Request $request)
     {
@@ -170,10 +228,7 @@ class ImportController extends Controller
         );
 
         if (ImportSchemas::isInbound($module)) {
-            $redirect = $this->inboundCommit->commit($module, $result, $request->user(), $token);
-            $this->import->destroy($token);
-
-            return $redirect;
+            return $this->commitInbound($module, $token, $result, $request->user());
         }
 
         $summary = $this->persistRows($module, $result);
@@ -190,6 +245,47 @@ class ImportController extends Controller
             'result' => $result,
             'summary' => $summary,
         ], $schema['title'].' — Selesai');
+    }
+
+    /**
+     * Simpan berkas Inbound sekaligus, atau kembalikan orang ke Validasi.
+     *
+     * Modul Inbound berbeda dengan master: satu berkas adalah satu kiriman, dan
+     * `InboundImportCommitter` menjalankannya dalam satu transaksi luar. Karena
+     * itu baris yang ditolak pemeriksaan ulang -- database berubah di antara
+     * pratinjau dan konfirmasi -- tidak boleh dilewati diam-diam. Orang akan
+     * menerima separuh kiriman sementara berkas aslinya menolak sisanya, tanpa
+     * satu pun pesan yang menyatakan hal itu.
+     *
+     * Sesi tidak dibuang ketika penolakan terjadi, supaya daftar baris yang
+     * gagal dan peta kolomnya masih bisa dibuka, diperbaiki, lalu dicoba lagi
+     * tanpa perlu mengunggah ulang berkasnya.
+     */
+    private function commitInbound(string $module, string $token, ImportResult $result, User $actor): RedirectResponse
+    {
+        if ($result->failureCount() > 0) {
+            return Redirect::route('master.import.validate', [$module, $token])->withErrors([
+                'import' => sprintf(
+                    '%s dari %s baris ditolak pemeriksaan ulang. Tidak ada satu pun baris yang disimpan; perbaiki berkasnya lalu jalankan validasi lagi.',
+                    Format::number($result->failureCount()),
+                    Format::number($result->total()),
+                ),
+            ]);
+        }
+
+        try {
+            $redirect = $this->inboundCommit->commit($module, $result, $actor, $token);
+        } catch (ValidationException $exception) {
+            // Penitip tanpa skema komisi dan semacamnya baru ketahuan saat baris
+            // benar-benar ditulis. Sesi masih utuh, jadi pesannya cukup
+            // ditampilkan kembali di langkah Validasi.
+            return Redirect::route('master.import.validate', [$module, $token])
+                ->withErrors($exception->errors());
+        }
+
+        $this->import->destroy($token);
+
+        return $redirect;
     }
 
     /**

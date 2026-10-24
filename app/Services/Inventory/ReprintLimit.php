@@ -34,9 +34,10 @@ use Illuminate\Support\Collection;
  *    menghabiskan jatah seharian.
  *
  * Dihitung di satu tempat, dan hasilnya dipakai dua kali: FormRequest
- * menentukan apakah form harus membawa token PIN, dan `LabelPrintService`
- * memeriksanya lagi di dalam transaksi. Pemeriksaan kedua bukan paranoia --
- * angka di form bisa sudah basi ketika operator sedang mengetik PIN-nya.
+ * menentukan siapa yang menandatangan cetakan yang melewati batas, dan
+ * `LabelPrintService` memeriksanya lagi di dalam transaksi. Pemeriksaan kedua
+ * bukan paranoia -- angka di form bisa sudah basi ketika operator menekan
+ * tombol, karena label lot yang sama bisa keluar dari printer di antaranya.
  */
 class ReprintLimit
 {

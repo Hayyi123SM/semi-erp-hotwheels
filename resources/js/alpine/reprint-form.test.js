@@ -4,7 +4,6 @@ import { reprintForm } from './reprint-form';
 
 const ENDPOINT = '/inbound/cetak-label/reprint';
 const REDIRECT = '/inbound/cetak-label';
-const CONTEXT = 'inventory.label-overprint';
 
 /** A form element Alpine can hand to `send()` through `this.$el`. */
 function formElement() {
@@ -18,23 +17,28 @@ function formElement() {
 	return element;
 }
 
+function jsonResponse(status, payload) {
+	return {
+		ok: status >= 200 && status < 300,
+		status,
+		json: async () => payload,
+	};
+}
+
 /**
  * The component under test with its `window` dependencies faked.
  *
- * `window.location.assign` and `window.pin` are the only two things the form
- * reaches for outside itself, and both are replaced rather than stubbed on the
- * object so that a test which forgets to fake one fails loudly instead of
- * quietly navigating a jsdom window.
+ * `window.location.assign` is the only thing the form reaches for outside
+ * itself, and it is replaced so that a successful run does not try to navigate
+ * the jsdom window.
  */
-function mount({ responses, pin } = {}) {
+function mount({ responses } = {}) {
 	const assign = vi.fn();
 	const element = formElement();
-
-	delete window.pin;
-	window.pin = pin;
-
-	const state = reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT, context: CONTEXT });
+	const state = reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT });
 	state.$el = element;
+
+	window.location.assign = assign;
 
 	const queue = [...(responses ?? [])];
 	const calls = [];
@@ -45,15 +49,7 @@ function mount({ responses, pin } = {}) {
 		return queue.length > 1 ? queue.shift() : queue[0];
 	});
 
-	return { state, assign, calls, element };
-}
-
-function jsonResponse(status, payload) {
-	return {
-		ok: status >= 200 && status < 300,
-		status,
-		json: async () => payload,
-	};
+	return { state, assign, calls };
 }
 
 beforeEach(() => {
@@ -62,13 +58,12 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
-	delete window.pin;
 });
 
 const LOT_IDS = [7, 8, 9];
 
 function makeForm(overrides = {}) {
-	return { ...reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT, context: CONTEXT }, LOT_IDS), ...overrides };
+	return { ...reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT }, LOT_IDS), ...overrides };
 }
 
 /**
@@ -106,7 +101,7 @@ describe('reprintForm lot selection', () => {
 	});
 
 	it('never reports all selected when no lot is on the page', () => {
-		const form = reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT, context: CONTEXT }, []);
+		const form = reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT }, []);
 
 		expect(form.allSelected()).toBe(false);
 
@@ -140,14 +135,15 @@ describe('reprintForm lot selection', () => {
 		expect(makeForm({ selected: [7], busy: true }).canSubmit()).toBe(false);
 	});
 
-	it('keeps the chosen lots after the owner cancels the PIN dialog', () => {
-		const form = makeForm({ selected: [7] });
-		form.reset();
+	it('keeps the chosen lots after the server refuses the request', async () => {
+		const { state } = mount({ responses: [jsonResponse(422, { errors: { copies: ['Melebihi batas.'] } })] });
+		state.selected = [7];
 
-		// Token yang gagal dicoba ikut dibuang, tapi pilihan lot tidak: kalau
-		// ikut hilang, operator harus mencari ulang lot yang tadi dipegang.
-		expect(form.token).toBe('');
-		expect(form.selected).toEqual([7]);
+		await state.run();
+
+		// Kalau centangan ikut hilang, operator harus mencari ulang lot yang tadi
+		// dipegang hanya karena batasnya berubah di detik terakhir.
+		expect(state.selected).toEqual([7]);
 	});
 });
 
@@ -166,17 +162,15 @@ describe('reprintForm.submit', () => {
 
 		await state.submit({ preventDefault: vi.fn() });
 
-		// A 422 is what opens the dialog. Without these headers Laravel answers
-		// 302 back to the previous page, `fetch` follows it to HTML, and the
-		// rejection is never seen by this component.
+		// Tanpa header ini Laravel menjawab 302 ke halaman sebelumnya, `fetch`
+		// mengikutinya sampai ke HTML, dan pesan penolakan tidak pernah sampai
+		// ke komponen ini.
 		expect(calls[0].init.headers.Accept).toBe('application/json');
 		expect(calls[0].init.headers['X-Requested-With']).toBe('XMLHttpRequest');
 	});
 
 	it('goes to the queue when the reprint was accepted', async () => {
-		const assign = vi.fn();
-		const { state } = mount({ responses: [jsonResponse(200, {})] });
-		window.location.assign = assign;
+		const { state, assign } = mount({ responses: [jsonResponse(200, {})] });
 
 		await state.submit({ preventDefault: vi.fn() });
 
@@ -193,119 +187,57 @@ describe('reprintForm.submit', () => {
 	});
 });
 
-describe('reprintForm and the Owner PIN', () => {
-	it('opens the dialog when the server says the reprint needs approval', async () => {
-		const request = vi.fn(async () => ({ token: 'grant-1' }));
-		const { state, calls } = mount({
-			pin: { request },
+describe('reprintForm when the server refuses the request', () => {
+	it('shows the first validation message, not a generic one', async () => {
+		const { state } = mount({
 			responses: [
-				jsonResponse(422, { errors: { pin_token: ['Sudah punya 4 dari 4 label.'] } }),
-				jsonResponse(200, {}),
+				jsonResponse(422, {
+					errors: { copies: ['CN01-HW-001-U09 sudah punya 4 dari 4 label.'] },
+				}),
 			],
 		});
 
 		await state.submit({ preventDefault: vi.fn() });
 
-		expect(request).toHaveBeenCalledTimes(1);
-		expect(request.mock.calls[0][0].context).toBe(CONTEXT);
-		expect(calls).toHaveLength(2);
+		expect(state.error).toBe('CN01-HW-001-U09 sudah punya 4 dari 4 label.');
 	});
 
-	it('tells the operator which lot is the problem', async () => {
-		const request = vi.fn(async () => ({ token: 'grant-1' }));
+	it('says which lot is over the limit', async () => {
 		const { state } = mount({
-			pin: { request },
-			responses: [
-				jsonResponse(422, { errors: { pin_token: ['CN01-HW-001-U09 sudah punya 4 dari 4 label.'] } }),
-				jsonResponse(200, {}),
-			],
+			responses: [jsonResponse(422, { errors: { copies: ['CN01-HW-001-U09 sudah punya 4 dari 4 label.'] } })],
 		});
 
 		await state.submit({ preventDefault: vi.fn() });
 
-		expect(request.mock.calls[0][0].description).toContain('CN01-HW-001-U09');
+		expect(state.error).toContain('CN01-HW-001-U09');
 	});
 
-	it('sends the token it was given', async () => {
-		const request = vi.fn(async () => ({ token: 'grant-1' }));
-		const { state, calls } = mount({
-			pin: { request },
-			responses: [
-				jsonResponse(422, { errors: { pin_token: ['Perlu PIN.'] } }),
-				jsonResponse(200, {}),
-			],
-		});
+	it('falls back to a generic message when the response carries no errors', async () => {
+		const { state } = mount({ responses: [jsonResponse(422, {})] });
 
 		await state.submit({ preventDefault: vi.fn() });
 
-		expect(calls[1].init.body.get('pin_token')).toBe('grant-1');
+		expect(state.error).not.toBe('');
 	});
 
-	it('does not send an empty token when no approval is needed', async () => {
-		// An empty `pin_token` would trip `required` with the wrong message, and
-		// what the operator needs to read at that point is "ask for a PIN".
-		const { state, calls } = mount({ responses: [jsonResponse(200, {})] });
+	it('does not navigate when the request was refused', async () => {
+		const { state, assign } = mount({ responses: [jsonResponse(422, { errors: { copies: ['Penuh.'] } })] });
 
 		await state.submit({ preventDefault: vi.fn() });
 
-		expect(calls[0].init.body.has('pin_token')).toBe(false);
+		expect(assign).not.toHaveBeenCalled();
 	});
 
-	it('opens the dialog at most once, however often the server refuses', async () => {
-		// A wrong PIN, or one that expired, answers 422 again. Reopening the
-		// dialog on that would put a PIN prompt in front of whoever else is at
-		// the terminal, over and over, with no way out.
-		const request = vi.fn(async () => ({ token: 'grant-1' }));
+	it('clears the previous error on the next attempt', async () => {
 		const { state } = mount({
-			pin: { request },
-			responses: [jsonResponse(422, { errors: { pin_token: ['PIN Owner salah.'] } })],
+			responses: [jsonResponse(422, { errors: { copies: ['Penuh.'] } }), jsonResponse(200, {})],
 		});
 
-		await state.submit({ preventDefault: vi.fn() });
+		await state.run();
+		expect(state.error).toBe('Penuh.');
 
-		expect(request).toHaveBeenCalledTimes(1);
-		expect(state.error).toContain('PIN Owner salah');
-	});
-
-	it('reports the refusal when the operator cancels the dialog', async () => {
-		const request = vi.fn(async () => null);
-		const { state, calls } = mount({
-			pin: { request },
-			responses: [jsonResponse(422, { errors: { pin_token: ['Sudah punya 4 dari 4 label.'] } })],
-		});
-
-		await state.submit({ preventDefault: vi.fn() });
-
-		expect(calls).toHaveLength(1);
-		expect(request).toHaveBeenCalledTimes(1);
-		expect(state.error).toContain('4 dari 4');
-	});
-
-	it('lets a cancelled dialog be asked for again', async () => {
-		const request = vi.fn(async () => null);
-		const { state, calls } = mount({
-			pin: { request },
-			responses: [jsonResponse(422, { errors: { pin_token: ['Perlu PIN.'] } })],
-		});
-
-		await state.submit({ preventDefault: vi.fn() });
-		await state.submit({ preventDefault: vi.fn() });
-
-		expect(request).toHaveBeenCalledTimes(2);
-		expect(calls).toHaveLength(2);
-	});
-
-	it('shows the reason without a dialog when it is not about the PIN', async () => {
-		const request = vi.fn();
-		const { state } = mount({
-			pin: { request },
-			responses: [jsonResponse(422, { errors: { reason: ['Alasan tidak dikenal.'] } })],
-		});
-
-		await state.submit({ preventDefault: vi.fn() });
-
-		expect(request).not.toHaveBeenCalled();
-		expect(state.error).toBe('Alasan tidak dikenal.');
+		await state.run();
+		expect(state.error).toBe('');
 	});
 });
 
@@ -315,13 +247,11 @@ describe('reprintForm when the server cannot be reached', () => {
 			throw new TypeError('Failed to fetch');
 		});
 
-		const state = reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT, context: CONTEXT });
+		const state = reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT });
 		state.$el = formElement();
 
 		await state.run();
 
-		// A dead network and a refused PIN send the operator to two different
-		// places to fix something, so the message has to say which one.
 		expect(state.error).toContain('Tidak bisa menghubungi server');
 	});
 
@@ -330,11 +260,20 @@ describe('reprintForm when the server cannot be reached', () => {
 			throw new TypeError('Failed to fetch');
 		});
 
-		const state = reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT, context: CONTEXT });
+		const state = reprintForm({ endpoint: ENDPOINT, redirectTo: REDIRECT });
 		state.$el = formElement();
 
 		await state.run();
 
 		expect(state.busy).toBe(false);
+	});
+
+	it('does not start a second request while one is still in flight', async () => {
+		const { state, calls } = mount({ responses: [jsonResponse(200, {})] });
+		state.busy = true;
+
+		await state.run();
+
+		expect(calls).toHaveLength(0);
 	});
 });

@@ -20,6 +20,7 @@ use App\Models\SkuSequence;
 use App\Models\StockLot;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Inventory\RackCapacityService;
 use App\Services\Inventory\ReceiveStock;
 use App\Services\Inventory\SkuService;
 use App\Services\Inventory\StockLotService;
@@ -282,7 +283,7 @@ class StockLotServiceTest extends TestCase
             ->once()
             ->andReturn('CN01-HW-001');
 
-        $service = new StockLotService($skus, new LabelPrinterSettings);
+        $service = new StockLotService($skus, new LabelPrinterSettings, new RackCapacityService);
 
         try {
             $service->receiveMany([

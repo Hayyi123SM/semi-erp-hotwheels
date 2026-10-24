@@ -113,6 +113,20 @@ return [
             'default' => ['owner' => true, 'staff' => true],
             'label' => 'Shift Kasir',
         ],
+        'pos.persetujuan-shift' => [
+            'type' => 'menu',
+            'group' => 'pos',
+            'route' => 'pos.persetujuan-shift',
+            'default' => ['owner' => true, 'staff' => false],
+            'label' => 'Persetujuan Shift',
+        ],
+        'pos.persetujuan-shift' => [
+            'type' => 'menu',
+            'group' => 'pos',
+            'route' => 'pos.persetujuan-shift',
+            'default' => ['owner' => true, 'staff' => false],
+            'label' => 'Persetujuan Shift',
+        ],
         'report.settlement' => [
             'type' => 'menu',
             'group' => 'report',

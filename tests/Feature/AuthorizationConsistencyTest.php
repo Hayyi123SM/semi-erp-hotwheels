@@ -60,7 +60,6 @@ class AuthorizationConsistencyTest extends TestCase
         'profile.edit',
         'profile.update',
         'profile.destroy',
-        'pin.verify',
         'password.confirm',
         'password.update',
         'verification.notice',

@@ -207,14 +207,13 @@ class ImportSchemas
         return [
             'module' => 'pengguna',
             'title' => 'Import Pengguna & Role',
-            'subtitle' => 'Username unik. PIN opsional 6 digit. Password wajib diisi.',
+            'subtitle' => 'Username unik. Password wajib diisi.',
             'items' => [
                 ['key' => 'name', 'label' => 'Nama Lengkap', 'store' => 'name', 'type' => 'string', 'required' => true, 'rules' => ['name' => ['required', 'max:255']]],
                 ['key' => 'username', 'label' => 'Username', 'store' => 'username', 'type' => 'string', 'required' => true, 'rules' => ['username' => ['required', 'max:255', 'regex:/^[A-Za-z0-9._-]+$/']]],
                 ['key' => 'email', 'label' => 'Email', 'store' => 'email', 'type' => 'string', 'rules' => ['email' => ['nullable', 'email', 'max:255']]],
                 ['key' => 'role', 'label' => 'Role (OWNER/STAFF)', 'store' => 'role', 'type' => 'enum', 'enum' => Role::class, 'default' => 'STAFF', 'rules' => ['role' => ['required', 'in:OWNER,STAFF']]],
                 ['key' => 'is_active', 'label' => 'Aktif (YA/TIDAK)', 'store' => 'is_active', 'type' => 'boolean', 'default' => true, 'rules' => ['is_active' => ['boolean']]],
-                ['key' => 'pin', 'label' => 'PIN (6 digit, opsional)', 'store' => 'pin', 'type' => 'string', 'rules' => ['pin' => ['nullable', 'digits:6']]],
                 ['key' => 'password', 'label' => 'Password Awal', 'store' => 'password', 'type' => 'string', 'required' => true, 'rules' => ['password' => ['required', 'string', 'min:8']]],
             ],
         ];

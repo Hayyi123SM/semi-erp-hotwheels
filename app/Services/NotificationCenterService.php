@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Enums\OpnameStatus;
 use App\Models\Opname;
+use App\Models\Shift;
 use App\Models\User;
 use App\Services\Report\DashboardService;
 
@@ -31,7 +32,7 @@ final class NotificationCenterService
     public function items(?User $viewer): array
     {
         // Semua item mengarah ke modul non-POS -- persetujuan opname, karantina,
-        // dan label -- yang kini Owner-only. Menampilkannya ke Staff hanya
+        // label -- yang kini Owner-only. Menampilkannya ke Staff hanya
         // menghasilkan tautan menuju halaman 403, jadi bukan-Owner menerima
         // pusat notifikasi kosong.
         if (! $viewer?->isOwner()) {
@@ -41,6 +42,8 @@ final class NotificationCenterService
         $items = [];
 
         $this->pushWhenNonEmpty($items, $this->pendingApprovalOpnames());
+
+        $this->pushWhenNonEmpty($items, $this->pendingShiftClosings());
 
         $quarantine = $this->dashboard->quarantineSummary();
 
@@ -82,6 +85,26 @@ final class NotificationCenterService
             'title' => 'Persetujuan Opname',
             'message' => $count.' sesi opname menunggu persetujuan kamu',
             'href' => route('inventory.stok-opname'),
+        ];
+    }
+
+    /**
+     * @return array{id: string, tone: string, title: string, message: string, href: string}|null
+     */
+    private function pendingShiftClosings(): ?array
+    {
+        $count = Shift::query()->pendingApproval()->count();
+
+        if ($count === 0) {
+            return null;
+        }
+
+        return [
+            'id' => 'shift-pending-approval',
+            'tone' => 'warning',
+            'title' => 'Persetujuan Tutup Shift',
+            'message' => $count.' hitungan laci menunggu persetujuan kamu',
+            'href' => route('pos.persetujuan-shift'),
         ];
     }
 

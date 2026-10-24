@@ -45,7 +45,7 @@
                          bentuk itu di sini. Field uang akan mengubah `12,5`
                          menjadi `125`. --}}
                     <x-ui.field label="Batas diskon kasir" name="staff_discount_limit_percent" required
-                                hint="Potongan harga maksimal (%) yang boleh diberikan kasir tanpa PIN Owner. 0 berarti kasir tidak boleh memberi diskon sama sekali.">
+                                hint="Potongan harga maksimal (%) yang boleh diberikan kasir. 0 berarti kasir tidak boleh memberi diskon sama sekali.">
                         <x-ui.money-input name="staff_discount_limit_percent" mode="rate" required
                                           :value="$posSettings['staff_discount_limit_percent']"
                                           :min="0" :max="PosSettings::MAX_DISCOUNT_PERCENT" />
@@ -96,12 +96,12 @@
                 <div>
                     <dt class="text-label-md text-text-muted">Batas diskon kasir</dt>
                     <dd class="text-headline-sm font-semibold text-text-strong tabular-nums">{{ $posSettings['staff_discount_limit_percent'] }}%</dd>
-                    <p class="text-label-sm text-text-subtle">Di atas ini perlu PIN Owner.</p>
+                    <p class="text-label-sm text-text-subtle">Di atas ini perlu persetujuan Owner.</p>
                 </div>
                 <div>
                     <dt class="text-label-md text-text-muted">Ambang selisih kas</dt>
                     <dd class="text-headline-sm font-semibold text-text-strong tabular-nums">{{ Format::rupiah($posSettings['cash_difference_threshold']) }}</dd>
-                    <p class="text-label-sm text-text-subtle">Di atas ini perlu PIN Owner.</p>
+                    <p class="text-label-sm text-text-subtle">Di atas ini perlu persetujuan Owner.</p>
                 </div>
                 <div>
                     <dt class="text-label-md text-text-muted">Kertas struk dokumen</dt>
@@ -130,7 +130,7 @@
             <li class="flex items-center justify-between gap-4 py-3 first:pt-0">
                 <div>
                     <p class="text-body-md font-medium text-text-strong">Batas re-print label per lot per hari</p>
-                    <p class="text-label-sm text-text-muted">Melebihi batas memerlukan PIN Owner. Dihitung dari percobaan cetak, bukan jumlah label.</p>
+                    <p class="text-label-sm text-text-muted">Melebihi batas ditolak dan perlu ditinjau Owner. Dihitung dari percobaan cetak, bukan jumlah label.</p>
                 </div>
                 <p class="shrink-0 text-headline-sm font-semibold tabular-nums text-text-strong">
                     {{ ReprintLimit::DAILY_STAFF_LIMIT }}&times;

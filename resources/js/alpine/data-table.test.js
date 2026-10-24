@@ -132,6 +132,27 @@ describe('tableAsync', () => {
             expect(root.querySelector('.filter-strip')).not.toBeNull();
         });
 
+        it('tells the page when the rows it was selecting from are gone', () => {
+            const root = mount();
+            const { component } = build(root);
+            const heard = vi.fn();
+
+            // Listening on the document, not the root: a page component sits
+            // outside the table and only hears this if the event bubbles.
+            document.addEventListener('table:refreshed', heard);
+
+            component.swap(fragment());
+
+            expect(heard).toHaveBeenCalledOnce();
+
+            // Nothing was swapped, so nothing changed for the page to recount.
+            component.swap('<html><body><p>a different page</p></body></html>');
+
+            expect(heard).toHaveBeenCalledOnce();
+
+            document.removeEventListener('table:refreshed', heard);
+        });
+
         it('ignores a response with no table in it', () => {
             const root = mount();
             const { component } = build(root);

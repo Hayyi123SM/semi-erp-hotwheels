@@ -22,6 +22,53 @@ import { rupiah } from "../format";
  */
 const AUTOSAVE_DELAY_MS = 400;
 
+/**
+ * Palet badge seri, dipilih deterministik dari nama serinya.
+ *
+ * Warna yang sama untuk seri yang sama di setiap baris, perangkat, dan
+ * sesi -- fungsi hash murni, tanpa keadaan yang disimpan di mana pun. Hash
+ * sederhana (polynomial rolling) cukup: yang dibutuhkan hanya satu indeks
+ * stabil dari nama ke palet, bukan kriptografi.
+ *
+ * Kelas tertulis lengkap sebagai string literal supaya pemindai Tailwind
+ * menemukannya di berkas sumber; palet ini memakai warna pastel latar
+ * terang-teks-gelap, seperti badge kondisi yang sudah ada di halaman.
+ */
+const SERIES_BADGE_CLASSES = [
+    "bg-sky-100 text-sky-800",
+    "bg-violet-100 text-violet-800",
+    "bg-emerald-100 text-emerald-800",
+    "bg-amber-100 text-amber-800",
+    "bg-rose-100 text-rose-800",
+    "bg-indigo-100 text-indigo-800",
+    "bg-teal-100 text-teal-800",
+    "bg-orange-100 text-orange-800",
+];
+
+/**
+ * Kelas warna untuk satu nama seri, atau string kosong bila namanya kosong.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+function seriesBadgeClass(name) {
+    const series = String(name ?? "");
+
+    if (series === "") {
+        return "";
+    }
+
+    let hash = 0;
+
+    for (let i = 0; i < series.length; i++) {
+        hash = (hash * 31 + series.charCodeAt(i)) | 0;
+    }
+
+    return SERIES_BADGE_CLASSES[
+        Math.abs(hash) % SERIES_BADGE_CLASSES.length
+    ];
+}
+
 export function stockInPribadiForm(options = {}) {
     const lookupUrl = options.lookupUrl ?? "";
     const racks = Array.isArray(options.racks) ? options.racks : [];
@@ -119,6 +166,9 @@ export function stockInPribadiForm(options = {}) {
                 casting_code: item.casting_code ?? "",
                 name: item.name ?? "",
                 series_code: item.series_code ?? "",
+                series_name: item.series_name ?? "",
+                color: item.color ?? "",
+                year: item.year ?? "",
                 qty: item.qty ?? 1,
                 cost_price: item.cost_price ?? "",
                 card_condition: item.card_condition ?? "MINT",
@@ -188,6 +238,9 @@ export function stockInPribadiForm(options = {}) {
                 casting_code: item.casting_code,
                 name: item.name,
                 series_code: item.series_code,
+                series_name: item.series_name,
+                color: item.color,
+                year: item.year,
                 qty: item.qty,
                 cost_price: item.cost_price,
                 card_condition: item.card_condition,
@@ -319,6 +372,60 @@ export function stockInPribadiForm(options = {}) {
         },
 
         /**
+         * Kosongkan seluruh daftar produk setelah pengguna menyetujuinya.
+         *
+         * Daftar panjang -- terutama hasil impor -- hanya bisa diulang dengan
+         * membuang semuanya, dan menghapusnya baris demi baris berarti satu
+         * dialog per baris. Dialog di sini menyebut jumlah barang dan total
+         * qty yang lenyap, sama seperti baris kasir: tanpa angka itu, alasan
+         * menekan "Batal" tidak ada.
+         *
+         * Draftnya ikut dibuang lewat `flushSave()`, bukan `DELETE` langsung:
+         * daftar kosong yang tersimpan memang berarti "tidak ada draft", dan
+         * `flushSave` sudah memegang aturan itu -- termasuk tidak mengirim
+         * permintaan apa pun kalau draftnya belum pernah ada.
+         *
+         * @returns {Promise<boolean>} true bila daftar benar-benar dikosongkan
+         */
+        async clearConfirmed() {
+            if (this.items.length === 0) {
+                return false;
+            }
+
+            const notify = window.notify;
+
+            if (typeof notify?.dangerConfirm !== "function") {
+                return false;
+            }
+
+            const count = this.items.length;
+            const qty = this.totalQty();
+
+            const confirmed = await notify.dangerConfirm({
+                title: "Kosongkan daftar?",
+                description: `${count} barang (total qty ${qty}) akan dihapus dari daftar.`,
+                confirmText: "Kosongkan",
+                cancelText: "Batal",
+            });
+
+            if (!confirmed) {
+                return false;
+            }
+
+            this.items = [];
+            this.highlightedIndex = -1;
+
+            if (this.highlightTimeout) {
+                clearTimeout(this.highlightTimeout);
+                this.highlightTimeout = null;
+            }
+
+            await this.flushSave();
+
+            return true;
+        },
+
+        /**
          * Kirim draft lebih dulu, baru kirim formnya.
          *
          * `HTMLFormElement.submit()` tidak memancarkan event `submit`, jadi
@@ -383,6 +490,18 @@ export function stockInPribadiForm(options = {}) {
         formatRupiah(value) {
             const num = Number(value) || 0;
             return rupiah(num);
+        },
+
+        /**
+         * Kelas warna badge seri untuk satu baris (lihat `seriesBadgeClass`
+         * modul). Dipanggil dari blade lewat `:class`, jadi warnanya ikut
+         * terpasang tanpa menambah atribut `style` per baris.
+         *
+         * @param {string} name
+         * @returns {string}
+         */
+        seriesBadgeClass(name) {
+            return seriesBadgeClass(name);
         },
 
         openPicker() {
@@ -489,6 +608,12 @@ export function stockInPribadiForm(options = {}) {
                 casting_code: productData.casting_code ?? "",
                 name: productData.name ?? "",
                 series_code: productData.series_code ?? "",
+                // Picker mengirim `series` berisi nama; draft dan payload lama
+                // memakai `series_name`. Keduanya diterima supaya baris hasil
+                // pemulihan dan baris baru berbentuk sama.
+                series_name: productData.series_name ?? productData.series ?? "",
+                color: productData.color ?? "",
+                year: productData.year ?? "",
             };
 
             this.addProduct(product);
@@ -537,6 +662,9 @@ export function stockInPribadiForm(options = {}) {
                 casting_code: product.casting_code ?? "",
                 name: product.name ?? "",
                 series_code: product.series_code ?? "",
+                series_name: product.series_name ?? product.series ?? "",
+                color: product.color ?? "",
+                year: product.year ?? "",
                 qty: 1,
                 cost_price: "",
                 card_condition: "MINT",

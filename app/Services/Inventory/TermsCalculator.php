@@ -136,9 +136,9 @@ final class TermsCalculator
     /**
      * Parameter skema yang harusnya ada dan positif.
      *
-     *Ketidaksavuaraan parameter adalah kesalahan pemanggil -- tidak ada Owner
-     * PIN yang mengizinkan lot yang skema parameternya tidak lengkap -- jadi ini
-     * ditolak di sini, bukan ditandai.
+     * Ketidaksamaan parameter adalah kesalahan pemanggil -- lot dengan skema
+     * parameter yang tidak lengkap tidak bisa dihitung -- jadi ini ditolak di
+     * sini, bukan ditandai.
      *
      * @throws ValidationException
      */

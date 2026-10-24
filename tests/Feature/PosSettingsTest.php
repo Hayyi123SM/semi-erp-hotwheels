@@ -20,7 +20,7 @@ use Tests\TestCase;
  * Parameter POS yang disimpan dan dibaca kembali.
  *
  * Dua yang dijaga di sini. Pertama, simpanannya dipakai: ambang yang Owner
- * naikkan harus benar-benar menentukan apakah tutup shift perlu PIN, bukan hanya
+ * naikkan harus benar-benar menentukan apakah tutup shift perlu persetujuan, bukan hanya
  * tampil benar di halaman Pengaturan. Kedua, angka yang belum pernah disimpan
  * selalu kembali ke bawaan yang sama, supaya kasir tidak pernah berhenti mengira
  * boleh berapa persen diskon yang sebenarnya berlaku.

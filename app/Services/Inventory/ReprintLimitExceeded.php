@@ -14,10 +14,9 @@ use RuntimeException;
  * supaya pesan sampai ke baris jumlah label yang sedang diisi operator --
  * field yang sedang diketik ketika dia menekan tombol.
  *
- * 422 dan bukan 403: petugas Staff yang tidak berlebihan tidak salah, dan
- * aksi yang sama akan lolos begitu membawa token PIN. Mengembalikan 403 akan
- * membuat operator mengira dirinya tidak berhak dan berhenti mencoba sama
- * sekali.
+ * 422 dan bukan 403: operator yang melewati batas belum tentu salah, dan
+ * angka yang diketiknya perlu diperbaiki, bukan aksinya yang ditolak. 403 akan
+ * membuat operator mengira dirinya tidak berhak dan berhenti mencoba.
  */
 class ReprintLimitExceeded extends RuntimeException
 {

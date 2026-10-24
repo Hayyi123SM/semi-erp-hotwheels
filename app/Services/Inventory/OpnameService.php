@@ -81,6 +81,7 @@ final class OpnameService
     public function __construct(
         private readonly OpnameNoService $numbers,
         private readonly AuditLogger $audit,
+        private readonly RackCapacityService $rackCapacity,
     ) {}
 
     /**
@@ -428,6 +429,8 @@ final class OpnameService
                 ]);
             }
 
+            $this->guardRackCapacity($lot, $delta);
+
             $lot->update([
                 'qty_on_hand' => $newQty,
                 'status' => $this->statusAfterAdjustment($lot, $newQty),
@@ -632,6 +635,24 @@ final class OpnameService
                     ? 'Selisihnya lebih banyak unit; alasan yang masuk akal adalah Ditemukan atau Salah hitung.'
                     : 'Selisihnya lebih sedikit unit; alasan yang masuk akal adalah Hilang, Rusak, atau Salah hitung.',
             ]);
+        }
+    }
+
+    /**
+     * Selisih positif menambah unit fisik di rak, jadi ruangnya harus cukup.
+     *
+     * @throws ValidationException
+     */
+    private function guardRackCapacity(StockLot $lot, int $delta): void
+    {
+        if ($delta < 1 || $lot->rack_id === null) {
+            return;
+        }
+
+        $rack = Rack::query()->lockForUpdate()->find($lot->rack_id);
+
+        if ($rack !== null) {
+            $this->rackCapacity->assertFits($rack, $delta, 'opname');
         }
     }
 

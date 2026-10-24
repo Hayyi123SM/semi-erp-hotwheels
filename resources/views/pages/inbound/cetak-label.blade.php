@@ -85,6 +85,22 @@
                 <p class="text-label-sm text-text-subtle">Percetakan lewat dialog browser (Ctrl+P).</p>
             </div>
 
+            {{--
+                Tabel setinggi isinya, bukan dibatasi `max-h`.
+
+                Area gulir sendiri sempat dicoba supaya `thead` bisa menempel,
+                tetapi harganya dua area gulir di satu layar (tabel dan halaman)
+                plus tinggi tabel yang jadi sesak di monitor besar. Yang
+                dibutuhkan operator sebenarnya hanya tombolnya selalu terlihat,
+                dan itu cukup dengan sticky bar di bawah form -- sehingga tabel
+                kembali mengikuti scroll halaman, seperti tabel lain.
+
+                `thead` juga TIDAK di-sticky: `table-scroll` memakai
+                `overflow-x: auto`, dan elemen ber-`overflow` selain `visible`
+                menjadi containing block untuk anak `sticky`-nya, jadi sticky-nya
+                tidak akan pernah menempel ke viewport -- ia hanya akan menempel
+                ke kontainer yang tingginya mengikuti isinya.
+            --}}
             <div class="table-scroll">
                 <table class="w-full min-w-[920px] text-left">
                     <thead class="thead-dense">
@@ -166,7 +182,7 @@
                                 <td class="px-3 py-2 text-center tabular-nums">{{ $job->copies }}&times;</td>
                                 <td class="px-3 py-2 text-label-sm text-text-muted">{{ $job->reason->label() }}</td>
                                 <td class="px-3 py-2 font-mono text-label-sm text-text-muted">
-                                    {{ $job->lot->consignment?->doc_no ?? 'OW00 &middot; Pribadi' }}
+                                    {{ $job->lot->consignment?->doc_no ?? 'OW00 · Pribadi' }}
                                 </td>
                                 <td class="px-3 py-2">
                                     <x-ui.badge-status :type="$job->status->type()">{{ $job->status->label() }}</x-ui.badge-status>
@@ -199,22 +215,46 @@
                     </tbody>
                 </table>
             </div>
+        </x-ui.section-card>
 
-            {{--
-                Satu form, banyak aksi: `formaction` mengirim pilihan yang sama
-                ke URL berbeda tanpa menggandakan input `ids[]`. Tiap tombol
-                punya syarat status sendiri, dan yang tidak berlaku
-                disembunyikan supaya operator tidak menekan tombol yang pasti
-                ditolak.
-            --}}
-            <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle bg-canvas px-6 py-3">
+        {{--
+            Satu form, banyak aksi: `formaction` mengirim pilihan yang sama
+            ke URL berbeda tanpa menggandakan input `ids[]`. Tiap tombol
+            punya syarat status sendiri, dan yang tidak berlaku
+            disembunyikan supaya operator tidak menekan tombol yang pasti
+            ditolak.
+
+            Bar ini menempel ke viewport (`sticky bottom-0`), dan sengaja
+            diletakkan DI LUAR kartu tabel: antrean bisa sampai 200 baris, dan
+            tombol yang ikut tergulir bersama tabel berarti operator harus
+            menggulir ke dasar daftar hanya untuk mengonfirmasi baris yang
+            barusan ia centang di atas. Karena barisnya tetap di dalam <form>,
+            `ids[]` dan `formaction` bekerja persis seperti sebelumnya.
+
+            Selalu tampil, bukan hanya saat ada pilihan: tombol yang
+            muncul-hilang memindahkan tata letak setiap kali satu kotak
+            dicentang, dan operator yang baru belajar harus menebak di mana
+            tombolnya berada kali ini. Saat belum ada yang dipilih, teksnya
+            berubah menjadi petunjuk dan tombolnya nonaktif dengan sendirinya
+            (semua `canX()` bernilai false).
+        --}}
+        <div class="sticky bottom-0 z-10 rounded-xl border border-border-subtle bg-surface-lowest px-5 py-4 sticky-bar">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                {{-- Dua teks, bukan `x-text` yang diganti-ganti: keduanya harus
+                     sempat tampil sebagai teks utuh di DOM supaya pembaca layar
+                     dan pencarian halaman melihat kalimat yang benar, bukan
+                     potongan yang berganti. --}}
                 <p class="text-body-sm text-text-muted">
-                    <span x-text="selectedCount()"></span> job terpilih
-                    <span
-                        class="text-text-subtle"
-                        x-show="selectedCount() > 0 && !canPrint() && !canConfirm() && !canRetry()"
-                        x-cloak
-                    >&mdash; campur status, pilih satu jenis aksi dulu</span>
+                    <span x-show="selectedCount() === 0" x-cloak>
+                        Centang baris untuk mengaktifkan aksi, atau pilih semua lewat kotak di kepala tabel.
+                    </span>
+                    <span x-show="selectedCount() > 0" x-cloak>
+                        <span class="font-medium text-text-strong" x-text="selectedCount()"></span> job terpilih
+                        <span
+                            class="text-text-subtle"
+                            x-show="!canPrint() && !canConfirm() && !canRetry()"
+                        >&mdash; campur status, pilih satu jenis aksi dulu</span>
+                    </span>
                 </p>
                 <div class="flex flex-wrap items-center gap-2">
                     <button type="submit" class="btn-secondary"
@@ -249,7 +289,7 @@
                     </button>
                 </div>
             </div>
-        </x-ui.section-card>
+        </div>
     </form>
 
     {{-- ------------------------------------------------- form "gagal" --}}
@@ -361,16 +401,10 @@
                   x-data="reprintForm({
                       endpoint: '{{ route('inbound.cetak-label.reprint') }}',
                       redirectTo: '{{ route('inbound.cetak-label') }}',
-                      context: 'inventory.label-overprint',
                   }, @js($matches->modelKeys()))"
-                  @submit="window.pin ? submit($event) : null"
+                  @submit="submit($event)"
                   class="mt-4 space-y-4">
                 @csrf
-
-                {{-- Disimpan di DOM supaya form tetap bisa dikirim tanpa Alpine.
-                     `reprint-form.js` tetap menulis token dari state-nya sendiri,
-                     karena `x-model` baru sampai ke sini setelah flush. --}}
-                <input type="hidden" name="pin_token" x-model="token" value="">
 
                 <div class="table-scroll rounded border border-border-subtle">
                     <table class="w-full min-w-[760px] text-left">
@@ -445,7 +479,7 @@
                                         </p>
                                     </td>
                                     <td class="px-3 py-2 font-mono text-label-sm text-text-muted">
-                                        {{ $match->consignment?->doc_no ?? 'OW00 &middot; Pribadi' }}
+                                        {{ $match->consignment?->doc_no ?? 'OW00 · Pribadi' }}
                                     </td>
                                     <td class="px-3 py-2 text-right tabular-nums text-label-sm text-text-muted">
                                         {{ $match->labels_printed }} / {{ $match->qty_received }}
@@ -455,10 +489,11 @@
                                             <span class="text-text-muted">sisa {{ $headroom }}</span>
                                         @else
                                             {{-- Penuh. Operator boleh tetap mencetak,
-                                                 tapi hanya dengan PIN Owner, jadi
-                                                 badge ini harus jujur: bukan
-                                                 "tidak boleh", tapi "butuh izin". --}}
-                                            <x-ui.badge-status type="warning">penuh &middot; butuh PIN</x-ui.badge-status>
+                                                 tapi cetakannya melewati batas dan
+                                                 dicatat sebagai anomali, jadi badge
+                                                 ini harus jujur: bukan "tidak boleh",
+                                                 tapi "melewati batas". --}}
+                                            <x-ui.badge-status type="warning">penuh &middot; lewat batas</x-ui.badge-status>
                                         @endif
                                         @if ($inFlight > 0)
                                             <p class="text-label-sm text-text-muted">{{ $inFlight }} masih di printer</p>
@@ -523,7 +558,7 @@
 
                 <p class="text-label-sm text-text-subtle">
                     Alasan wajib dan tercatat di audit log bersama nama petugas. Jumlah label berlaku
-                    per lot yang dipilih &mdash; melebihi sisa lot atau jatah 3&times; per hari perlu PIN Owner.
+                    per lot yang dipilih &mdash; melebihi sisa lot atau jatah 3&times; per hari dicatat sebagai anomali.
                     <span x-show="selectedCount() > 0" x-cloak>
                         Saat ini <span class="font-medium text-text-strong" x-text="selectedCount()"></span>
                         lot dipilih.

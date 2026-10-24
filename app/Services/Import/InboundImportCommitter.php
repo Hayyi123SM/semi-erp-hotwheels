@@ -70,6 +70,9 @@ final class InboundImportCommitter
                 'casting_code' => (string) $product->casting_code,
                 'name' => (string) $product->name,
                 'series_code' => (string) ($product->series?->code ?? ''),
+                'series_name' => (string) ($product->series?->name ?? ''),
+                'color' => (string) ($product->color ?? ''),
+                'year' => $product->year === null ? null : (int) $product->year,
                 'qty' => (int) $data['qty'],
                 'cost_price' => (int) $data['cost_price'],
                 'card_condition' => (string) $data['card_condition'],
@@ -78,7 +81,7 @@ final class InboundImportCommitter
             ];
         }
 
-        $this->pribadiDrafts->save($items, DeviceId::current());
+        $this->pribadiDrafts->save($items);
 
         $qty = array_sum(array_column($items, 'qty'));
 

@@ -268,9 +268,15 @@
                             <dd class="tabular-nums text-text-strong">{{ Format::rupiah($sale->subtotal) }}</dd>
                         </div>
                         <div class="flex items-center justify-between gap-4 text-body-sm">
-                            <dt class="text-text-muted">Diskon</dt>
+                            <dt class="text-text-muted">Diskon Item</dt>
                             <dd class="tabular-nums text-text-strong">{{ Format::rupiah($sale->discount_total) }}</dd>
                         </div>
+                        @if ($sale->order_discount_total > 0)
+                            <div class="flex items-center justify-between gap-4 text-body-sm">
+                                <dt class="text-text-muted">Diskon Total</dt>
+                                <dd class="tabular-nums text-text-strong">{{ Format::rupiah($sale->order_discount_total) }}</dd>
+                            </div>
+                        @endif
                         <div class="flex items-center justify-between gap-4 border-t border-border-subtle pt-2 text-body-md">
                             <dt class="font-semibold text-text-strong">Total</dt>
                             <dd class="font-semibold tabular-nums text-text-strong">{{ Format::rupiah($sale->total) }}</dd>

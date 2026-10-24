@@ -22,7 +22,6 @@ class UpdateUserRequest extends FormRequest
             'role' => ['required', Rule::in($this->assignableRoleValues())],
             'is_active' => ['nullable', 'boolean'],
             'password' => ['nullable', 'string', 'min:8'],
-            'pin' => ['nullable', 'digits:6'],
         ];
     }
 

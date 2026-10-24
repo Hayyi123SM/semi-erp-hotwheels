@@ -5,6 +5,8 @@ namespace Tests\Feature\Inventory;
 use App\Enums\AuditAction;
 use App\Enums\MovementType;
 use App\Enums\OwnerType;
+use App\Http\Requests\Inventory\PindahRakBulkRequest;
+use App\Models\AuditLog;
 use App\Models\Product;
 use App\Models\ProductSeries;
 use App\Models\Rack;
@@ -89,6 +91,52 @@ class LiveStockTest extends TestCase
         // membukanya harus sudah ada di halaman, bukan menyusul belakangan.
         $this->assertStringContainsString('pindah-rak', $html);
         $this->assertStringContainsString('Kartu', $html);
+    }
+
+    /**
+     * Katalog lama masuk tanpa warna, dan tahun hanya terisi sebagian. Dulu
+     * baris seperti ini menggagalkan seluruh halaman (TypeError di filter sel
+     * produk) begitu pagination membukanya -- halaman 1 lolos hanya karena
+     * kebetulan semua produknya berwarna.
+     */
+    #[Test]
+    public function a_product_without_a_color_or_year_still_renders(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $product = Product::factory()->create([
+            'name' => 'HW Porsche 911',
+            'color' => null,
+            'year' => null,
+        ]);
+
+        $this->consignLot($this->rack(), 2, 'CN01-HW-001', $product->id);
+
+        $html = $this->actingAs($owner)
+            ->get(route('inventory.live-stock'))
+            ->assertOk()
+            ->content();
+
+        $this->assertStringContainsString('HW Porsche 911', $html);
+    }
+
+    #[Test]
+    public function a_product_with_a_color_and_year_keeps_both_in_its_detail_line(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $product = Product::factory()->create([
+            'name' => 'HW Twin Mill',
+            'color' => 'Red',
+            'year' => 1998,
+        ]);
+
+        $this->consignLot($this->rack(), 2, 'CN01-HW-001', $product->id);
+
+        $html = $this->actingAs($owner)
+            ->get(route('inventory.live-stock'))
+            ->assertOk()
+            ->content();
+
+        $this->assertStringContainsString('Red · 1998', $html);
     }
 
     #[Test]
@@ -329,6 +377,170 @@ class LiveStockTest extends TestCase
     }
 
     #[Test]
+    public function moving_many_lots_at_once_writes_one_movement_and_audit_per_lot(): void
+    {
+        $user = User::factory()->owner()->create();
+        $from = $this->rack();
+        $to = $this->rack();
+        $first = $this->consignLot($from, 5, 'CN01-HW-001');
+        $second = $this->consignLot($from, 2, 'CN01-HW-002');
+        $third = $this->ownLot($from, 1, 'OW00-HW-003');
+
+        $response = $this->actingAs($user)
+            ->from(route('inventory.live-stock'))
+            ->post(route('inventory.live-stock.rak.bulk'), [
+                'lot_ids' => [$first->id, $second->id, $third->id],
+                'rack_id' => $to->id,
+                'reason' => 'penataan ulang',
+            ]);
+
+        $response->assertRedirect(route('inventory.live-stock'));
+
+        foreach ([$first, $second, $third] as $lot) {
+            $this->assertSame($to->id, $lot->refresh()->rack_id);
+        }
+
+        // Satu gerakan per lot, semuanya nol unit: rak berubah, saldo tidak.
+        $movements = StockMovement::query()
+            ->whereIn('lot_id', [$first->id, $second->id, $third->id])
+            ->where('type', MovementType::Transfer)
+            ->get();
+
+        $this->assertCount(3, $movements);
+        $this->assertSame([0], $movements->pluck('qty_delta')->unique()->values()->all());
+        $this->assertSame(['penataan ulang'], $movements->pluck('reason')->unique()->values()->all());
+
+        $this->assertSame(3, AuditLog::query()
+            ->where('action', AuditAction::TransferRack->value)
+            ->where('entity', StockLot::class)
+            ->where('user_id', $user->id)
+            ->count());
+
+        $response->assertSessionHas('toast.type', 'success');
+        $response->assertSessionHas('toast.message', '3 lot dipindah ke rak '.$to->code.'.');
+    }
+
+    #[Test]
+    public function lots_already_in_the_target_rack_or_with_no_stock_are_skipped_and_reported(): void
+    {
+        $user = User::factory()->owner()->create();
+        $from = $this->rack();
+        $to = $this->rack();
+        $movable = $this->consignLot($from, 5, 'CN01-HW-001');
+        $empty = $this->consignLot($from, 0, 'CN01-HW-002');
+        $alreadyThere = $this->consignLot($to, 4, 'CN01-HW-003');
+
+        $response = $this->actingAs($user)
+            ->from(route('inventory.live-stock'))
+            ->post(route('inventory.live-stock.rak.bulk'), [
+                'lot_ids' => [$movable->id, $empty->id, $alreadyThere->id],
+                'rack_id' => $to->id,
+            ]);
+
+        $response->assertRedirect(route('inventory.live-stock'));
+
+        $this->assertSame($to->id, $movable->refresh()->rack_id);
+        $this->assertSame($from->id, $empty->refresh()->rack_id);
+        $this->assertSame($to->id, $alreadyThere->refresh()->rack_id);
+
+        // Baris yang dilewati tidak boleh meninggalkan gerakan atau audit
+        // palsu: yang tercatat hanya lot yang benar-benar berpindah.
+        $this->assertSame(1, StockMovement::query()->where('type', MovementType::Transfer)->count());
+        $this->assertSame(1, AuditLog::query()->where('action', AuditAction::TransferRack->value)->count());
+
+        $response->assertSessionHas('toast.type', 'success');
+        $response->assertSessionHas(
+            'toast.message',
+            '1 lot dipindah ke rak '.$to->code.'. 2 lot dilewati (sudah di rak tujuan atau stoknya kosong).',
+        );
+    }
+
+    #[Test]
+    public function a_bulk_move_to_an_inactive_rack_moves_nothing(): void
+    {
+        $user = User::factory()->owner()->create();
+        $from = $this->rack();
+        $lot = $this->consignLot($from, 5, 'CN01-HW-001');
+
+        $this->actingAs($user)
+            ->post(route('inventory.live-stock.rak.bulk'), [
+                'lot_ids' => [$lot->id],
+                'rack_id' => $this->rack(active: false)->id,
+            ])
+            ->assertSessionHasErrors('rack_id');
+
+        $this->assertSame($from->id, $lot->refresh()->rack_id);
+        $this->assertSame(0, StockMovement::query()->where('type', MovementType::Transfer)->count());
+    }
+
+    #[Test]
+    public function a_bulk_move_needs_at_least_one_lot(): void
+    {
+        $user = User::factory()->owner()->create();
+        $to = $this->rack();
+
+        $this->actingAs($user)
+            ->post(route('inventory.live-stock.rak.bulk'), ['rack_id' => $to->id])
+            ->assertSessionHasErrors(['lot_ids' => 'Pilih dulu lot yang mau dipindahkan.']);
+
+        $this->assertSame(0, StockMovement::query()->count());
+    }
+
+    #[Test]
+    public function a_bulk_move_is_capped_at_the_request_limit(): void
+    {
+        $user = User::factory()->owner()->create();
+        $to = $this->rack();
+
+        // Id-nya tidak perlu ada: yang diuji pagar jumlahnya, dan pesannya
+        // membedakan galat ini dari "lot tidak ditemukan" per baris.
+        $this->actingAs($user)
+            ->post(route('inventory.live-stock.rak.bulk'), [
+                'lot_ids' => range(1, PindahRakBulkRequest::MAX_LOTS + 1),
+                'rack_id' => $to->id,
+            ])
+            ->assertSessionHasErrors([
+                'lot_ids' => 'Satu kali pindah maksimal '.PindahRakBulkRequest::MAX_LOTS.' lot. Pecah menjadi beberapa kirim.',
+            ]);
+    }
+
+    #[Test]
+    public function the_page_offers_a_checkbox_bound_to_the_bulk_form(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $lot = $this->consignLot($this->rack(), 2, 'CN01-HW-001');
+
+        $html = $this->actingAs($owner)
+            ->get(route('inventory.live-stock'))
+            ->assertOk()
+            ->content();
+
+        $this->assertStringContainsString('form="pindah-rak-bulk"', $html);
+        $this->assertStringContainsString('name="lot_ids[]"', $html);
+        $this->assertStringContainsString('value="'.$lot->id.'"', $html);
+        $this->assertStringContainsString('id="pindah-rak-bulk"', $html);
+        $this->assertStringContainsString('action="'.route('inventory.live-stock.rak.bulk').'"', $html);
+        $this->assertStringContainsString('Pilih yang tampil', $html);
+    }
+
+    #[Test]
+    public function staff_cannot_move_lots_in_bulk(): void
+    {
+        $staff = User::factory()->staff()->create();
+        $from = $this->rack();
+        $lot = $this->consignLot($from, 2, 'CN01-HW-001');
+
+        $this->actingAs($staff)
+            ->post(route('inventory.live-stock.rak.bulk'), [
+                'lot_ids' => [$lot->id],
+                'rack_id' => $this->rack()->id,
+            ])
+            ->assertForbidden();
+
+        $this->assertSame($from->id, $lot->refresh()->rack_id);
+    }
+
+    #[Test]
     public function the_export_follows_the_active_filters(): void
     {
         $owner = User::factory()->owner()->create();
@@ -376,5 +588,94 @@ class LiveStockTest extends TestCase
             ->streamedContent();
 
         $this->assertStringContainsString('TITIP', $content);
+    }
+
+    #[Test]
+    public function moving_a_lot_that_does_not_fit_the_target_rack_is_rejected(): void
+    {
+        $user = User::factory()->owner()->create();
+        $from = $this->rack();
+        $to = Rack::factory()->create(['capacity' => 4]);
+        $lot = $this->consignLot($from, 5, 'CN01-HW-001');
+
+        $this->actingAs($user)
+            ->from(route('inventory.live-stock'))
+            ->patch(route('inventory.live-stock.rak', $lot), ['rack_id' => $to->id])
+            ->assertSessionHasErrors('rack_id');
+
+        $this->assertSame($from->id, $lot->refresh()->rack_id);
+        $this->assertSame(0, StockMovement::query()->where('type', MovementType::Transfer)->count());
+    }
+
+    #[Test]
+    public function a_bulk_move_fills_the_target_rack_and_reports_lots_that_do_not_fit(): void
+    {
+        $user = User::factory()->owner()->create();
+        $from = $this->rack();
+        $to = Rack::factory()->create(['capacity' => 5]);
+        $this->consignLot($from, 3, 'CN01-HW-001');
+        $this->consignLot($from, 4, 'CN01-HW-002');
+
+        $response = $this->actingAs($user)
+            ->from(route('inventory.live-stock'))
+            ->post(route('inventory.live-stock.rak.bulk'), [
+                'lot_ids' => StockLot::query()->orderBy('id')->pluck('id')->all(),
+                'rack_id' => $to->id,
+            ]);
+
+        $response->assertRedirect(route('inventory.live-stock'));
+        $response->assertSessionHas('toast.type', 'success');
+        $response->assertSessionHas(
+            'toast.message',
+            '1 lot dipindah ke rak '.$to->code.'. 1 lot dilewati (tidak muat di rak tujuan).',
+        );
+
+        // Yang pindah saja yang mengisi rak, dan totalnya tidak melewati kapasitas.
+        $this->assertSame(1, StockLot::query()->where('rack_id', $to->id)->count());
+        $this->assertLessThanOrEqual(5, (int) StockLot::query()->where('rack_id', $to->id)->sum('qty_on_hand'));
+        $this->assertSame(1, StockMovement::query()->where('type', MovementType::Transfer)->count());
+        $this->assertSame(1, AuditLog::query()->where('action', AuditAction::TransferRack->value)->count());
+    }
+
+    #[Test]
+    public function a_bulk_move_reports_when_nothing_fits_at_all(): void
+    {
+        $user = User::factory()->owner()->create();
+        $from = $this->rack();
+        $to = Rack::factory()->create(['capacity' => 2]);
+        $lot = $this->consignLot($from, 3, 'CN01-HW-001');
+
+        $response = $this->actingAs($user)
+            ->from(route('inventory.live-stock'))
+            ->post(route('inventory.live-stock.rak.bulk'), [
+                'lot_ids' => [$lot->id],
+                'rack_id' => $to->id,
+            ]);
+
+        $response->assertSessionHas('toast.type', 'warning');
+        $response->assertSessionHas('toast.message', 'Tidak ada lot yang dipindah: tidak muat di rak tujuan.');
+
+        $this->assertSame($from->id, $lot->refresh()->rack_id);
+        $this->assertSame(0, StockMovement::query()->where('type', MovementType::Transfer)->count());
+    }
+
+    #[Test]
+    public function a_bulk_move_into_a_rack_without_capacity_has_no_limit(): void
+    {
+        $user = User::factory()->owner()->create();
+        $from = $this->rack();
+        $to = Rack::factory()->create(['capacity' => null]);
+        $this->consignLot($from, 100, 'CN01-HW-001');
+        $this->consignLot($from, 100, 'CN01-HW-002');
+
+        $this->actingAs($user)
+            ->from(route('inventory.live-stock'))
+            ->post(route('inventory.live-stock.rak.bulk'), [
+                'lot_ids' => StockLot::query()->orderBy('id')->pluck('id')->all(),
+                'rack_id' => $to->id,
+            ])
+            ->assertSessionHas('toast.message', '2 lot dipindah ke rak '.$to->code.'.');
+
+        $this->assertSame(200, (int) StockLot::query()->where('rack_id', $to->id)->sum('qty_on_hand'));
     }
 }

@@ -475,11 +475,10 @@
                         </p>
                     </div>
 
-                    {{-- Keputusan selisih tidak lagi meminta PIN Owner: baris ini hanya
-                         tampil untuk Owner (seluruh modul Inventory berada di
-                         grup `['auth', 'owner']`), jadi memintanya lagi hanya
-                         menambah satu langkah tanpa menambah pengaman. Alasan
-                         tetap wajib diisi untuk persetujuan. --}}
+                    {{-- Baris ini hanya tampil untuk Owner (seluruh modul
+                         Inventory berada di grup `['auth', 'owner']`), jadi
+                         keputusan di sini tidak perlu otorisasi tambahan lagi.
+                         Alasan tetap wajib diisi untuk persetujuan. --}}
                     @if ($errors->any())
                         <x-ui.banner tone="error">{{ $errors->first() }}</x-ui.banner>
                     @endif

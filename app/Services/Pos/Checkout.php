@@ -33,6 +33,8 @@ final readonly class Checkout
         public array $lines,
         public array $payments,
         public ?int $tender = null,
+        public ?string $orderDiscountType = null,
+        public ?int $orderDiscountValue = null,
     ) {}
 
     /**
@@ -57,6 +59,13 @@ final readonly class Checkout
      * Kalau iya, uang yang dipegang kasir harus ada dan mencukupi: kembalian
      * tidak bisa dihitung dari uang yang tidak pernah disebutkan.
      */
+    public function hasOrderDiscount(): bool
+    {
+        return $this->orderDiscountType !== null
+            && $this->orderDiscountValue !== null
+            && $this->orderDiscountValue > 0;
+    }
+
     public function paysWithCash(): bool
     {
         foreach ($this->payments as $payment) {

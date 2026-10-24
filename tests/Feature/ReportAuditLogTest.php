@@ -269,9 +269,9 @@ class ReportAuditLogTest extends TestCase
         AuditLog::factory()->updated(['status' => 'AVAILABLE'], ['status' => 'SOLD_OUT'])
             ->withReason('Baris yang berubah.')->create(['entity' => 'StockLot', 'entity_id' => 1]);
 
-        // Baris tanpa diff: `AUTHORIZE_PIN` menyimpan RID-nya di `reason`.
+        // Baris tanpa diff: `REVIEW` menyimpan alasannya di `reason`.
         AuditLog::factory()->create([
-            'action' => 'AUTHORIZE_PIN',
+            'action' => 'REVIEW',
             'reason' => 'RID-0001',
             'before' => null,
             'after' => null,

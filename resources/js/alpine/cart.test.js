@@ -740,7 +740,11 @@ describe("posCart: paying", () => {
 
     it("reports the change the server calculated, not the one on screen", async () => {
         const { cart, toasts } = cartWith("50000");
-        global.fetch = checkout({ body: { receipt_no: "HW-20261006-0001", change: 0 } });
+        global.fetch = vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ receipt_no: "HW-20261006-0001", change: 0 }),
+        }));
 
         await cart.pay();
 
@@ -781,7 +785,11 @@ describe("posCart: paying", () => {
     it("sends no tender for a payment that produces no change", async () => {
         const { cart } = cartWith();
         cart.paymentMethod = "QRIS";
-        global.fetch = checkout({ body: { receipt_no: "HW-20261006-0001", change: 0 } });
+        global.fetch = vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ receipt_no: "HW-20261006-0001", change: 0 }),
+        }));
 
         await cart.pay();
 
@@ -1055,6 +1063,23 @@ describe("posCart: restoring a leftover cart", () => {
         expect(cart.items[0].canIncrease).toBe(true);
     });
 
+    it("restores the order-level discount together with the lines", async () => {
+        global.fetch = draftFetch({
+            has_draft: true,
+            draft: { ...draft, order_discount_type: "percent", order_discount_value: 5 },
+        });
+
+        const { cart } = mount({ draft: { load: "/pos/draft" } });
+
+        await vi.waitFor(() => expect(cart.items).toHaveLength(1));
+
+        expect(cart.orderDiscountType).toBe("percent");
+        expect(cart.orderDiscountValue).toBe(5);
+        // 2 x 20.000 - 10% = 36.000, lalu 5% dari 36.000 = 1.800.
+        expect(cart.orderDiscountTotal).toBe(1_800);
+        expect(cart.total).toBe(34_200);
+    });
+
     it("restores a draft from server even when notify helper is missing", async () => {
         global.fetch = draftFetch({ has_draft: true, draft });
 
@@ -1125,6 +1150,110 @@ describe("posCart: restoring a leftover cart", () => {
                 expect.objectContaining({ method: "DELETE" }),
             ),
         );
+    });
+});
+
+describe("posCart: the order-level discount", () => {
+    function cartWith(items = [{ price: 10_000, qty: 2, discountType: null, discountValue: 0 }]) {
+        const { cart, toasts, root } = mount();
+
+        root.dataset.checkoutUrl = "/pos/transaksi";
+
+        for (const [index, line] of items.entries()) {
+            cart.items.push({
+                lotId: index + 1,
+                sku: `S${index + 1}`,
+                name: "a",
+                price: line.price,
+                qty: line.qty,
+                stock: 5,
+                discountType: line.discountType ?? null,
+                discountValue: line.discountValue ?? 0,
+                get canIncrease() {
+                    return this.qty < this.stock;
+                },
+            });
+        }
+
+        return { cart, toasts, root };
+    }
+
+    it("takes the order discount off the total after line discounts", () => {
+        const { cart } = cartWith([{ price: 10_000, qty: 2, discountType: "percent", discountValue: 10 }]);
+
+        cart.orderDiscountType = "percent";
+        cart.orderDiscountValue = 10;
+
+        // Baris: 20.000 - 2.000 = 18.000; diskon nota 10% dari 18.000 = 1.800.
+        expect(cart.subtotal).toBe(18_000);
+        expect(cart.orderDiscountTotal).toBe(1_800);
+        expect(cart.total).toBe(16_200);
+    });
+
+    it("never lets the order discount take the whole total", () => {
+        const { cart } = cartWith();
+
+        cart.orderDiscountType = "amount";
+        cart.orderDiscountValue = 999_999;
+
+        expect(cart.orderDiscountTotal).toBe(19_999);
+        expect(cart.total).toBe(1);
+    });
+
+    it("clears the value when the type changes, so 10% does not become Rp10", () => {
+        const { cart } = cartWith();
+
+        cart.orderDiscountType = "percent";
+        cart.orderDiscountValue = 10;
+        cart.onOrderDiscountTypeChange();
+
+        expect(cart.orderDiscountValue).toBe(0);
+    });
+
+    it("counts the change against the total, not the subtotal", () => {
+        const { cart } = cartWith();
+
+        cart.orderDiscountType = "amount";
+        cart.orderDiscountValue = 5_000;
+        cart.tender = "15000";
+
+        expect(cart.change).toBe(0);
+        expect(cart.total).toBe(15_000);
+    });
+
+    it("sends the order discount once, and pays the discounted total", async () => {
+        const { cart } = cartWith();
+
+        cart.tender = "50000";
+        cart.orderDiscountType = "amount";
+        cart.orderDiscountValue = 5_000;
+
+        global.fetch = vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ receipt_no: "HW-20261006-0001", change: 0 }),
+        }));
+
+        await cart.pay();
+
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+
+        const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+
+        expect(payload.order_discount_type).toBe("amount");
+        expect(payload.order_discount_value).toBe(5_000);
+        expect(payload.payments).toEqual([{ method: "TUNAI", amount: 15_000 }]);
+    });
+
+    it("gives a new sale key when the order discount changes", () => {
+        const { cart } = cartWith();
+
+        const first = cart.saleId();
+
+        cart.orderDiscountType = "amount";
+        cart.orderDiscountValue = 1_000;
+
+        expect(cart.saleId()).not.toBe(first);
     });
 });
 

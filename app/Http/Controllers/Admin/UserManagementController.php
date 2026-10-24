@@ -163,13 +163,10 @@ class UserManagementController extends Controller
         $this->ensureOwnershipSafe($user, $request);
 
         $before = $user->getAttributes();
-        $data = collect($request->validated())->except(['password', 'pin'])->all();
+        $data = collect($request->validated())->except(['password'])->all();
 
         if ($request->filled('password')) {
             $data['password'] = $request->input('password');
-        }
-        if ($request->filled('pin')) {
-            $data['pin'] = $request->input('pin');
         }
 
         $user->fill($data)->save();

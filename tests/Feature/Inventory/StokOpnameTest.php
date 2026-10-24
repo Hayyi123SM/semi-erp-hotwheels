@@ -1166,4 +1166,46 @@ class StokOpnameTest extends TestCase
             ->get(route('inventory.stok-opname.detail', $opname))
             ->assertForbidden();
     }
+
+    #[Test]
+    public function approving_a_surplus_that_does_not_fit_the_rack_is_rejected(): void
+    {
+        $owner = $this->owner();
+        $rack = Rack::factory()->create(['code' => 'A-01-03', 'capacity' => 5]);
+        $lot = $this->lot($rack, 5, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+        $this->countLine($owner, $opname, $line, 6);
+        $this->submit($owner, $opname);
+
+        $this->review($owner, $opname, $line, 'APPROVE', AdjustmentReason::Found)
+            ->assertSessionHasErrors([
+                'opname' => 'Rak A-01-03 tidak cukup: kapasitas 5 unit, terpakai 5, diminta 1 (sisa 0).',
+            ]);
+
+        $this->assertSame(5, $lot->refresh()->qty_on_hand);
+        $this->assertSame(0, StockMovement::query()->where('type', MovementType::AdjPlus)->count());
+        $this->assertSame(OpnameLineStatus::Counted, $line->refresh()->status);
+    }
+
+    #[Test]
+    public function approving_a_shortage_is_allowed_even_when_the_rack_is_full(): void
+    {
+        $owner = $this->owner();
+        $rack = Rack::factory()->create(['capacity' => 5]);
+        $lot = $this->lot($rack, 5, 'CN01-HW-001');
+
+        $this->start($owner);
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+        $this->countLine($owner, $opname, $line, 4);
+        $this->submit($owner, $opname);
+
+        $this->review($owner, $opname, $line, 'APPROVE', AdjustmentReason::Lost)
+            ->assertSessionHas('toast');
+
+        $this->assertSame(4, $lot->refresh()->qty_on_hand);
+    }
 }

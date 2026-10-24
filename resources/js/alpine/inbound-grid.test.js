@@ -14,12 +14,10 @@ const CONSIGNOR = {
 
 const PRICES = { 3: 50_000 };
 
-function grid({ isOwner = false, consignorId = '7', pinToken = '' } = {}) {
+function grid({ consignorId = '7' } = {}) {
     const component = inboundGrid({
         consignors: CONSIGNOR,
         productPrices: PRICES,
-        isOwner,
-        pinToken,
     });
 
     // Alpine memanggil `init()`-nya sendiri; di sini komponen dipakai langsung
@@ -59,12 +57,47 @@ function row(overrides = {}) {
     return { product_id: '3', qty: 2, card_condition: 'MINT', blister_condition: 'CLEAR', rack_id: '', list_price: '', scheme_type: '', scheme_rate: '', scheme_amount: '', discount_policy: '', ...overrides };
 }
 
+/**
+ * Dialog konfirmasi dipakai lewat `window.notify.dangerConfirm`, helper yang
+ * sama dengan tombol hapus di tabel lain. Test yang menyentuh `remove()` atau
+ * `clearConfirmed()` harus memasangnya, karena tanpa helper konfirmasi keduanya
+ * memang sengaja tidak melakukan apa-apa.
+ *
+ * `onSideEffect` dipakai test yang membutuhkan grid berubah selagi dialog
+ * masih terbuka.
+ */
+function stubDangerConfirm(confirmed, onSideEffect = null) {
+    const dangerConfirm = vi.fn(async () => {
+        if (onSideEffect) {
+            onSideEffect();
+        }
+
+        return confirmed;
+    });
+
+    // `notify` ditempelkan ke `window` yang sudah ada, bukan menggantinya:
+    // test draft memasang `localStorage` lewat `defineProperty` pada objek yang
+    // sama, dan menimpanya utuh akan membuang pasangan itu.
+    window.notify = { dangerConfirm };
+
+    return dangerConfirm;
+}
+
 describe('inboundGrid', () => {
     let component;
 
     beforeEach(() => {
         component = grid();
         component.rows = [];
+    });
+
+    afterEach(() => {
+        // `stubDangerConfirm` menempelkan `notify` ke `window` yang dipakai
+        // bersama test lain; dibiarkan, test berikutnya bisa lolos karena
+        // menemukan dialog yang dipasang test sebelumnya.
+        if (window.notify) {
+            delete window.notify;
+        }
     });
 
     describe('effective terms', () => {
@@ -117,8 +150,8 @@ describe('inboundGrid', () => {
 
         it('compares a rate as a number, not as a string', () => {
             // "20" dari form dan 20 dari database adalah skema yang sama. String
-            // akan membandingkan keduanya dan meminta PIN untuk form yang isinya
-            // persis sama dengan kontrak.
+            // akan membandingkan keduanya dan melaporkan penyimpangan untuk form
+            // yang isinya persis sama dengan kontrak.
             expect(component.deviates(row({ scheme_type: 'PERCENTAGE', scheme_rate: 20 }))).toBe(false);
         });
 
@@ -129,120 +162,39 @@ describe('inboundGrid', () => {
         });
     });
 
-    describe('owner pin', () => {
-        it('is not needed when nothing deviates', () => {
-            component.rows = [row()];
-
-            expect(component.needsOwnerPin()).toBe(false);
-        });
-
-        it('is needed for a staff override', () => {
-            component.rows = [row({ scheme_type: 'FLAT', scheme_amount: '8000' })];
-
-            expect(component.needsOwnerPin()).toBe(true);
-        });
-
-        it('is never needed by the owner, even for an override', () => {
-            const owner = grid({ isOwner: true });
-            owner.rows = [row({ scheme_type: 'FLAT', scheme_amount: '8000' })];
-
-            expect(owner.needsOwnerPin()).toBe(false);
-        });
-    });
-
-    describe('requesting a pin at commit', () => {
-        it('asks once and keeps the token for a resubmit', async () => {
-            const request = vi.fn().mockResolvedValue({ token: 'tok-1' });
-            globalThis.window = { pin: { request } };
-
-            component.rows = [row({ scheme_type: 'FLAT', scheme_amount: '8000' })];
-
-            await expect(component.requestPinAndSubmit()).resolves.toBe(true);
-            expect(component.pinToken).toBe('tok-1');
-
-            // The second pass is the POST that came back with a validation error.
-            // Reusing the token is the whole point: the cashier is not asked to
-            // type a PIN again for a form they have not changed the terms of.
-            await expect(component.requestPinAndSubmit()).resolves.toBe(true);
-            expect(request).toHaveBeenCalledTimes(1);
-        });
-
-        it('sends nothing when the dialog is cancelled', async () => {
-            globalThis.window = { pin: { request: vi.fn().mockResolvedValue(null) } };
-
-            component.rows = [row({ scheme_type: 'FLAT', scheme_amount: '8000' })];
-
-            await expect(component.requestPinAndSubmit()).resolves.toBe(false);
-            expect(component.pinToken).toBe('');
-        });
-
-        it('does not re-prompt for a form the server rejected over something else', async () => {
-            // The page is reloaded after a validation failure, carrying the token
-            // back with it. That token is still good, so the second attempt is the
-            // first thing that should open a dialog -- and it should not.
-            const request = vi.fn();
-            globalThis.window = { pin: { request } };
-
-            const rejected = grid({ pinToken: 'tok-kept' });
-            rejected.rows = [row({ scheme_type: 'FLAT', scheme_amount: '8000' })];
-
-            const form = { submit: vi.fn() };
-            await rejected.onSubmit({ target: form });
-
-            expect(request).not.toHaveBeenCalled();
-            expect(rejected.pinToken).toBe('tok-kept');
-            expect(form.submit).toHaveBeenCalledTimes(1);
-        });
-
-        it('does not open a dialog for a commit that needs no pin', async () => {
-            const request = vi.fn();
-            globalThis.window = { pin: { request } };
-
-            component.rows = [row()];
-
-            await expect(component.requestPinAndSubmit()).resolves.toBe(true);
-            expect(request).not.toHaveBeenCalled();
-        });
-    });
-
     describe('submit', () => {
-        it('posts without a dialog when no row deviates', async () => {
-            const request = vi.fn();
-            globalThis.window = { pin: { request } };
+        it('posts directly when no row deviates', async () => {
             component.rows = [row()];
 
             const form = { submit: vi.fn() };
             await component.onSubmit({ target: form });
 
-            expect(request).not.toHaveBeenCalled();
             expect(form.submit).toHaveBeenCalledTimes(1);
+            expect(component.submitting).toBe(true);
         });
 
-        it('asks once and then posts, even though it is called twice', async () => {
-            // The second call is the browser re-entering submit because the first
-            // one reset a reactive field. Two dialogs for one click is the exact
-            // failure this flow exists to prevent.
-            const request = vi.fn().mockResolvedValue({ token: 'tok-1' });
-            globalThis.window = { pin: { request } };
-            component.rows = [row({ scheme_type: 'FLAT', scheme_amount: '8000' })];
-
-            const form = { submit: vi.fn() };
-            await component.onSubmit({ target: form });
-            await component.onSubmit({ target: form });
-
-            expect(request).toHaveBeenCalledTimes(1);
-            expect(form.submit).toHaveBeenCalledTimes(1);
-        });
-
-        it('does not post when the dialog is cancelled', async () => {
-            globalThis.window = { pin: { request: vi.fn().mockResolvedValue(null) } };
+        it('posts directly even when a row deviates', async () => {
+            // Modul ini hanya bisa dibuka Owner, jadi penyimpangan skema adalah
+            // keputusan Owner sendiri -- tidak ada otorisasi kedua yang perlu
+            // ditanyakan ke server.
             component.rows = [row({ scheme_type: 'FLAT', scheme_amount: '8000' })];
 
             const form = { submit: vi.fn() };
             await component.onSubmit({ target: form });
 
-            expect(form.submit).not.toHaveBeenCalled();
-            expect(component.submitting).toBe(false);
+            expect(form.submit).toHaveBeenCalledTimes(1);
+        });
+
+        it('ignores a second submit while the first is still in flight', async () => {
+            // The browser can re-enter submit while the first POST is still
+            // navigating. Posting twice would create two documents.
+            component.rows = [row()];
+
+            const form = { submit: vi.fn() };
+            await component.onSubmit({ target: form });
+            await component.onSubmit({ target: form });
+
+            expect(form.submit).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -453,15 +405,63 @@ describe('inboundGrid', () => {
     });
 
     describe('grid editing', () => {
-        it('removes a row even when it is the last one', () => {
+        it('removes a row after the operator confirms', async () => {
             // Produk hanya masuk lewat popup, jadi grid kosong adalah keadaan
             // yang sah -- menyisakan baris kosong tanpa cara mengisinya hanya
             // menyisakan baris yang tidak bisa dipakai.
+            component.rows = [row({ qty: 3 })];
+            const dangerConfirm = stubDangerConfirm(true);
+
+            const removed = await component.remove(component.rows[0]);
+
+            expect(removed).toBe(true);
+            expect(component.rows).toHaveLength(0);
+            expect(dangerConfirm).toHaveBeenCalledWith({
+                title: 'Hapus dari daftar?',
+                description: 'Produk — Qty 3',
+                confirmText: 'Hapus',
+                cancelText: 'Batal',
+            });
+        });
+
+        it('keeps the row when the dialog is cancelled', async () => {
+            component.rows = [row({ qty: 3 })];
+            stubDangerConfirm(false);
+
+            const removed = await component.remove(component.rows[0]);
+
+            expect(removed).toBe(false);
+            expect(component.rows).toHaveLength(1);
+        });
+
+        it('removes the row it was asked about after the grid shifted', async () => {
+            // Sementara dialog terbuka, baris lain bisa hilang. Baris dicari
+            // ulang lewat identitasnya setelah jawaban tiba, jadi baris yang
+            // sekarang menempati indeksnya tidak ikut terhapus.
+            const target = row({ product_id: '8', qty: 3 });
+            component.rows = [row(), target];
+
+            stubDangerConfirm(true, () => {
+                component.rows.shift();
+            });
+
+            const removed = await component.remove(target);
+
+            expect(removed).toBe(true);
+            expect(component.rows).toHaveLength(0);
+        });
+
+        it('leaves the row alone when there is no confirmation helper', async () => {
+            // Halaman yang tidak sanggup menawarkan pertanyaan tidak boleh
+            // menghapus diam-diam.
+            delete window.notify;
+
             component.rows = [row()];
 
-            component.removeRow(0);
+            const removed = await component.remove(component.rows[0]);
 
-            expect(component.rows).toHaveLength(0);
+            expect(removed).toBe(false);
+            expect(component.rows).toHaveLength(1);
         });
 
         it('splits a row into a copy that has to be re-entered', () => {
@@ -471,6 +471,115 @@ describe('inboundGrid', () => {
 
             expect(component.rows).toHaveLength(2);
             expect(component.rows[1]).toMatchObject({ qty: 1, scheme_type: 'PERCENTAGE', scheme_rate: 20 });
+        });
+    });
+
+    describe('emptying the whole grid', () => {
+        beforeEach(() => {
+            installLocalStorage();
+            global.fetch = vi.fn(async () => new Response('{}', { status: 200 }));
+        });
+
+        afterEach(() => {
+            delete global.fetch;
+            removeLocalStorage();
+        });
+
+        it('asks first and keeps the rows when the answer is no', async () => {
+            component.rows = [row({ qty: 2 }), row({ qty: 3 })];
+            const dangerConfirm = stubDangerConfirm(false);
+
+            const cleared = await component.clearConfirmed();
+
+            expect(cleared).toBe(false);
+            expect(component.rows).toHaveLength(2);
+            expect(dangerConfirm).toHaveBeenCalledWith({
+                title: 'Kosongkan daftar?',
+                description: '2 barang (total qty 5) akan dihapus dari daftar.',
+                confirmText: 'Kosongkan',
+                cancelText: 'Batal',
+            });
+        });
+
+        it('empties the rows and forgets both copies of the draft', async () => {
+            // Dua jejak sekaligus: draft sisa di server akan muncul lagi di
+            // daftar "Lanjutkan", dan cermin lokal akan memulihkan baris yang
+            // barusan dikosongkan pada muat ulang berikutnya.
+            component.rows = [row({ qty: 3 })];
+            component.draftId = 'draft-9';
+            component.savedAt = '2026-09-29T10:00:00+07:00';
+            window.localStorage.setItem('wms.consignment-in.draft.v1', JSON.stringify({ draftId: 'draft-9', rows: [row()] }));
+
+            stubDangerConfirm(true);
+
+            const cleared = await component.clearConfirmed();
+
+            expect(cleared).toBe(true);
+            expect(component.rows).toHaveLength(0);
+            expect(component.draftId).toBe('');
+            expect(component.saveState).toBe('idle');
+            expect(window.localStorage.getItem('wms.consignment-in.draft.v1')).toBeNull();
+            expect(global.fetch).toHaveBeenCalledTimes(1);
+            expect(global.fetch.mock.calls[0][0]).toBe('/inbound/consignment-in/drafts/draft-9');
+            expect(global.fetch.mock.calls[0][1].method).toBe('DELETE');
+        });
+
+        it('sends no request when the grid never reached the server', async () => {
+            component.rows = [row({ qty: 3 })];
+
+            stubDangerConfirm(true);
+
+            const cleared = await component.clearConfirmed();
+
+            expect(cleared).toBe(true);
+            expect(component.rows).toHaveLength(0);
+            expect(global.fetch).not.toHaveBeenCalled();
+        });
+
+        it('cancels the pending autosave so the cleared draft is not rewritten', async () => {
+            vi.useFakeTimers();
+
+            try {
+                component.rows = [row({ qty: 3 })];
+                component.draftId = 'draft-9';
+                component.scheduleSave();
+
+                stubDangerConfirm(true);
+                await component.clearConfirmed();
+
+                // Timer yang sudah dijadwalkan tidak melihat bahwa barisnya
+                // sudah hilang, jadi ia harus benar-benar dibatalkan. Yang
+                // tersisa hanya satu DELETE untuk membuang draftnya -- tidak
+                // ada PATCH yang menulis ulang grid kosong.
+                await vi.advanceTimersByTimeAsync(10_000);
+
+                expect(component.saveTimer).toBeNull();
+                expect(global.fetch).toHaveBeenCalledTimes(1);
+                expect(global.fetch.mock.calls[0][1].method).toBe('DELETE');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('does nothing when the grid is already empty', async () => {
+            component.rows = [];
+            const dangerConfirm = stubDangerConfirm(true);
+
+            const cleared = await component.clearConfirmed();
+
+            expect(cleared).toBe(false);
+            expect(dangerConfirm).not.toHaveBeenCalled();
+        });
+
+        it('leaves the rows alone when there is no confirmation helper', async () => {
+            delete window.notify;
+
+            component.rows = [row()];
+
+            const cleared = await component.clearConfirmed();
+
+            expect(cleared).toBe(false);
+            expect(component.rows).toHaveLength(1);
         });
     });
 

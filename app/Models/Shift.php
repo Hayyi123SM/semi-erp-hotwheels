@@ -25,6 +25,10 @@ class Shift extends Model
         'cash_diff_approved_by',
         'status',
         'notes',
+        'closing_notes',
+        'closing_requested_at',
+        'closing_approved_at',
+        'closing_rejection_reason',
     ];
 
     protected function casts(): array
@@ -36,21 +40,42 @@ class Shift extends Model
             'closing_cash' => 'integer',
             'cash_diff' => 'integer',
             'status' => ShiftStatus::class,
+            'closing_requested_at' => 'datetime',
+            'closing_approved_at' => 'datetime',
         ];
     }
 
     /**
-     * Shift yang masih berjalan, kalau ada.
+     * Shift yang masih berjalan: boleh dipakai menjual.
      *
-     * Scope ini adalah satu-satunya definisi "masih terbuka" di seluruh aplikasi.
-     * Kalau dua tempat menentukan sendiri bahwa sebuah shift tertutup -- satu dengan
-     * `status`, satu dengan `closed_at IS NOT NULL` -- keduanya bisa melihat keadaan
-     * yang berbeda, dan kasir bisa mendapat "kamu sudah punya shift" dari satu cek
-     * lalu "kamu belum punya shift" dari cek berikutnya.
+     * Scope ini adalah satu-satunya definisi "sedang berjualan" di seluruh
+     * aplikasi. Shift yang menunggu keputusan Owner sengaja tidak termasuk:
+     * lacinya sudah dihitung, dan penjualan baru akan membuat angka itu salah.
      */
     public function scopeOpen(Builder $query): Builder
     {
         return $query->where('status', ShiftStatus::Open);
+    }
+
+    /**
+     * Shift yang belum selesai: masih berjalan atau menunggu keputusan Owner.
+     *
+     * Dipakai pertanyaan "boleh buka shift baru?" dan "shift mana yang sedang
+     * dipegang kasir ini?". Kalau keduanya memakai `open()`, kasir yang shiftnya
+     * menunggu persetujuan akan bisa membuka shift kedua -- dengan laci yang
+     * sama dan uang pembuka yang terhitung dua kali.
+     */
+    public function scopeUnclosed(Builder $query): Builder
+    {
+        return $query->whereIn('status', [ShiftStatus::Open, ShiftStatus::PendingApproval]);
+    }
+
+    /**
+     * Shift yang menunggu keputusan Owner, untuk halaman persetujuan.
+     */
+    public function scopePendingApproval(Builder $query): Builder
+    {
+        return $query->where('status', ShiftStatus::PendingApproval);
     }
 
     /**
@@ -64,16 +89,16 @@ class Shift extends Model
     }
 
     /**
-     * Shift yang masih terbuka untuk perangkat tertentu, atau `null`.
+     * Shift yang belum selesai untuk perangkat tertentu, atau `null`.
      *
      * Diurutkan dari yang paling baru, karena kalau somehow ada lebih dari satu --
      * dua kasir memakai akun yang sama di satu mesin, atau data diimpor dari sistem
      * lama -- yang ditampilkan paling baru adalah shift yang sedang dipakai, bukan
      * shift yang terlupa.
      */
-    public static function openForDevice(?string $deviceId): ?self
+    public static function unclosedForDevice(?string $deviceId): ?self
     {
-        $query = static::query()->open();
+        $query = static::query()->unclosed();
 
         $deviceId === null
             ? $query->whereNull('device_id')
@@ -83,15 +108,16 @@ class Shift extends Model
     }
 
     /**
-     * Shift yang masih terbuka milik satu kasir, atau `null`.
+     * Shift yang belum selesai milik satu kasir, atau `null`.
      *
-     * Dipisah dari `openForDevice` karena keduanya menjawab pertanyaan berbeda
-     * dengan konsekuensi berbeda: yang satu mencegah shift ganda di satu mesin,
-     * yang satu mencegah satu kasir punya dua shift terbuka sekaligus.
+     * Dipisah dari `unclosedForDevice` karena keduanya menjawab pertanyaan
+     * berbeda dengan konsekuensi berbeda: yang satu mencegah shift ganda di satu
+     * mesin, yang satu mencegah satu kasir punya dua shift belum selesai
+     * sekaligus.
      */
-    public static function openForUser(?int $userId): ?self
+    public static function unclosedForUser(?int $userId): ?self
     {
-        $query = static::query()->open();
+        $query = static::query()->unclosed();
 
         $userId === null
             ? $query->whereNull('user_id')
@@ -101,11 +127,21 @@ class Shift extends Model
     }
 
     /**
-     * Shift masih terbuka sampai sekarang, atau sudah selesai?
+     * Shift masih berjalan sampai sekarang?
      */
     public function isOpen(): bool
     {
         return $this->status === ShiftStatus::Open;
+    }
+
+    public function isPendingApproval(): bool
+    {
+        return $this->status === ShiftStatus::PendingApproval;
+    }
+
+    public function isClosed(): bool
+    {
+        return $this->status === ShiftStatus::Closed;
     }
 
     public function user(): BelongsTo

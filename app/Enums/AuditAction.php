@@ -34,9 +34,6 @@ enum AuditAction: string
     case ReceiveOwn = 'RECEIVE_OWN';
     case ReceiveConsign = 'RECEIVE_CONSIGN';
 
-    // Otorisasi.
-    case AuthorizePin = 'AUTHORIZE_PIN';
-
     // Siklus cetak label.
     case PrintLabels = 'PRINT_LABELS';
     case ConfirmLabels = 'CONFIRM_LABELS';
@@ -56,6 +53,9 @@ enum AuditAction: string
     // Siklus shift kasir.
     case OpenShift = 'OPEN_SHIFT';
     case CloseShift = 'CLOSE_SHIFT';
+    case SubmitShiftClosing = 'SUBMIT_SHIFT_CLOSING';
+    case ApproveShiftClosing = 'APPROVE_SHIFT_CLOSING';
+    case RejectShiftClosing = 'REJECT_SHIFT_CLOSING';
 
     // Penataan rak dan siklus opname.
     case TransferRack = 'TRANSFER_RACK';
@@ -92,7 +92,6 @@ enum AuditAction: string
             self::Import => 'Impor',
             self::ReceiveOwn => 'Terima Stok Sendiri',
             self::ReceiveConsign => 'Terima Titipan',
-            self::AuthorizePin => 'PIN Diberikan',
             self::PrintLabels => 'Label Dikirim ke Printer',
             self::ConfirmLabels => 'Label Dikonfirmasi',
             self::FailLabels => 'Label Gagal Dicetak',
@@ -104,6 +103,9 @@ enum AuditAction: string
             self::HandOverReceiptReprint => 'Bukti Terima Dicetak Ulang',
             self::OpenShift => 'Shift Kasir Dibuka',
             self::CloseShift => 'Shift Kasir Ditutup',
+            self::SubmitShiftClosing => 'Tutup Shift Diajukan',
+            self::ApproveShiftClosing => 'Selisih Kas Disetujui',
+            self::RejectShiftClosing => 'Selisih Kas Ditolak',
             self::TransferRack => 'Barang Pindah Rak',
             self::OpnameStart => 'Sesi Opname Dimulai',
             self::OpnameSubmit => 'Sesi Opname Diajukan',
@@ -134,10 +136,11 @@ enum AuditAction: string
     {
         return match ($this) {
             self::Deleted, self::Archived, self::FailLabels => 'error',
-            self::Created, self::Active, self::ConfirmLabels, self::AuthorizePin,
-            self::HandOverReceipt => 'success',
+            self::Created, self::Active, self::ConfirmLabels,
+            self::HandOverReceipt, self::ApproveShiftClosing => 'success',
             self::ReprintOverQty, self::ReprintDailyLimit, self::OpnameApprove,
-            self::OpnameCancel, self::RtvExecute => 'warning',
+            self::OpnameCancel, self::RtvExecute, self::SubmitShiftClosing,
+            self::RejectShiftClosing => 'warning',
             self::PrintLabels, self::RetryLabels, self::ReprintLabels,
             self::HandOverReceiptReprint, self::TransferRack, self::OpnameStart,
             self::OpnameSubmit, self::OpnameReject, self::OpnameReopen,

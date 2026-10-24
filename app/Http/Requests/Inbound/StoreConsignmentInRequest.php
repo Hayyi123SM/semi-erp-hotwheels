@@ -8,8 +8,6 @@ use App\Enums\BlisterCondition;
 use App\Enums\CardCondition;
 use App\Enums\DiscountPolicy;
 use App\Enums\SchemeType;
-use App\Http\Requests\Concerns\RequiresOwnerPin;
-use App\Models\Consignor;
 use App\Support\Enums;
 use App\Support\Numbers;
 use Closure;
@@ -26,8 +24,6 @@ use Illuminate\Validation\Rule;
  */
 class StoreConsignmentInRequest extends FormRequest
 {
-    use RequiresOwnerPin;
-
     public function authorize(): bool
     {
         return true;
@@ -105,8 +101,6 @@ class StoreConsignmentInRequest extends FormRequest
             'items.*.blister_condition' => ['nullable', Rule::in(Enums::values(BlisterCondition::class))],
 
             ...$this->schemeRules(),
-
-            ...$this->ownerPinRules(),
         ];
     }
 
@@ -168,12 +162,10 @@ class StoreConsignmentInRequest extends FormRequest
     /**
      * Nett dan flat harus lebih kecil dari harga jual baris itu.
      *
-     * BR-06 memblokir margin negatif "kecuali dengan PIN Owner". Yang boleh
-     * melewati blokir itu adalah Owner yang melakukan aksinya sendiri -- PIN Owner
-     * di commit ini berutang atas penyimpangan skema, bukan atas lot yang rugi,
-     * jadi membiarkan Staff melewati blokir hanya karena kebetulan membawa token
-     * yang sah akan membuka jalan ke lot negatif tanpa pernah ditandai sebagai
-     * keputusan Owner.
+     * BR-06 memblokir margin negatif. Yang boleh melewati blokir itu adalah
+     * Owner yang melakukan aksinya sendiri: aksi ini memang miliknya, jadi
+     * meminta otorisasi tambahan darinya hanya menambah langkah tanpa menambah
+     * lapis pengaman.
      *
      * Hanya berlaku kalau harga baris dikirim: kalau tidak, harga ikut default
      * produk dan rentangnya baru bisa dinilai setelah baris benar-benar dibangun,
@@ -221,114 +213,5 @@ class StoreConsignmentInRequest extends FormRequest
         $row = $this->input("items.{$matches[1]}");
 
         return is_array($row) ? $row : null;
-    }
-
-    /**
-     * Konteks token: aksi ini menimpa skema bawaan kontrak penitip.
-     */
-    protected function ownerPinContext(): string
-    {
-        return 'consignment.scheme-override';
-    }
-
-    /**
-     * PIN Owner hanya diminta kalau ada baris yang benar-benar menyimpang.
-     *
-     * Dokumen menyatakan ini sebagai aturan per-aksi, bukan per-orang: Staff
-     * memakai skema default penitip, dan mengubahnya di luar default butuh PIN
-     * Owner. Jadi kalau semua baris memakai default, tidak ada yang berubah dan
-     * tidak ada yang perlu diotorisasi -- dan PIN Owner tidak diminta untuk
-     * sesuatu yang tidak terjadi.
-     *
-     * Owner sendiri tidak diminta, baik saat menyimpang maupun tidak: aksi ini
-     * memang miliknya.
-     */
-    protected function requiresOwnerPin(): bool
-    {
-        if ($this->user()?->isOwner()) {
-            return false;
-        }
-
-        return $this->hasSchemeDeviation();
-    }
-
-    /**
-     * Apakah ada baris yang skema atau harganya berbeda dari kontrak penitip.
-     *
-     * Perbandingan dilakukan terhadap profil penitip yang dipilih, bukan terhadap
-     * apa yang tidak dikirim form: baris yang.price-nya tidak diisi berarti
-     * "default produk", dan itu default penitip -- jadi termasuk tidak menyimpang.
-     */
-    public function hasSchemeDeviation(): bool
-    {
-        $consignor = $this->selectedConsignor();
-
-        if ($consignor === null) {
-            // Tanpa penitip tidak ada default untuk dibandingkan. Form sudah akan
-            // ditolak oleh rule `consignor_id`, dan membiarkan aturan PIN ikut
-            // menolak akan menampilkan dua kesalahan untuk satu sebab.
-            return false;
-        }
-
-        foreach ($this->input('items', []) as $row) {
-            if ($this->rowDeviates($row, $consignor)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param  array<string, mixed>  $row
-     */
-    private function rowDeviates(array $row, Consignor $consignor): bool
-    {
-        // `list_price` yang tidak dikirim berarti harga list produk, yang tidak
-        // tersedia di sini. Baris seperti itu tidak menyimpang dari kontrak skema.
-        if (isset($row['list_price']) && $row['list_price'] !== '') {
-            return true;
-        }
-
-        $scheme = $row['scheme_type'] ?? null;
-
-        if (! is_string($scheme) || $scheme === '') {
-            return false;
-        }
-
-        if ($scheme !== $consignor->scheme_type?->value) {
-            return true;
-        }
-
-        $parameterField = SchemeType::from($scheme)->parameterField();
-        $submitted = $row[$parameterField] ?? null;
-
-        if ($submitted === null || $submitted === '') {
-            // Tidak mengirim parameter berarti memakai default, jadi tidak
-            // menyimpang -- kecuali defaultnya memang tidak ada, yang ditangani
-            // guard skema di service.
-            return false;
-        }
-
-        $default = $consignor->{$parameterField};
-
-        // Persentase dibandingkan sebagai float supaya "20" dari form dan 20.0
-        // dari database tidak dibaca sebagai dua skema berbeda.
-        if ($parameterField === 'scheme_rate') {
-            return abs((float) $submitted - (float) $default) > 0.0001;
-        }
-
-        return (int) $submitted !== (int) $default;
-    }
-
-    private function selectedConsignor(): ?Consignor
-    {
-        $id = $this->input('consignor_id');
-
-        if (! is_string($id) && ! is_int($id)) {
-            return null;
-        }
-
-        return Consignor::query()->find($id);
     }
 }

@@ -6,6 +6,7 @@ namespace App\Http\Requests\Inbound;
 
 use App\Enums\BlisterCondition;
 use App\Enums\CardCondition;
+use App\Services\Spreadsheet\SpreadsheetService;
 use App\Support\Enums;
 use App\Support\Numbers;
 use Illuminate\Foundation\Http\FormRequest;
@@ -53,7 +54,11 @@ class StoreStockInPribadiRequest extends FormRequest
             'notes' => ['nullable', 'string', 'max:1000'],
             'verified' => ['required', 'accepted'],
 
-            'items' => ['required', 'array', 'min:1', 'max:100'],
+            // Batas baris mengikuti `SpreadsheetService::MAX_ROWS` (2000), sama
+            // dengan draft dan impor: form commit menerima daftar persis yang
+            // bisa diimpor atau dipulihkan dari draft, tanpa angka magis yang
+            // harus dijaga di tiga tempat.
+            'items' => ['required', 'array', 'min:1', 'max:'.SpreadsheetService::MAX_ROWS],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.qty' => ['required', 'integer', 'between:1,999'],
             'items.*.cost_price' => ['required', 'integer', 'between:0,4294967295'],

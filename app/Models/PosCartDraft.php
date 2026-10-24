@@ -19,6 +19,8 @@ class PosCartDraft extends Model
         'device_id',
         'status',
         'items',
+        'order_discount_type',
+        'order_discount_value',
         'note',
         'expired_at',
         'completed_at',
@@ -27,6 +29,7 @@ class PosCartDraft extends Model
 
     protected $casts = [
         'items' => 'array',
+        'order_discount_value' => 'integer',
         'expired_at' => 'datetime',
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',

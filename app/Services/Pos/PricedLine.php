@@ -40,6 +40,7 @@ final readonly class PricedLine
         public int $feeToko,
         public ?int $hakPenitip,
         public int $discountTotal = 0,
+        public int $orderDiscount = 0,
         public ?string $discountType = null,
         public ?int $discountValue = null,
     ) {}
@@ -59,6 +60,7 @@ final readonly class PricedLine
             'qty' => $this->qty,
             'list_price' => $this->listPrice,
             'discount' => $this->discountTotal,
+            'order_discount' => $this->orderDiscount,
             // Bentuk diskonnya ikut disimpan, bukan hanya hasil akhirnya:
             // nota yang hanya menyimpan Rp-nya tidak bisa menjelaskan kenapa
             // angkanya sebesar itu ketika ditanya kemudian.

@@ -258,4 +258,62 @@ class LokasiRakTableTest extends TestCase
             ->assertOk()
             ->assertSee('Rak tidak ditemukan');
     }
+
+    #[Test]
+    public function capacity_cannot_be_lowered_below_the_current_usage(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $rack = $this->rack('A-01-01', ['capacity' => 10]);
+        $this->lotInRack($rack, 8);
+
+        $this->actingAs($owner)
+            ->put(route('master.lokasi-rak.update', $rack), [
+                'code' => 'A-01-01',
+                'type' => RackType::Storage->value,
+                'capacity' => '5',
+            ])
+            ->assertSessionHasErrors('capacity');
+
+        $this->assertSame(10, $rack->refresh()->capacity);
+    }
+
+    #[Test]
+    public function an_over_capacity_rack_can_still_have_other_fields_edited(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $rack = $this->rack('A-01-01', ['capacity' => 5]);
+        $this->lotInRack($rack, 8);
+
+        // Kapasitas tidak berubah, jadi data lama yang sudah melebihi kapasitas
+        // tidak boleh mengunci edit zona dan sejenisnya.
+        $this->actingAs($owner)
+            ->put(route('master.lokasi-rak.update', $rack), [
+                'code' => 'A-01-01',
+                'type' => RackType::Storage->value,
+                'zone' => 'B',
+                'capacity' => '5',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('B', $rack->refresh()->zone);
+        $this->assertSame(5, $rack->capacity);
+    }
+
+    #[Test]
+    public function clearing_the_capacity_is_allowed_for_a_rack_that_has_stock(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $rack = $this->rack('A-01-01', ['capacity' => 5]);
+        $this->lotInRack($rack, 8);
+
+        $this->actingAs($owner)
+            ->put(route('master.lokasi-rak.update', $rack), [
+                'code' => 'A-01-01',
+                'type' => RackType::Storage->value,
+                'capacity' => '',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull($rack->refresh()->capacity);
+    }
 }

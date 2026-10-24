@@ -170,7 +170,7 @@ class SettlementReportService
                     'soldAt' => $sale?->sold_at?->format('d M Y H:i') ?? '—',
                     'sku' => $item?->sku ?? '—',
                     'product' => $item?->lot?->product?->name ?? '',
-                    'jual' => $item === null ? 0 : (int) $item->sell_price * (int) $item->qty,
+                    'jual' => $item === null ? 0 : (int) $item->sell_price * (int) $item->qty - (int) $item->order_discount,
                     'fee' => $item?->fee_toko !== null ? (int) $item->fee_toko : 0,
                     'hak' => (int) $row->amount,
                 ];

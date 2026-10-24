@@ -34,7 +34,7 @@ use App\Services\Print\PrintSettings;
 final class PosSettings
 {
     /**
-     * Potongan harga maksimal yang boleh diberikan kasir tanpa PIN Owner, dalam persen.
+     * Potongan harga maksimal yang boleh diberikan kasir, dalam persen.
      */
     public const STAFF_DISCOUNT_LIMIT_KEY = 'pos.staff_discount_limit_percent';
 
@@ -193,7 +193,7 @@ final class PosSettings
      *
      * Nilai negatif ditolak di sini, bukan hanya di form: ambang selisih kas negatif
      * membuat setiap penutupan shift selalu melewati ambang, jadi setiap tutup shift
-     * akan berhenti minta PIN Owner tanpa sebab.
+     * akan berhenti menunggu persetujuan Owner tanpa sebab.
      */
     private function amountOr(mixed $stored, int $fallback): int
     {

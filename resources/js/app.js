@@ -20,8 +20,8 @@ import { registerCart } from './alpine/cart';
 import { productPicker } from './alpine/product-picker';
 import { stockInPribadiForm } from './alpine/stock-in-pribadi';
 import { inboundGrid } from './alpine/inbound-grid';
-import { pinDialog, pinDialogForm } from './alpine/pin-dialog';
 import { labelQueue } from './alpine/label-queue';
+import { liveStockBulk } from './alpine/live-stock-bulk';
 import { reprintForm } from './alpine/reprint-form';
 import { shiftCloseForm } from './alpine/shift-close-form';
 import { importDropzone } from './alpine/import-dropzone';
@@ -63,6 +63,7 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('searchableSelect', searchableSelect);
     Alpine.data('inboundGrid', inboundGrid);
     Alpine.data('labelQueue', labelQueue);
+    Alpine.data('liveStockBulk', liveStockBulk);
     Alpine.data('reprintForm', reprintForm);
     Alpine.data('shiftCloseForm', shiftCloseForm);
     Alpine.data('importDropzone', importDropzone);
@@ -79,13 +80,7 @@ document.addEventListener('alpine:init', () => {
     registerQuarantineCalculator(Alpine);
     registerCart(Alpine);
 
-    // A form that needs an Owner's permission asks for a token before it
-    // submits, rather than carrying a PIN field of its own. On the window, and
-    // not as a scope, because nothing on the page should have to own it: a
-    // label print asks from an ordinary button and a POS asks from a keypress.
-    Alpine.data('pinDialogForm', pinDialogForm);
     Alpine.data('stockInPribadiForm', stockInPribadiForm);
-    window.pin = pinDialog({ Alpine });
 });
 
 Alpine.start();

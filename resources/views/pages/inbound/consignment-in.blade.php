@@ -68,11 +68,9 @@
       x-data="inboundGrid({
           consignors: {{ Js::from($consignorTerms) }},
           productPrices: {{ Js::from($productPrices) }},
-          isOwner: {{ auth()->user()?->isOwner() ? 'true' : 'false' }},
           lookupUrl: {{ Js::from($lookupUrl) }},
           rows: {{ Js::from($initialRows) }},
           itemErrors: {{ Js::from($errors->getBag('default')->getMessages()) }},
-          pinToken: {{ Js::from($errors->has('pin_token') ? '' : old('pin_token', '')) }},
           resumeDraftId: {{ Js::from(request()->query('draft', '')) }},
           restorable: {{ $errors->isEmpty() ? 'true' : 'false' }},
           draftId: {{ Js::from(old('draft_id', '')) }},
@@ -90,12 +88,6 @@
       @submit.prevent="onSubmit($event)">
     @csrf
 
-    {{-- Token dari dialog PIN Owner, diteruskan lagi kalau server menolak
-         commit atas alasan lain. Kalau `pin_token` sendiri yang ditolak, isian
-         ini sengaja dibiarkan kosong di atas supaya dialog terbuka lagi dengan
-         token yang baru. --}}
-    <input type="hidden" name="pin_token" x-model="pinToken">
-
     {{-- `draft_id` ikut Submit supaya commit tahu dokumen mana yang di-commit.
          Kosong untuk form yang belum pernah disimpan -- commit tanpa draft
          tetap benar, hanya tidak mewarisi draft yang sudah ada. --}}
@@ -104,12 +96,6 @@
     @if ($errors->any())
         <x-ui.banner tone="error">
             Form belum bisa dikirim. Periksa kembali isian, termasuk setiap baris grid di bawah.
-        </x-ui.banner>
-    @endif
-
-    @if ($errors->has('pin_token'))
-        <x-ui.banner tone="warning">
-            {{ $errors->first('pin_token') }}
         </x-ui.banner>
     @endif
 
@@ -220,6 +206,15 @@
                 <button type="button" class="btn-secondary" @click="openPicker()">
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v16m8-8H4"/></svg>
                     Tambah Produk
+                </button>
+                {{-- Grid hasil impor bisa puluhan baris, dan tiap barisnya punya
+                     dialog hapus sendiri. Satu tombol ini membuang semuanya
+                     sekaligus -- beserta draftnya di server dan di peramban --
+                     supaya penitip tidak meninggalkan draft yang tidak bisa
+                     di-commit. --}}
+                <button type="button" class="btn-destructive" @click="clearConfirmed()" :disabled="rows.length === 0">
+                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    Kosongkan Daftar
                 </button>
             </div>
             <p class="text-label-sm text-text-subtle">Satu baris = satu SKU. Barang serupa dengan kondisi sama boleh digabung di satu baris.</p>
@@ -339,7 +334,7 @@
                                         class="w-28 rounded-lg border border-border-subtle bg-surface-lowest px-2 py-1.5 text-body-sm">
                                     <option value="">—</option>
                                     @foreach ($racks as $rack)
-                                        <option value="{{ $rack->id }}">{{ $rack->code }}</option>
+                                        <option value="{{ $rack['id'] }}">{{ $rack['code'] }}@if ($rack['capacity']) · {{ $rack['used'] }}/{{ $rack['capacity'] }}@endif</option>
                                     @endforeach
                                 </select>
                             </td>
@@ -355,7 +350,7 @@
                                 <div class="flex items-center justify-center gap-1">
                                     <span x-show="deviates(row)"
                                           class="rounded-md bg-warning-bg px-1.5 py-0.5 text-label-sm text-warning-text"
-                                          title="Berbeda dari default penitip — butuh PIN Owner">PIN</span>
+                                          title="Berbeda dari default penitip — skema yang dipakai ikut tersimpan di dokumen">!</span>
                                     <button type="button"
                                             class="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition hover:bg-canvas"
                                             @click="splitRow(index)" title="Pecah jadi dua baris">
@@ -363,7 +358,7 @@
                                     </button>
                                     <button type="button"
                                             class="flex h-8 w-8 items-center justify-center rounded-lg text-error-text transition hover:bg-error-bg"
-                                            @click="removeRow(index)" title="Hapus baris">
+                                            @click="remove(row)" title="Hapus baris">
                                         <svg class="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                     </button>
                                 </div>
@@ -387,8 +382,8 @@
                     <span class="text-text-muted">Total Fee Toko: <b class="text-text-strong tabular-nums" x-text="window.format.rupiah(totals().storeFee)"></b></span>
                     <span class="text-text-muted">Total Hak Penitip: <b class="text-text-strong tabular-nums" x-text="window.format.rupiah(totals().consignorRight)"></b></span>
                 </div>
-                <p x-show="needsOwnerPin()" class="text-label-sm text-warning-text">
-                    <b>Ada baris di luar default penitip.</b> PIN Owner diminta sekali saat Commit.
+                <p x-show="hasDeviation()" class="text-label-sm text-warning-text">
+                    <b>Ada baris di luar default penitip.</b> Skema yang dipakai baris ini disimpan di dokumen penerimaan.
                 </p>
             </div>
         </div>

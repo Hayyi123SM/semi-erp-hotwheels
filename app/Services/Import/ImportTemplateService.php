@@ -89,7 +89,6 @@ class ImportTemplateService
         'username' => 'user.contoh',
         'email' => 'contoh@contoh.test',
         'role' => 'STAFF',
-        'pin' => '123456',
         'password' => 'password-contoh',
     ];
 

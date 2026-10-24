@@ -2,7 +2,7 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full">
     @include('layouts.partials.head')
     <body class="h-full bg-canvas font-sans text-text-strong antialiased">
-        <div class="flex min-h-full flex-col">
+        <div class="flex min-h-full flex-col" x-data>
             @include('layouts.partials.pos-header')
 
             @include('layouts.partials.overlays')

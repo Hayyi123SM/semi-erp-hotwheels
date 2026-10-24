@@ -1,6 +1,6 @@
 <x-ui.page-header
     title="Riwayat Transaksi"
-    subtitle="Nota per shift, kasir & metode. Void/refund memerlukan PIN Owner."
+    subtitle="Nota per shift, kasir & metode pembayaran."
     :crumbs="['POS / Kasir', 'Riwayat Transaksi']"
 >
     <x-slot:actions>

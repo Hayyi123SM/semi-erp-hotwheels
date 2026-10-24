@@ -240,12 +240,6 @@
                                 Eksekusi mengurangi qty lot, menulis gerakan RTV, dan menandai lot yang habis sebagai Dikembalikan. Tindakan ini tidak bisa dibatalkan di aplikasi.
                             </x-ui.banner>
                         </div>
-
-                        <x-ui.pin-overlay
-                            action="inventory.rtv-approve"
-                            context="Persetujuan Owner diperlukan sebelum unit keluar stok lewat RTV."
-                            confirm-text="Saya setujui"
-                        />
                     </div>
 
                     <div class="mt-5 flex justify-end">

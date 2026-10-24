@@ -7,6 +7,11 @@
     $moduleRoute = \App\Support\ImportSchemas::moduleRoute($module);
     $createRoute = \App\Support\ImportSchemas::createRoute($module);
 
+    // Master boleh menyimpan sebagian: baris yang lolos masuk, sisanya
+    // dilaporkan di halaman hasil. Inbound tidak -- satu berkas adalah satu
+    // kiriman, jadi satu baris yang gagal menahan seluruh berkasnya.
+    $isInbound = \App\Support\ImportSchemas::isInbound($module);
+
     $failed = $result->failureCount();
     $ready = $result->successCount();
 
@@ -44,6 +49,21 @@
     :steps="ImportSteps::for(route('master.import.mapping', [$module, $token]), route($moduleRoute))"
 />
 
+{{-- Penolakan dari langkah Simpan ditampilkan di sini, bukan di halaman error
+     404/422: pesannya menjelaskan baris mana yang bermasalah, dan tabelnya ada
+     tepat di bawah. Sesinya masih hidup, jadi perbaikan bisa langsung
+     dilanjutkan ke Simpan tanpa mengunggah ulang berkas. --}}
+@if ($errors->any())
+    <x-ui.banner tone="error" class="mb-6">
+        <b>Simpan dibatalkan.</b>
+        <ul class="mt-1 list-inside list-disc space-y-0.5">
+            @foreach ($errors->all() as $error)
+                <li>{{ $error }}</li>
+            @endforeach
+        </ul>
+    </x-ui.banner>
+@endif
+
 {{-- Halaman ini belum menyentuh database. Yang tampil di bawah adalah hasil
      pemeriksaan, bukan hasil penyimpanan -- dan itu sebabnya jumlahnya boleh
      berbeda dari halaman berikutnya: baris yang lolos di sini masih bisa
@@ -61,8 +81,14 @@
 
 @if ($failed > 0)
     <x-ui.banner tone="warning" class="mb-6">
-        <b>{{ Format::number($failed) }} baris tidak lolos</b> dan akan dilewati kalau Anda menyetujui impor ini.
-        Datanya tidak ikut tersimpan. Perbaiki di berkas, atau setel ulang pemetaan kolom untuk mencobanya lagi.
+        @if ($isInbound)
+            <b>{{ Format::number($failed) }} baris tidak lolos.</b> Impor Inbound disimpan utuh atau tidak
+            sama sekali, jadi berkas ini belum bisa disimpan sampai seluruh barisnya lolos.
+            Periksa daftarnya di bawah lalu jalankan validasi lagi.
+        @else
+            <b>{{ Format::number($failed) }} baris tidak lolos</b> dan akan dilewati kalau Anda menyetujui impor ini.
+            Datanya tidak ikut tersimpan. Perbaiki di berkas, atau setel ulang pemetaan kolom untuk mencobanya lagi.
+        @endif
     </x-ui.banner>
 @endif
 
@@ -175,6 +201,23 @@
                 <a href="{{ route('master.import.mapping', [$module, $token]) }}" class="btn-secondary">Ubah Pemetaan Kolom</a>
                 <a href="{{ route($createRoute) }}" class="btn-primary">Impor File Lain</a>
             </div>
+    </x-ui.section-card>
+@elseif ($isInbound && $failed > 0)
+    {{-- Tombol Simpan sengaja tidak ditampilkan: server akan menolak berkas ini
+         apa pun yang dikirim, karena Inbound disimpan dalam satu transaksi.
+         Menawarkan tombol yang pasti gagal hanya membuat orang menekannya
+         berulang tanpa tahu apa yang harus diperbaiki. --}}
+    <x-ui.section-card title="Berkas Belum Bisa Disimpan">
+        <p class="mb-4 text-body-sm text-text-muted">
+            {{ Format::number($failed) }} dari {{ Format::number($result->total()) }} baris ditolak pemeriksaan ulang.
+            Impor Inbound disimpan utuh atau tidak sama sekali, jadi berkas ini baru bisa disimpan
+            setelah seluruh barisnya lolos. Periksa baris di bawah lalu jalankan validasi lagi.
+        </p>
+
+        <div class="flex flex-wrap items-center justify-end gap-2 border-t border-border-subtle pt-4">
+            <a href="{{ route('master.import.mapping', [$module, $token]) }}" class="btn-secondary">Ubah Pemetaan Kolom</a>
+            <a href="{{ route($createRoute) }}" class="btn-primary">Impor File Lain</a>
+        </div>
     </x-ui.section-card>
 @else
     <form method="POST" action="{{ route('master.import.commit', [$module, $token]) }}">

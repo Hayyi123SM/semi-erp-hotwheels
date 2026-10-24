@@ -10,6 +10,7 @@ use App\Enums\QuarantineStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\AssignQuarantineCaseRequest;
 use App\Http\Requests\Inventory\LookupQuarantineRequest;
+use App\Http\Requests\Inventory\PindahRakBulkRequest;
 use App\Http\Requests\Inventory\PindahRakRequest;
 use App\Http\Requests\Inventory\ResolveQuarantineRequest;
 use App\Http\Requests\Inventory\StoreQuarantineCaseRequest;
@@ -59,6 +60,19 @@ class InventoryController extends Controller
             ->sortable(['sku', 'owner_type', 'qty_on_hand', 'card_condition', 'list_price', 'status', 'created_at'])
             ->searchPlaceholder('Scan barcode / cari SKU...')
             ->columns([
+                // Pemilihan baris untuk pindah rak massal. Kolomnya tidak ikut
+                // ke kartu layar kecil (`card('hidden')`): kartu memakai
+                // renderer sel yang sama, sehingga centang akan muncul dua
+                // kali untuk lot yang sama dan terkirim ganda. Di layar kecil
+                // pemindahan tetap lewat aksi per baris.
+                Column::make('select', '')
+                    ->align('center')
+                    ->priority(1)
+                    ->class('w-10')
+                    ->headClass('w-10')
+                    ->notExportable()
+                    ->card('hidden')
+                    ->render(fn (StockLot $lot) => $this->bulkSelectCell($lot)),
                 Column::make('sku', 'SKU', sort: 'sku')->mono()->priority(1)->card('title'),
                 Column::make('product.name', 'Produk')
                     ->priority(1)
@@ -266,6 +280,81 @@ class InventoryController extends Controller
             'type' => 'success',
             'message' => $lot->sku.' dipindah ke rak '.$rack->code.'.',
         ]);
+    }
+
+    /**
+     * Pindah banyak lot sekaligus ke satu rak (jalur massal FR-IC-04).
+     *
+     * Hasilnya dilaporkan sebagai ringkasan, bukan sebagai kegagalan: lot yang
+     * sudah di rak tujuan atau kosong dilewati oleh service, dan sisanya tetap
+     * pindah. Toast tetap memberi tahu berapa yang dilewati, supaya operator
+     * tahu angkanya bukan karena pilihannya hilang.
+     */
+    public function pindahRakBulk(PindahRakBulkRequest $request, StockTransferService $transfer)
+    {
+        $rack = $request->rack();
+        $summary = $transfer->transferMany($request->lots(), $rack, $request->user(), $request->reason());
+
+        return back()->with('toast', [
+            'type' => $summary['moved'] > 0 ? 'success' : 'warning',
+            'message' => $this->bulkTransferMessage($summary, $rack),
+        ]);
+    }
+
+    /**
+     * Kotak centang pemilihan baris untuk pindah rak massal.
+     *
+     * Checkbox terikat ke formulir di modal lewat atribut `form`, bukan dengan
+     * membungkus tabel dalam <form>: tabel ini server-rendered dan diganti
+     * in-place, sedangkan formulirnya hidup di luar region yang diganti itu.
+     * Konsekuensinya pilihan selalu mengikuti baris yang sedang tampil.
+     */
+    private function bulkSelectCell(StockLot $lot): string
+    {
+        return '<input type="checkbox" form="pindah-rak-bulk" name="lot_ids[]" value="'.$lot->id.'"'
+            .' data-bulk-lot'
+            .' class="h-4 w-4 rounded border-border-strong text-primary focus:ring-primary/30"'
+            .' aria-label="Pilih '.e($lot->sku).'">';
+    }
+
+    /**
+     * @param  array{moved: int, skipped: int}  $summary
+     */
+    private function bulkTransferMessage(array $summary, Rack $rack): string
+    {
+        $skipped = $summary['skipped'] + $summary['skippedNoSpace'];
+
+        if ($summary['moved'] === 0) {
+            $detail = $skipped > 0 ? ': '.$this->bulkTransferSkipReasons($summary) : '';
+
+            return 'Tidak ada lot yang dipindah'.$detail.'.';
+        }
+
+        $message = $summary['moved'].' lot dipindah ke rak '.$rack->code;
+
+        if ($skipped > 0) {
+            $message .= '. '.$skipped.' lot dilewati ('.$this->bulkTransferSkipReasons($summary).')';
+        }
+
+        return $message.'.';
+    }
+
+    /**
+     * @param  array{moved: int, skipped: int, skippedNoSpace: int}  $summary
+     */
+    private function bulkTransferSkipReasons(array $summary): string
+    {
+        $reasons = [];
+
+        if ($summary['skipped'] > 0) {
+            $reasons[] = 'sudah di rak tujuan atau stoknya kosong';
+        }
+
+        if ($summary['skippedNoSpace'] > 0) {
+            $reasons[] = 'tidak muat di rak tujuan';
+        }
+
+        return implode(', ', $reasons);
     }
 
     /**
@@ -666,9 +755,15 @@ class InventoryController extends Controller
         // paling sering dicari orang untuk mobilan yang mirip, jadi digabung
         // dalam satu baris di bawah nama dan seri (pola titik yang sama seperti
         // sel produk di halaman cetak label).
+        //
+        // Keduanya boleh null: katalog lama masuk tanpa warna, dan tahun hanya
+        // terisi untuk sebagian produk. Filternya sengaja menerima null, bukan
+        // hanya string -- nilai yang tidak ada bukan nilai kosong yang bisa
+        // di-`implode`, dan baris yang punya warna null dulu menggagalkan
+        // seluruh halaman saat pagination membukanya.
         $details = array_filter(
-            [$product?->color, (string) $product?->year],
-            fn (string $part): bool => $part !== '' && $part !== '0',
+            [$product?->color, $product?->year],
+            fn (string|int|null $part): bool => $part !== null && (string) $part !== '' && (string) $part !== '0',
         );
 
         if ($details !== []) {

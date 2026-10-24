@@ -13,11 +13,19 @@ use RuntimeException;
 /**
  * Daftar produk Stock In Pribadi yang bertahan di server.
  *
- * Satu draft per (pengguna, perangkat). Form ini bisa tertutup di tengah
- * pengisian, dan daftar produk yang sudah dipilih -- lengkap dengan HPP yang
- * sudah diketik -- tidak boleh hilang bersama layarnya. Karena itu isinya
- * ditulis ke `stock_in_pribadi_drafts` setiap kali berubah, dan dibaca kembali
- * saat halaman dibuka.
+ * Satu draft per pengguna, lintas perangkat: pekerjaan yang diketik di satu
+ * mesin harus bisa dilanjutkan di mesin lain tanpa harus mengirimkan daftar
+ * itu ke sana lebih dulu. Form ini bisa tertutup di tengah pengisian, dan
+ * daftar produk yang sudah dipilih -- lengkap dengan HPP yang sudah diketik --
+ * tidak boleh hilang bersama layarnya. Karena itu isinya ditulis ke
+ * `stock_in_pribadi_drafts` setiap kali berubah, dan dibaca kembali saat
+ * halaman dibuka.
+ *
+ * Perangkat tidak ikut menentukan draft mana yang aktif. Kalau dua perangkat
+ * mengisi form yang sama, pembaruan terakhir menang -- daftar terbaru adalah
+ * daftar yang dipakai keduanya, dan tidak ada dua draft paralel yang saling
+ * menimpa tanpa sadar. Kolom `device_id` tetap ada untuk keperluan lain
+ * (shift, audit), tetapi tidak dipakai di sini.
  *
  * Tidak ada shift di sini: form ini diisi jauh sebelum barang diterima, jadi
  * yang mengikat umur draft hanya masa berlakunya sendiri. Batas 24 jam adalah
@@ -35,13 +43,13 @@ class StockInPribadiDraftService
     private const TTL_HOURS = 24;
 
     /**
-     * Draft aktif milik pengguna dan perangkat ini, atau `null`.
+     * Draft aktif milik pengguna ini, atau `null`.
      *
      * Draft yang sudah lewat umurnya ditandai kedaluwarsa di sini dan tidak
      * dikembalikan, supaya halaman tidak menawarkan memulihkan daftar yang
      * isinya sudah basi.
      */
-    public function getActive(?string $deviceId = null): ?StockInPribadiDraft
+    public function getActive(): ?StockInPribadiDraft
     {
         $userId = Auth::id();
 
@@ -52,11 +60,6 @@ class StockInPribadiDraftService
         $draft = StockInPribadiDraft::query()
             ->active()
             ->where('user_id', $userId)
-            ->when(
-                $deviceId !== null,
-                fn ($query) => $query->where('device_id', $deviceId),
-                fn ($query) => $query->whereNull('device_id'),
-            )
             ->latest('id')
             ->first();
 
@@ -83,7 +86,7 @@ class StockInPribadiDraftService
      *
      * @param  array<int, array<string, mixed>>  $items
      */
-    public function save(array $items, ?string $deviceId = null): ?StockInPribadiDraft
+    public function save(array $items): ?StockInPribadiDraft
     {
         $userId = Auth::id();
 
@@ -92,20 +95,18 @@ class StockInPribadiDraftService
         }
 
         if ($items === []) {
-            $this->cancel($deviceId);
+            $this->cancel();
 
             return null;
         }
 
-        $draft = $this->getActive($deviceId) ?? new StockInPribadiDraft([
+        $draft = $this->getActive() ?? new StockInPribadiDraft([
             'user_id' => $userId,
-            'device_id' => $deviceId,
             'status' => 'ACTIVE',
         ]);
 
         $draft->fill([
             'items' => $items,
-            'device_id' => $deviceId,
             'expired_at' => Carbon::now()->addHours(self::TTL_HOURS),
         ])->save();
 
@@ -118,9 +119,9 @@ class StockInPribadiDraftService
      * Dipakai saat daftar dikosongkan dengan sengaja dan setelah form berhasil
      * di-commit: draft yang dibatalkan tidak akan ditawarkan lagi.
      */
-    public function cancel(?string $deviceId = null): void
+    public function cancel(): void
     {
-        $draft = $this->getActive($deviceId);
+        $draft = $this->getActive();
 
         if ($draft === null) {
             return;

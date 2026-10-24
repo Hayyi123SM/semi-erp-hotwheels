@@ -9,7 +9,7 @@ use App\Support\Numbers;
  *
  * `Numbers` says what the reduction is; this says which fields get it. The list
  * is declared per request rather than worked out from the field names, because
- * "looks numeric" is not the test. A PIN is digits and is not a number: stripping
+ * "looks numeric" is not the test. A postal code is digits and is not a number: stripping
  * the dash out of `12-34` would turn a refused entry into an accepted one, which
  * is the same class of mistake pointed the other way.
  *

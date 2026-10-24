@@ -47,11 +47,6 @@
                 </x-ui.field>
             </div>
 
-            <x-ui.field label="PIN (opsional)" name="pin" hint="6 digit. Dipakai untuk otorisasi aksi tertentu.">
-                <input id="pin" name="pin" value="{{ old('pin') }}" class="input-base font-mono" placeholder="mis. 123456" maxlength="6" inputmode="numeric" pattern="[0-9]{6}">
-                @error('pin')<p class="mt-1 text-label-sm text-error-text">{{ $message }}</p>@enderror
-            </x-ui.field>
-
             <div class="sm:col-span-2">
                 <label class="flex cursor-pointer items-center gap-2 text-label-md text-text-muted">
                     <input type="checkbox" name="is_active" value="1" @checked((bool) old('is_active', $user->is_active ?? true)) class="h-4 w-4 rounded border-border-strong text-primary focus:ring-primary/30">

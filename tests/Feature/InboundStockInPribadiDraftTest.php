@@ -8,8 +8,10 @@ use App\Models\Product;
 use App\Models\ProductSeries;
 use App\Models\StockInPribadiDraft;
 use App\Models\User;
+use App\Services\Spreadsheet\SpreadsheetService;
 use App\Support\DeviceId;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -18,10 +20,11 @@ use Tests\TestCase;
  *
  * Yang dijaga di sini bukan "apakah JSON-nya tersimpan" -- itu urusan database
  * -- melainkan janji yang dibuat halamannya ke pengisinya: produk yang sudah
- * dipilih tidak hilang saat halaman dimuat ulang, dan daftar yang sudah jadi
- * stok tidak muncul kembali sebagai pekerjaan yang belum selesai. Kedua janji
- * itu punya batas yang jelas lewat kepemilikan, perangkat, dan umur draft, jadi
- * batas-batasnya ikut diuji di sini, bukan hanya jalur bahagiananya.
+ * dipilih tidak hilang saat halaman dimuat ulang, daftar yang sudah jadi stok
+ * tidak muncul kembali sebagai pekerjaan yang belum selesai, dan batas baris
+ * form sama dengan batas yang bisa dihasilkan impor. Kedua janji pertama punya
+ * batas yang jelas lewat kepemilikan dan umur draft, jadi batas-batasnya ikut
+ * diuji di sini, bukan hanya jalur bahagiananya.
  *
  * Polanya sengaja sama dengan `Tests\Feature\Pos\CartDraftTest`: halaman yang
  * berbeda, janji yang sama.
@@ -180,13 +183,28 @@ class InboundStockInPribadiDraftTest extends TestCase
         $this->load($actor)->assertJsonPath('draft.items.0.qty', '5');
     }
 
+    /**
+     * Draft mengikuti pengguna, bukan perangkat: pekerjaan yang diketik di satu
+     * mesin harus bisa dilanjutkan di mesin lain. Kalau dua perangkat mengisi
+     * form yang sama, pembaruan terakhir menang -- daftar terbaru menjadi
+     * daftar kedua perangkat, dengan satu draft ACTIVE saja.
+     */
     #[Test]
-    public function a_draft_belongs_to_the_device_that_made_it(): void
+    public function a_draft_follows_the_user_across_devices(): void
     {
         [$actor, $product] = $this->ownerWithProduct();
         $this->save($actor, [$this->row($product->id)]);
 
-        $this->load($actor, 'SIP-OTHER-02')->assertJsonPath('has_draft', false);
+        // Perangkat kedua melihat daftar yang sama...
+        $this->load($actor, 'SIP-OTHER-02')
+            ->assertJsonPath('has_draft', true);
+
+        // ...dan pembaruan dari perangkat itulah yang menang.
+        $this->save($actor, [$this->row($product->id, 7)], 'SIP-OTHER-02')
+            ->assertOk();
+
+        $this->load($actor)->assertJsonPath('draft.items.0.qty', '7');
+        $this->assertSame(1, StockInPribadiDraft::query()->where('status', 'ACTIVE')->count());
     }
 
     #[Test]
@@ -248,6 +266,89 @@ class InboundStockInPribadiDraftTest extends TestCase
         $this->save($actor, [['product_id' => 999999, 'qty' => 1]])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('items.0.product_id');
+    }
+
+    /**
+     * Batas baris draft sama dengan batas impor (`SpreadsheetService::MAX_ROWS`).
+     * Berkas impor bisa menghasilkan sebanyak itu baris ke draft lewat
+     * `InboundImportCommitter`; kalau endpoint draft memakai batas lain,
+     * auto-save menolak diam-diam dan pekerjaan hilang tanpa pesan.
+     */
+    #[Test]
+    public function the_draft_accepts_exactly_as_many_rows_as_an_import_can_produce(): void
+    {
+        [$actor, $product] = $this->ownerWithProduct();
+
+        $rows = array_fill(0, SpreadsheetService::MAX_ROWS, $this->row($product->id));
+
+        $this->save($actor, $rows)
+            ->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonCount(SpreadsheetService::MAX_ROWS, 'draft.items');
+    }
+
+    #[Test]
+    public function one_row_past_the_import_limit_is_rejected(): void
+    {
+        [$actor, $product] = $this->ownerWithProduct();
+
+        $rows = array_fill(0, SpreadsheetService::MAX_ROWS + 1, $this->row($product->id));
+
+        $this->save($actor, $rows)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('items');
+    }
+
+    /**
+     * Regression: daftar hasil impor (>100 baris) harus bisa di-commit dari
+     * form. Dulu kedua request dibatasi `max:100` sementara impor menerima
+     * 2000 baris -- form menolak daftar yang baru saja diisi impor sendiri.
+     */
+    #[Test]
+    public function the_commit_form_accepts_a_list_larger_than_the_old_limit(): void
+    {
+        [$actor, $product] = $this->ownerWithProduct();
+
+        $items = array_fill(0, 150, [
+            'product_id' => $product->id,
+            'qty' => '1',
+            'cost_price' => '45000',
+        ]);
+
+        $this->actingAs($actor)
+            ->withSession([DeviceId::SESSION_KEY => self::DEVICE])
+            ->post('/inbound/stock-in-pribadi', [
+                'source' => 'INV-2026-0917',
+                'verified' => '1',
+                'items' => $items,
+            ])
+            ->assertRedirect(route('inbound.stock-in-pribadi'))
+            ->assertSessionHasNoErrors();
+
+        $this->assertGreaterThan(0, DB::table('stock_movements')->count());
+    }
+
+    /**
+     * Metadata tampilan (badge seri, warna, tahun) ikut tersimpan di draft,
+     * supaya baris yang dipulihkan di perangkat lain menampilkan hal yang sama
+     * dengan baris yang baru ditambahkan.
+     */
+    #[Test]
+    public function display_metadata_round_trips_through_the_draft(): void
+    {
+        [$actor, $product] = $this->ownerWithProduct();
+
+        $row = $this->row($product->id);
+        $row['series_name'] = 'Hot Wheels Mainline';
+        $row['color'] = 'Blue';
+        $row['year'] = 2024;
+
+        $this->save($actor, [$row])->assertOk();
+
+        $this->load($actor)
+            ->assertJsonPath('draft.items.0.series_name', 'Hot Wheels Mainline')
+            ->assertJsonPath('draft.items.0.color', 'Blue')
+            ->assertJsonPath('draft.items.0.year', 2024);
     }
 
     #[Test]

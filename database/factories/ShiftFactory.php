@@ -78,4 +78,21 @@ class ShiftFactory extends Factory
             'status' => ShiftStatus::Closed,
         ]);
     }
+
+    /**
+     * Shift yang lacinya sudah dihitung kasir dan menunggu keputusan Owner.
+     *
+     * `closed_at` dan `closed_by` sengaja tetap kosong: shift ini belum ditutup,
+     * hanya berhenti menerima penjualan sampai selisihnya disahkan atau ditolak.
+     */
+    public function pendingApproval(int $closingCash = 500_000, ?string $notes = null): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'closing_cash' => $closingCash,
+            'cash_diff' => $closingCash - ($attributes['opening_cash'] ?? 0),
+            'closing_notes' => $notes,
+            'closing_requested_at' => now(),
+            'status' => ShiftStatus::PendingApproval,
+        ]);
+    }
 }

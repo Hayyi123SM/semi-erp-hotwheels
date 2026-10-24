@@ -88,6 +88,77 @@ class InboundTest extends TestCase
     }
 
     #[Test]
+    public function a_consignment_that_does_not_fit_the_rack_is_rejected_without_writing_stock(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $consignor = Consignor::factory()->create();
+        $series = ProductSeries::factory()->create(['code' => 'HW']);
+        $product = Product::factory()->create(['series_id' => $series->id]);
+        $rack = Rack::factory()->create(['code' => 'A-01-03', 'capacity' => 5]);
+
+        $this->actingAs($owner)->post('/inbound/consignment-in', [
+            'consignor_id' => $consignor->id,
+            'consignment_date' => '2026-09-28',
+            'verified' => '1',
+            'items' => [['product_id' => $product->id, 'qty' => '6', 'rack_id' => $rack->id]],
+        ])->assertSessionHasErrors([
+            'items' => 'Rak A-01-03 tidak cukup: kapasitas 5 unit, terpakai 0, diminta 6 (sisa 5).',
+        ]);
+
+        $this->assertDatabaseCount('consignments', 0);
+        $this->assertDatabaseCount('stock_lots', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    #[Test]
+    public function quantities_for_the_same_rack_are_aggregated_before_the_capacity_check(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $consignor = Consignor::factory()->create();
+        $series = ProductSeries::factory()->create(['code' => 'HW']);
+        $productA = Product::factory()->create(['series_id' => $series->id]);
+        $productB = Product::factory()->create(['series_id' => $series->id]);
+        $rack = Rack::factory()->create(['capacity' => 5]);
+
+        // Masing-masing baris muat sendiri-sendiri; bersama-sama tidak.
+        $this->actingAs($owner)->post('/inbound/consignment-in', [
+            'consignor_id' => $consignor->id,
+            'consignment_date' => '2026-09-28',
+            'verified' => '1',
+            'items' => [
+                ['product_id' => $productA->id, 'qty' => '3', 'rack_id' => $rack->id],
+                ['product_id' => $productB->id, 'qty' => '3', 'rack_id' => $rack->id],
+            ],
+        ])->assertSessionHasErrors('items');
+
+        $this->assertDatabaseCount('stock_lots', 0);
+    }
+
+    #[Test]
+    public function a_consignment_that_exactly_fills_the_rack_is_accepted(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $consignor = Consignor::factory()->create();
+        $series = ProductSeries::factory()->create(['code' => 'HW']);
+        $productA = Product::factory()->create(['series_id' => $series->id]);
+        $productB = Product::factory()->create(['series_id' => $series->id]);
+        $rack = Rack::factory()->create(['capacity' => 5]);
+
+        $commit = $this->actingAs($owner)->post('/inbound/consignment-in', [
+            'consignor_id' => $consignor->id,
+            'consignment_date' => '2026-09-28',
+            'verified' => '1',
+            'items' => [
+                ['product_id' => $productA->id, 'qty' => '2', 'rack_id' => $rack->id],
+                ['product_id' => $productB->id, 'qty' => '3', 'rack_id' => $rack->id],
+            ],
+        ]);
+
+        $this->assertRedirectedToReceipt($commit);
+        $this->assertSame(5, StockLot::query()->sum('qty_on_hand'));
+    }
+
+    #[Test]
     public function second_consignment_commit_continues_sequence_without_gaps(): void
     {
         $owner = User::factory()->owner()->create();
@@ -185,6 +256,28 @@ class InboundTest extends TestCase
 
         $this->assertDatabaseCount('label_print_jobs', 1);
         $this->assertDatabaseHas('audit_logs', ['entity' => 'StockLot', 'action' => 'RECEIVE_OWN']);
+    }
+
+    #[Test]
+    public function own_stock_that_does_not_fit_the_rack_is_rejected(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $series = ProductSeries::factory()->create(['code' => 'HW']);
+        $product = Product::factory()->create(['series_id' => $series->id]);
+        $rack = Rack::factory()->create(['code' => 'B-01-05', 'capacity' => 4]);
+
+        $this->actingAs($owner)->post('/inbound/stock-in-pribadi', [
+            'source' => 'INV-2026-0918',
+            'verified' => '1',
+            'items' => [
+                ['product_id' => $product->id, 'qty' => '5', 'cost_price' => '45.000', 'rack_id' => $rack->id],
+            ],
+        ])->assertSessionHasErrors([
+            'items' => 'Rak B-01-05 tidak cukup: kapasitas 4 unit, terpakai 0, diminta 5 (sisa 4).',
+        ]);
+
+        $this->assertDatabaseCount('stock_lots', 0);
+        $this->assertDatabaseCount('stock_movements', 0);
     }
 
     /**

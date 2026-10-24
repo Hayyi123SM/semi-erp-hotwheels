@@ -89,8 +89,14 @@ class CartDraftService
      *
      * @param  array<int, array<string, mixed>>  $items
      */
-    public function save(array $items, ?int $shiftId = null, ?string $deviceId = null, ?string $note = null): ?PosCartDraft
-    {
+    public function save(
+        array $items,
+        ?int $shiftId = null,
+        ?string $deviceId = null,
+        ?string $note = null,
+        ?string $orderDiscountType = null,
+        ?int $orderDiscountValue = null,
+    ): ?PosCartDraft {
         $userId = Auth::id();
 
         if ($userId === null) {
@@ -112,6 +118,8 @@ class CartDraftService
 
         $draft->fill([
             'items' => $items,
+            'order_discount_type' => $orderDiscountType,
+            'order_discount_value' => $orderDiscountValue,
             'note' => $note,
             'shift_id' => $shiftId,
             'device_id' => $deviceId,

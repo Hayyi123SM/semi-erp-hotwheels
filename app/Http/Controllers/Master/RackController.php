@@ -9,6 +9,7 @@ use App\Http\Requests\RackRequest\UpdateRackRequest;
 use App\Models\Rack;
 use App\Models\StockLot;
 use App\Services\AuditLogger;
+use App\Services\Inventory\RackCapacityService;
 use App\Services\Label\LabelPage;
 use App\Services\Label\LabelPrinterSettings;
 use App\Support\DataTable\Column;
@@ -18,7 +19,10 @@ use Illuminate\Support\Facades\Redirect;
 
 class RackController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly RackCapacityService $rackCapacity,
+    ) {}
 
     public function index()
     {
@@ -250,8 +254,14 @@ class RackController extends Controller
     {
         abort_unless(auth()->user()->isOwner(), 403);
 
+        $validated = $this->normalize($request->validated());
+
+        if (array_key_exists('capacity', $validated)) {
+            $this->rackCapacity->assertCapacityCoversUsage($rack, (int) $validated['capacity']);
+        }
+
         $before = $rack->getAttributes();
-        $rack->fill($this->normalize($request->validated()))->save();
+        $rack->fill($validated)->save();
         $this->audit->updated($rack, $before);
 
         return Redirect::route('master.lokasi-rak')->with('toast', [

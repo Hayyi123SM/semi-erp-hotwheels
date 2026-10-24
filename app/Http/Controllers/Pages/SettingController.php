@@ -61,7 +61,7 @@ class SettingController extends Controller
      * bukan diam-diam menyimpan baris tanpa penjelasan.
      */
     private const POS_DESCRIPTIONS = [
-        PosSettings::STAFF_DISCOUNT_LIMIT_KEY => 'Potongan harga maksimal (%) yang boleh diberikan kasir tanpa PIN Owner',
+        PosSettings::STAFF_DISCOUNT_LIMIT_KEY => 'Potongan harga maksimal (%) yang boleh diberikan kasir',
         PosSettings::CASH_DIFFERENCE_THRESHOLD_KEY => 'Selisih kas (Rp) yang perlu persetujuan Owner saat shift ditutup',
     ];
 

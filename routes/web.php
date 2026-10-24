@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Controllers\Admin\UserManagementController;
-use App\Http\Controllers\Auth\PinController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Dev\MenuController;
+use App\Http\Controllers\Finance\ExpenseCategoryController;
+use App\Http\Controllers\Finance\ExpenseController;
+use App\Http\Controllers\Finance\ExpenseImportController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\Inbound\ProductSearchController;
 use App\Http\Controllers\Master\ConsignorController;
@@ -86,6 +88,12 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
         // orang di langkah sebelumnya, supaya yang tersimpan persis yang
         // sudah dilihat.
         Route::post('/{module}/{token}/preview', [ImportController::class, 'preview'])->name('preview');
+        // Halaman Validasi yang sama, tapi bisa dibuka ulang dengan GET.
+        // `preview` menjawab POST, dan halaman itu memang dituju lewat POST --
+        // sehingga ketika `commit` menolak berkas, redirect bawaan Laravel yang
+        // menunjuk ke URL POST tadi akan berujung 405. Rute inilah tujuan
+        // redirect penolakan commit, sekaligus tempat pesannya dibaca.
+        Route::get('/{module}/{token}/preview', [ImportController::class, 'validate'])->name('validate');
         Route::post('/{module}/{token}/commit', [ImportController::class, 'commit'])->name('commit');
 
         Route::delete('/{module}/{token}', [ImportController::class, 'cancel'])->name('cancel');
@@ -202,6 +210,9 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
     Route::get('/inventory/live-stock', [InventoryController::class, 'liveStock'])->name('inventory.live-stock');
     Route::get('/inventory/live-stock/ekspor', [InventoryController::class, 'ekspor'])->name('inventory.live-stock.ekspor');
     Route::patch('/inventory/live-stock/{lot}/rak', [InventoryController::class, 'pindahRak'])->name('inventory.live-stock.rak');
+    // POST, bukan PATCH: satu kirim memindahkan banyak lot sekaligus, jadi
+    // tidak ada satu resource yang bisa dituju di URL.
+    Route::post('/inventory/live-stock/pindah-rak', [InventoryController::class, 'pindahRakBulk'])->name('inventory.live-stock.rak.bulk');
     Route::get('/inventory/kartu-stok/{lot}', [InventoryController::class, 'kartuStok'])->name('inventory.kartu-stok');
     Route::get('/inventory/karantina', [InventoryController::class, 'karantina'])->name('inventory.karantina');
     // Siklus karantina (Fase 2). POST biasa untuk setiap tombol: ada CSRF, galat
@@ -247,8 +258,7 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
 });
 
 // POS / Kasir: Owner dan Staff. Batasnya bukan peran melainkan kepemilikan
-// shift atau PIN Owner, karena menerima uang dan menutup shift adalah
-// pekerjaan kasir.
+// shift, karena menerima uang dan menutup shift adalah pekerjaan kasir.
 Route::middleware('auth')->group(function () {
     // ===== 4. POS / Kasir =====
     Route::get('/pos/kasir', [PosController::class, 'kasir'])->name('pos.kasir');
@@ -296,7 +306,7 @@ Route::middleware('auth')->group(function () {
      *
      * Tanpa middleware `owner`, sama seperti siklus shift: menerima uang adalah
      * pekerjaan kasir. Yang dibatasi bukan peran, melainkan shift -- kasir tanpa
-     * shift terbuka ditolak di dalam layanan, bukan lewat PIN.
+     * shift terbuka ditolak di dalam layanan.
      *
      * Tanpa `throttle` juga: berbeda dengan pencarian produk yang dipanggil
      * setiap kali kasir mengetik, endpoint ini dipaling banyak sekali per
@@ -319,15 +329,28 @@ Route::middleware('auth')->group(function () {
      *
      * Membuka dan menutup shift adalah pekerjaan kasir, bukan hak Owner: kalau
      * hanya Owner yang boleh menutup shift, kasir yang pulang tidak bisa
-     * menyerahkan laci kecuali menunggu Owner datang. Otorisasi yang dipakai di
-     * sini bukan peran, melainkan PIN Owner -- dan itu hanya diminta saat selisih
-     * kas melewati ambang, di `CloseShiftRequest`.
+     * menyerahkan laci kecuali menunggu Owner datang. Kasir yang selisih lacinya
+     * melewati ambang tidak menutup shiftnya sendiri: hitungannya masuk antrean
+     * persetujuan, dan Owner memutuskannya di halaman di bawah.
      *
      * `POST`, bukan `GET`, untuk keduanya. Menutup shift mengubah angka kas yang
      * dipakai laporan, jadi tidak boleh terjadi karena seseorang membuka tautan.
      */
     Route::post('/pos/shift-kasir/buka', [PosController::class, 'openShift'])->name('pos.shift-kasir.open');
     Route::post('/pos/shift-kasir/{shift}/tutup', [PosController::class, 'closeShift'])->name('pos.shift-kasir.close');
+
+    /**
+     * Persetujuan tutup shift: Owner saja.
+     *
+     * Keputusan menyetujui uang bukan pekerjaan kasir, dan halaman ini menampilkan
+     * laci seluruh kasir. Middleware `owner` dipakai di sini -- berbeda dari
+     * halaman POS lain -- karena yang dibatasi memang perannya, bukan shift.
+     */
+    Route::middleware('owner')->group(function () {
+        Route::get('/pos/persetujuan-shift', [PosController::class, 'shiftApprovals'])->name('pos.persetujuan-shift');
+        Route::post('/pos/persetujuan-shift/{shift}/setujui', [PosController::class, 'approveShift'])->name('pos.persetujuan-shift.approve');
+        Route::post('/pos/persetujuan-shift/{shift}/tolak', [PosController::class, 'rejectShift'])->name('pos.persetujuan-shift.reject');
+    });
 
     /**
      * Pencarian produk untuk layar kasir.
@@ -357,6 +380,19 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
     Route::get('/reports/audit-log', [ReportController::class, 'auditLog'])->name('report.audit-log');
     // Dashboard route terpisah untuk Owner (menghindari redirect loop dengan root 'home')
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('owner.dashboard');
+
+    // ===== 9. Keuangan: Pengeluaran =====
+    Route::prefix('keuangan')->name('finance.')->group(function () {
+        Route::resource('kategori-pengeluaran', ExpenseCategoryController::class)->parameters([
+            'kategori-pengeluaran' => 'kategori_pengeluaran',
+        ])->names('expense-categories');
+        Route::get('pengeluaran/import', [ExpenseImportController::class, 'index'])->name('expenses.import');
+        Route::post('pengeluaran/import/preview', [ExpenseImportController::class, 'preview'])->name('expenses.import.preview');
+        Route::post('pengeluaran/import', [ExpenseImportController::class, 'store'])->name('expenses.import.store');
+        Route::resource('pengeluaran', ExpenseController::class)->parameters([
+            'pengeluaran' => 'pengeluaran',
+        ])->names('expenses');
+    });
 
     // ===== 6. Pengaturan =====
     // Pengguna & Role tidak ada di grup ini: mengelola akun adalah pekerjaan
@@ -411,7 +447,8 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
      *
      * Alasannya sama dengan pengaturan printer: ketiganya mengubah angka yang
      * dipakai semua orang -- batas diskon yang dilihat kasir saat memotong harga,
-     * dan ambang selisih kas yang menentukan apakah tutup shift perlu PIN Owner.
+     * dan ambang selisih kas yang menentukan apakah tutup shift harus menunggu
+     * persetujuan Owner.
      * Nilai yang boleh diubah Staff sendiri akan jadi nilai yang tidak dipercaya.
      * Halaman `GET`-nya ikut Owner-only bersama seluruh modul Pengaturan.
      */
@@ -435,19 +472,12 @@ Route::middleware(['auth', 'manage-users', 'feature'])
         Route::patch('/{user}/toggle', [UserManagementController::class, 'toggleActive'])->name('setting.pengguna.toggle');
     });
 
-// Profil dan PIN: milik semua role. Staff mengganti password sendiri dan
-// menutup shift memakai PIN Owner, jadi keduanya tidak boleh Owner-only.
+// Profil: milik semua role. Staff mengganti password sendiri, jadi tidak boleh
+// Owner-only.
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
-
-    // ===== 7. Otorisasi Owner =====
-    // Ditukar PIN Owner dengan token berumur pendek. Dipakai dialog PIN global,
-    // lalu tokennya ikut di form yang butuh otorisasi -- bukan PIN-nya.
-    Route::post('/pin/verify', [PinController::class, 'verify'])
-        ->middleware('throttle:pin-verify')
-        ->name('pin.verify');
 });
 
 require __DIR__.'/auth.php';

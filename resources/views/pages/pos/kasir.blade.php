@@ -7,6 +7,10 @@
     langsung oleh `layouts/app.blade.php`.
 --}}
 
+@php
+    $shiftPending = $shift?->isPendingApproval() ?? false;
+@endphp
+
 <div class="min-h-full"
      x-data="posCart()"
      data-lookup-url="{{ route('pos.produk.cari') }}"
@@ -35,6 +39,15 @@
         <!-- Left work zone -->
         <div class="bg-canvas p-3 sm:p-4 lg:p-6 lg:min-h-0 lg:overflow-y-auto pb-24 sm:pb-28 lg:pb-6">
             <div class="mx-auto max-w-4xl">
+                @if ($shiftPending)
+                    <div class="mb-4">
+                        <x-ui.banner tone="warning">
+                            Hitungan laci shift ini menunggu persetujuan Owner. Keranjang boleh disiapkan,
+                            tetapi pembayaran baru bisa dilakukan setelah Owner memutuskan.
+                        </x-ui.banner>
+                    </div>
+                @endif
+
                 {{--
         Nama kasir dan nama shift datang dari shift yang benar-benar terbuka.
         Menulisnya sebagai teks di sini membuat halaman menampilkan shift yang
@@ -63,7 +76,12 @@
                         </p>
                     </div>
                     <div class="flex items-center gap-2">
-                        @if ($shift)
+                        @if ($shiftPending)
+                            <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-label-sm bg-warning-bg text-warning-text">
+                                <span class="h-2 w-2 rounded-full bg-warning-text"></span> MENUNGGU PERSETUJUAN
+                            </span>
+                            <a href="{{ route('pos.shift-kasir') }}" class="btn-ghost h-10 px-3">Lihat</a>
+                        @elseif ($shift)
                             <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-label-sm bg-success-bg text-success-text">
                                 <span class="h-2 w-2 rounded-full bg-success-text"></span> SHIFT TERBUKA
                             </span>
@@ -207,34 +225,30 @@
                                         <td class="whitespace-nowrap px-4 py-2 text-right text-body-md tabular-nums" x-text="format.rupiah(item.price)"></td>
                                         <td class="px-3 py-2">
                                             <div class="flex items-center justify-center gap-1.5">
-                                                <select class="h-8 shrink-0 rounded-md border border-border-subtle bg-surface-lowest pl-2 pr-6 text-label-sm text-text-strong outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/15 touch-manipulation"
-                                                        x-model="item.discountType"
-                                                        @change="onDiscountTypeChange(item)"
-                                                        data-allow-focus
-                                                        aria-label="Tipe diskon">
-                                                    <option value="">Tanpa</option>
-                                                    <option value="percent">%</option>
-                                                    <option value="amount">Rp</option>
-                                                </select>
-                                                <div class="relative">
-                                                    <span x-show="item.discountType === 'amount'"
-                                                          x-cloak
-                                                          class="pointer-events-none absolute inset-y-0 left-2 flex items-center text-label-sm text-text-subtle">Rp</span>
-                                                    <span x-show="item.discountType === 'percent'"
-                                                          x-cloak
-                                                          class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-label-sm text-text-subtle">%</span>
-                                                    <input type="number"
-                                                           class="h-8 w-24 rounded-md border border-border-subtle bg-surface-lowest text-right text-label-sm tabular-nums text-text-strong outline-none transition placeholder:text-text-subtle focus:border-primary focus:ring-[3px] focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-text-subtle"
-                                                           :class="item.discountType === 'amount' ? 'pl-7 pr-2' : (item.discountType === 'percent' ? 'pl-2 pr-6' : 'px-2')"
-                                                           x-model.number="item.discountValue"
-                                                           :disabled="!item.discountType"
-                                                           placeholder="0"
-                                                           min="0"
-                                                           :max="item.discountType === 'percent' ? 100 : (item.price * item.qty)"
-                                                           step="1"
-                                                           @input.debounce.300ms="saveDraft()"
-                                                           @blur="clampDiscount(item)"
-                                                           aria-label="Nilai diskon" />
+                                                 <select class="h-8 shrink-0 rounded-md border border-border-subtle bg-surface-lowest pl-2 pr-6 text-label-sm text-text-strong outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/15 touch-manipulation"
+                                                         x-model="item.discountType"
+                                                         @change="onDiscountTypeChange(item)"
+                                                         data-allow-focus
+                                                         aria-label="Tipe diskon">
+                                                     <option value="">Tanpa</option>
+                                                     <option value="percent">%</option>
+                                                     <option value="amount">Rp</option>
+                                                 </select>
+                                                 <div class="relative">
+                                                     <span x-show="item.discountType === 'percent'"
+                                                           x-cloak
+                                                           class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-label-sm text-text-subtle">%</span>
+                                                     <input type="text"
+                                                            inputmode="numeric"
+                                                            autocomplete="off"
+                                                            class="h-8 w-24 rounded-md border border-border-subtle bg-surface-lowest text-right text-label-sm tabular-nums text-text-strong outline-none transition placeholder:text-text-subtle focus:border-primary focus:ring-[3px] focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-text-subtle"
+                                                            :class="item.discountType === 'percent' ? 'pl-2 pr-6' : 'px-2'"
+                                                            :value="_discountDisplayValue(item, item.discountType)"
+                                                            :disabled="!item.discountType"
+                                                            placeholder="0"
+                                                            @input="onDiscountInput(item, $event)"
+                                                            @blur="clampDiscount(item); $event.target.value = _discountDisplayValue(item, item.discountType)"
+                                                            aria-label="Nilai diskon" />
                                                 </div>
                                             </div>
                                         </td>
@@ -318,17 +332,15 @@
                                         <option value="amount">Diskon Rp</option>
                                     </select>
                                     <div class="relative" x-show="item.discountType" x-cloak>
-                                        <span x-show="item.discountType === 'amount'" class="pointer-events-none absolute inset-y-0 left-2 flex items-center text-label-sm text-text-subtle">Rp</span>
                                         <span x-show="item.discountType === 'percent'" class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-label-sm text-text-subtle">%</span>
-                                        <input type="number"
+                                        <input type="text"
+                                               inputmode="numeric"
+                                               autocomplete="off"
                                                class="h-8 w-24 rounded-md border border-border-subtle bg-surface-lowest text-right text-label-sm tabular-nums"
-                                               :class="item.discountType === 'amount' ? 'pl-7 pr-2' : 'pl-2 pr-6'"
-                                               x-model.number="item.discountValue"
-                                               min="0"
-                                               :max="item.discountType === 'percent' ? 100 : (item.price * item.qty)"
-                                               step="1"
-                                               @input.debounce.300ms="saveDraft()"
-                                               @blur="clampDiscount(item)" />
+                                               :class="item.discountType === 'percent' ? 'pl-2 pr-6' : 'px-2'"
+                                               :value="_discountDisplayValue(item, item.discountType)"
+                                               @input="onDiscountInput(item, $event)"
+                                               @blur="clampDiscount(item); $event.target.value = _discountDisplayValue(item, item.discountType)" />
                                     </div>
                                 </div>
                             </div>
@@ -365,17 +377,62 @@
             {{-- Total. Above `lg` this sits alone at the top of the column; below
                  it shares the first row with the payment methods. --}}
             <div class="lg:mt-0">
+                {{-- Diskon nota. Dihitung setelah diskon item, dan hanya boleh
+                     menyisakan minimal Rp1 supaya tidak ada nota tanpa uang. --}}
+                <div class="mb-4 rounded-lg border border-border-subtle bg-canvas p-3">
+                    <p class="mb-2 text-label-sm uppercase tracking-wide text-text-muted">Diskon Total</p>
+                    <div class="flex items-center gap-2">
+                        <select class="h-9 shrink-0 rounded-md border border-border-subtle bg-surface-lowest pl-2 pr-7 text-label-sm text-text-strong outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/15"
+                                x-model="orderDiscountType"
+                                @change="onOrderDiscountTypeChange()"
+                                data-allow-focus
+                                aria-label="Tipe diskon total">
+                            <option value="">Tanpa</option>
+                            <option value="percent">%</option>
+                            <option value="amount">Rp</option>
+                        </select>
+                        <div class="relative min-w-0 flex-1">
+                            <span x-show="orderDiscountType === 'percent'" x-cloak
+                                  class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-label-sm text-text-subtle">%</span>
+                            <input type="text"
+                                   inputmode="numeric"
+                                   autocomplete="off"
+                                   class="h-9 w-full rounded-md border border-border-subtle bg-surface-lowest text-right text-label-sm tabular-nums text-text-strong outline-none transition placeholder:text-text-subtle focus:border-primary focus:ring-[3px] focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-text-subtle"
+                                   :class="orderDiscountType === 'percent' ? 'pl-2 pr-6' : 'px-2'"
+                                   :value="_discountDisplayValue(this, orderDiscountType)"
+                                   :disabled="!orderDiscountType"
+                                   placeholder="0"
+                                   @input="onOrderDiscountInput($event)"
+                                   @blur="clampOrderDiscount(); $event.target.value = _discountDisplayValue(this, orderDiscountType)"
+                                   aria-label="Nilai diskon total">
+                        </div>
+                    </div>
+                    <p class="mt-1.5 text-label-sm text-text-muted">
+                        Maksimal <span class="tabular-nums" x-text="format.rupiah(Math.max(0, subtotal - 1))"></span>
+                        agar total tersisa Rp1.
+                    </p>
+                </div>
+
                 {{-- Baris diskon hanya muncul saat ada diskon: total belanja tanpa
                      diskon tidak perlu ditemani deretan "Rp0" yang cuma menambah
                      tinggi tanpa memberi tahu apa pun. --}}
-                <div x-show="discountTotal > 0" x-cloak class="mb-3 flex items-center justify-between gap-4">
-                    <p class="text-label-sm uppercase tracking-wide text-text-muted">Total Diskon</p>
-                    <p class="text-body-lg font-bold text-success-text tabular-nums"
-                       x-text="'− ' + format.rupiah(discountTotal)">Rp0</p>
+                <div class="space-y-1.5 text-body-sm">
+                    <div class="flex items-center justify-between gap-4">
+                        <span class="text-text-muted">Subtotal</span>
+                        <span class="tabular-nums text-text-strong" x-text="format.rupiah(grossSubtotal)"></span>
+                    </div>
+                    <div x-show="discountTotal > 0" x-cloak class="flex items-center justify-between gap-4">
+                        <span class="text-text-muted">Diskon Item</span>
+                        <span class="tabular-nums text-success-text" x-text="'− ' + format.rupiah(discountTotal)"></span>
+                    </div>
+                    <div x-show="orderDiscountTotal > 0" x-cloak class="flex items-center justify-between gap-4">
+                        <span class="text-text-muted">Diskon Total</span>
+                        <span class="tabular-nums text-success-text" x-text="'− ' + format.rupiah(orderDiscountTotal)"></span>
+                    </div>
                 </div>
-                <p class="text-label-sm uppercase tracking-wide text-text-muted">Total Belanja</p>
+                <p class="mt-3 text-label-sm uppercase tracking-wide text-text-muted">Total Belanja</p>
                 <p class="mt-1 text-display-total font-bold text-text-strong tabular-nums"
-                   x-text="format.rupiah(subtotal)">Rp0</p>
+                   x-text="format.rupiah(total)">Rp0</p>
             </div>
 
             {{-- Payment methods. A single row of three on every width: the labels
@@ -426,8 +483,8 @@
                     @endforeach
                     <button type="button"
                             class="col-span-2 h-14 rounded-lg border border-border-subtle bg-canvas text-body-md font-semibold text-text-strong transition hover:bg-canvas/70 disabled:cursor-not-allowed disabled:opacity-40 lg:col-span-3"
-                            :disabled="subtotal === 0"
-                            @click="quickTender(subtotal)">
+                            :disabled="total === 0"
+                            @click="quickTender(total)">
                         Uang Pas (exact)
                     </button>
                 </div>
@@ -485,9 +542,9 @@
                 --}}
                 <button type="button"
                         class="btn-primary w-full h-14 text-body-md"
-                        :disabled="paying || (paymentMethod === 'TUNAI' && tenderAmount < subtotal && items.length > 0)"
-                        :title="paymentMethod === 'TUNAI' && tenderAmount < subtotal && items.length > 0
-                            ? `Uang diterima ${format.rupiah(tenderAmount)} kurang dari total ${format.rupiah(subtotal)}.`
+                        :disabled="paying || {{ $shiftPending ? 'true' : 'false' }} || (paymentMethod === 'TUNAI' && tenderAmount < total && items.length > 0)"
+                        :title="paymentMethod === 'TUNAI' && tenderAmount < total && items.length > 0
+                            ? `Uang diterima ${format.rupiah(tenderAmount)} kurang dari total ${format.rupiah(total)}.`
                             : null"
                         :aria-busy="paying"
                         @click="pay()">
@@ -509,8 +566,8 @@
         Alasan `<template>` dan bukan `x-ui.drawer`: panel ini butuh ruang lebar
         untuk daftar hasil dan input cari yang terfokus, dan `drawer` tidak pernah
         dipakai di halaman mana pun di aplikasi ini -- tidak ada yang bisa
-        mereferensikannya. `templateModal` sudah dipakai tiga kali
-        (`seri-panel`, `pin-dialog`), jadi polanya ada dan teruji.
+        mereferensikannya. `templateModal` sudah dipakai dua kali
+        (`seri-panel`, panel SKU tidak ditemukan), jadi polanya ada dan teruji.
     --}}
     {{--
         Badan dialog "SKU tidak ditemukan".

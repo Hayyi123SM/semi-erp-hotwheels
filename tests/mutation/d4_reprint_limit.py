@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mutation check terfokus untuk D4 (batas label + PIN Owner).
+"""Mutation check terfokus untuk D4 (batas label cetak ulang).
 
 Setiap mutasi MEYAKINKAN berubahnya sumber dulu, lalu menjalankan test. Mutasi
 yang gagal terpasang dilaporkan sebagai "TIDAK TERPASANG", bukan "lolos" --
@@ -57,7 +57,7 @@ MUTATIONS = [
     ];""",
     ),
     (
-        "Owner ikut diminta PIN atas aksinya sendiri",
+        "Owner ikut ditolak atas aksinya sendiri",
         VERDICT,
         "return $this->isBreached() && ! $this->actorIsOwner;",
         "return $this->isBreached();",
@@ -65,7 +65,7 @@ MUTATIONS = [
     (
         "service tidak memeriksa ulang batas di dalam transaksi",
         SERVICE,
-        """            if ($verdict->needsOwnerPin() && $approvedBy === null) {
+        """            if ($verdict->isBreachedByNonOwner()) {
                 throw new ReprintLimitExceeded($verdict);
             }""",
         "",
@@ -77,10 +77,10 @@ MUTATIONS = [
         "'approved_by' => null,",
     ),
     (
-        "token PIN tidak dibatasi ke aksi ini (konteks global)",
+        "form tidak menolak cetakan yang melewati batas untuk non-Owner",
         REQUEST,
-        "return 'inventory.label-overprint';",
-        "return 'global';",
+        "if (! $this->verdict()->isBreachedByNonOwner()) {",
+        "if (true) {",
     ),
 ]
 

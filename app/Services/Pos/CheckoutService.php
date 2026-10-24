@@ -74,20 +74,29 @@ final class CheckoutService
 
         $shift = $this->shifts->currentFor($checkout->cashier, $checkout->deviceId);
 
-        if ($shift === null) {
+        // Shift yang menunggu keputusan Owner juga ditemukan `currentFor()` --
+        // lacinya masih dipegang kasir yang sama -- tetapi tidak boleh dipakai
+        // berjualan. Pesannya dibedakan supaya kasir tidak mencari tombol buka
+        // shift yang memang tidak akan muncul selama shift itu menunggu.
+        if ($shift === null || ! $shift->isOpen()) {
             throw ValidationException::withMessages([
-                'checkout' => 'Belum ada shift yang terbuka. Buka shift dulu sebelum menerima pembayaran.',
+                'checkout' => $shift?->isPendingApproval()
+                    ? 'Shift ini sedang menunggu persetujuan Owner. Penjualan baru bisa dilanjutkan setelah Owner memutuskan.'
+                    : 'Belum ada shift yang terbuka. Buka shift dulu sebelum menerima pembayaran.',
             ]);
         }
 
         try {
             return DB::transaction(function () use ($checkout, $shift): Sale {
                 $lines = $this->price($checkout);
-                $total = $this->totalOf($lines);
+                $netTotal = $this->totalOf($lines);
+                $orderDiscount = $this->orderDiscount($netTotal, $checkout);
+                $total = $netTotal - $orderDiscount;
+                $lines = $this->applyOrderDiscount($lines, $orderDiscount);
 
                 $this->guardPayments($checkout, $total);
 
-                return $this->persist($checkout, $shift->id, $lines, $total);
+                return $this->persist($checkout, $shift->id, $lines, $total, $orderDiscount);
             });
         } catch (QueryException $e) {
             // Dua percobaan bersamaan untuk `client_sale_id` yang sama: yang
@@ -359,6 +368,116 @@ final class CheckoutService
     }
 
     /**
+     * Diskon total nota, dalam rupiah, dihitung setelah diskon per baris.
+     *
+     * Batasnya menyisakan minimal Rp1 supaya nota tidak pernah dibayar nol:
+     * transaksi tanpa uang bukan transaksi, dan pembayaran POS selalu minimal
+     * Rp1. Nilai yang membuat total nol ditolak, bukan dipotong diam-diam,
+     * supaya kasir melihat angka yang benar-benar tersimpan.
+     *
+     * @throws ValidationException
+     */
+    private function orderDiscount(int $netTotal, Checkout $checkout): int
+    {
+        if (! $checkout->hasOrderDiscount()) {
+            return 0;
+        }
+
+        $value = (int) $checkout->orderDiscountValue;
+        $discount = $checkout->orderDiscountType === 'percent'
+            ? (int) round($netTotal * ($value / 100.0))
+            : $value;
+
+        $discount = max(0, $discount);
+        $maximum = max(0, $netTotal - 1);
+
+        if ($discount > $maximum) {
+            throw ValidationException::withMessages([
+                'order_discount_value' => sprintf(
+                    'Diskon total %s terlalu besar. Sisakan minimal Rp1 dari total %s.',
+                    Format::rupiah($discount),
+                    Format::rupiah($netTotal),
+                ),
+            ]);
+        }
+
+        return $discount;
+    }
+
+    /**
+     * Bagikan diskon total ke tiap baris secara proporsional.
+     *
+     * Diskon total ditanggung toko, jadi yang turun adalah `fee_toko` setiap
+     * baris; `hak_penitip` tidak berubah. Pembagian memakai metode sisa
+     * terbesar supaya jumlah potongan semua baris sama persis dengan diskon
+     * nota -- kalau dibulatkan per baris, selisih satu rupiah akan membuat
+     * BR-05 gagal di laporan.
+     *
+     * @param  list<PricedLine>  $lines
+     * @return list<PricedLine>
+     */
+    private function applyOrderDiscount(array $lines, int $orderDiscount): array
+    {
+        if ($orderDiscount <= 0 || $lines === []) {
+            return $lines;
+        }
+
+        $netTotal = $this->totalOf($lines);
+
+        if ($netTotal <= 0) {
+            return $lines;
+        }
+
+        $allocations = [];
+        $remainders = [];
+
+        foreach ($lines as $index => $line) {
+            $weighted = $orderDiscount * $line->lineTotal;
+            $allocations[$index] = intdiv($weighted, $netTotal);
+            $remainders[$index] = $weighted % $netTotal;
+        }
+
+        $remaining = $orderDiscount - array_sum($allocations);
+        $order = array_keys($remainders);
+
+        usort($order, static function (int $a, int $b) use ($remainders): int {
+            return ($remainders[$b] <=> $remainders[$a]) ?: ($a <=> $b);
+        });
+
+        foreach (array_slice($order, 0, $remaining) as $index) {
+            $allocations[$index]++;
+        }
+
+        $priced = [];
+
+        foreach ($lines as $index => $line) {
+            $allocation = $allocations[$index];
+
+            $priced[] = new PricedLine(
+                lot: $line->lot,
+                qty: $line->qty,
+                inputMethod: $line->inputMethod,
+                listPrice: $line->listPrice,
+                sellPrice: $line->sellPrice,
+                lineTotal: $line->lineTotal,
+                schemeType: $line->schemeType,
+                schemeRate: $line->schemeRate,
+                schemeAmount: $line->schemeAmount,
+                termsVersion: $line->termsVersion,
+                costPrice: $line->costPrice,
+                feeToko: $line->feeToko - $allocation,
+                hakPenitip: $line->hakPenitip,
+                discountTotal: $line->discountTotal,
+                orderDiscount: $allocation,
+                discountType: $line->discountType,
+                discountValue: $line->discountValue,
+            );
+        }
+
+        return $priced;
+    }
+
+    /**
      * @param  list<PricedLine>  $lines
      */
     private function totalOf(array $lines): int
@@ -425,12 +544,11 @@ final class CheckoutService
      *
      * @param  list<PricedLine>  $lines
      */
-    private function persist(Checkout $checkout, int $shiftId, array $lines, int $total): Sale
+    private function persist(Checkout $checkout, int $shiftId, array $lines, int $total, int $orderDiscount): Sale
     {
-        // `subtotal` adalah harga sebelum diskon dan `total` sesudahnya. Nota
-        // menampilkan keduanya berdampingan dengan baris diskon di antaranya,
-        // jadi menyimpan subtotal sebesar total akan membuat diskonnya tidak
-        // pernah terlihat sebagai pengurang.
+        // `subtotal` adalah harga sebelum semua diskon. Diskon item dan diskon
+        // total disimpan terpisah supaya nota bisa menjelaskan keduanya, dan
+        // `total` tetap satu-satunya angka yang dibandingkan dengan pembayaran.
         $discountTotal = collect($lines)->sum(fn ($l) => $l->discountTotal ?? 0);
 
         $sale = Sale::create([
@@ -440,8 +558,11 @@ final class CheckoutService
             'device_id' => $checkout->deviceId,
             'user_id' => $checkout->cashier->id,
             'sold_at' => now(),
-            'subtotal' => $total + $discountTotal,
+            'subtotal' => $total + $discountTotal + $orderDiscount,
             'discount_total' => $discountTotal,
+            'order_discount_type' => $orderDiscount > 0 ? $checkout->orderDiscountType : null,
+            'order_discount_value' => $orderDiscount > 0 ? $checkout->orderDiscountValue : null,
+            'order_discount_total' => $orderDiscount,
             'total' => $total,
             'status' => SaleStatus::Paid,
             'flags' => [],

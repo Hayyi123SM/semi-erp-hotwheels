@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Inventory;
 
-use App\Http\Requests\Concerns\RequiresOwnerPin;
 use App\Models\User;
-use App\Services\Auth\PinService;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -15,57 +13,25 @@ use Illuminate\Foundation\Http\FormRequest;
  * Tidak ada field lain di request ini: semua yang dibutuhkan eksekusi --
  * baris, qty, hasil scan -- sudah tersimpan di dokumen sejak langkah sebelumnya.
  * Yang ditambahkan form ini hanyalah otorisasi, dan otorisasi itu milik aksi
- * ini sendiri: token untuk opname atau untuk aksi lain tidak diterima di sini,
- * karena keduanya berbeda dampaknya terhadap stok dan berbeda siapa yang boleh
- * memakainya.
+ * ini sendiri.
  *
- * PIN hanya menuntut Staff. Owner yang menekan tombol tidak perlu
- * mengotorisasi dirinya sendiri -- memaksanya mengetik PIN hanya menambah
- * langkah tanpa menambah keamanan, sesuai `RequiresOwnerPin`.
+ * Tidak ada otorisasi tambahan di sini. Modul Inventory berada di dalam grup
+ * `['auth', 'owner']` (`routes/web.php`), jadi request yang sampai ke class ini
+ * selalu dibawa Owner; Staff ditolak 403 sebelum aturan validasi sempat dibaca.
+ * Memintanya lagi dari Owner sendiri hanya menambah satu langkah tanpa
+ * menambah satu lapis pengaman -- persis seperti yang sudah dilakukan untuk
+ * keputusan selisih opname di `ReviewBarisRequest`.
  */
 class SetujuiRtvRequest extends FormRequest
 {
-    use RequiresOwnerPin;
-
-    protected function ownerPinContext(): string
-    {
-        return 'inventory.rtv-approve';
-    }
-
-    public function rules(): array
-    {
-        return [
-            ...$this->ownerPinRules(),
-        ];
-    }
-
-    public function messages(): array
-    {
-        return [
-            'pin_token.required' => 'Verifikasi PIN Owner diperlukan untuk menyetujui pengeluaran barang lewat RTV.',
-        ];
-    }
-
     /**
-     * Siapa yang menyetujui: Owner lewat token PIN, atau Owner sendiri yang
-     * mengklik. Staff tanpa token tidak akan sampai ke sini -- aturan PIN di
-     * atas menahannya -- tetapi `null` tetap dikembalikan sebagai bentuk paling
-     * jujur dari "tidak ada yang menotorisasi", bukan jatuh ke pemohon.
+     * Siapa yang menyetujui.
+     *
+     * Selalu orang yang menekan tombol: modul ini Owner-only, jadi tidak ada
+     * pihak lain yang bisa sampai ke sini.
      */
-    public function approver(): ?User
+    public function approver(): User
     {
-        $user = $this->user();
-
-        if ($user?->isOwner()) {
-            return $user;
-        }
-
-        $approver = app(PinService::class)->approverFor(
-            $user,
-            $this->input($this->ownerPinField()),
-            $this->ownerPinContext(),
-        );
-
-        return $approver instanceof User ? $approver : null;
+        return $this->user();
     }
 }

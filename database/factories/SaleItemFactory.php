@@ -33,6 +33,7 @@ class SaleItemFactory extends Factory
             'qty' => $qty,
             'list_price' => $listPrice,
             'discount' => 0,
+            'order_discount' => 0,
             'sell_price' => $sellPrice,
             'scheme_type' => SchemeType::Percentage,
             'scheme_rate' => 20,

@@ -18,9 +18,21 @@
     </x-slot:actions>
 </x-ui.page-header>
 
+{{--
+    Scope halaman untuk pekerjaan pindah rak: dialog per baris dan dialog
+    massal. Kontrol di toolbar dan modal hidup di dalam `x-data` tabel yang
+    bersarang, jadi mereka tidak boleh menulis state halaman -- menulis dari
+    sana hanya membuat properti bayangan yang tidak pernah dibaca. Mereka
+    `$dispatch`, dan handler di sini yang mengubah.
+--}}
 <div class="space-y-6"
-     x-data="{ transfer: null }"
-     @live-stock:transfer.window="transfer = $event.detail; $dispatch('open-modal', 'pindah-rak')">
+     x-data="liveStockBulk"
+     @live-stock:transfer.window="transfer = $event.detail; $dispatch('open-modal', 'pindah-rak')"
+     @live-stock:select-visible.window="selectVisible()"
+     @live-stock:clear.window="clearAll()"
+     @live-stock:open-bulk.window="openBulk()"
+     @table:refreshed.window="sync()"
+     @change="sync()">
 
     {{-- Galat validasi dari form pindah rak di bawah: modalnya sudah tertutup
          saat kembali ke halaman ini, jadi pesannya harus terlihat di sini --
@@ -79,6 +91,25 @@
 
     <x-ui.section-card>
         <x-ui.data-table :table="$table">
+            {{-- Aksi pilihan baris. Disembunyikan di bawah md: di layar kecil
+                 tabel berganti kartu, dan kartu tidak memuat kotak centang
+                 (lihat kolom `select` di controller). --}}
+            <x-slot:actions>
+                <div class="hidden items-center gap-2 md:flex">
+                    <button type="button" class="btn-secondary" @click="$dispatch('live-stock:select-visible')">
+                        Pilih yang tampil
+                    </button>
+                    <button type="button" class="btn-secondary" x-show="count > 0" x-cloak
+                            @click="$dispatch('live-stock:clear')">
+                        Kosongkan
+                    </button>
+                    <button type="button" class="btn-primary" disabled :disabled="count === 0"
+                            @click="$dispatch('live-stock:open-bulk')">
+                        Pindah <span x-text="count > 0 ? count + ' lot' : 'terpilih'"></span>
+                    </button>
+                </div>
+            </x-slot:actions>
+
             <x-slot:filters>
                 <select name="pemilik" class="select-base filter-select" aria-label="Filter pemilik">
                     <option value="">Semua pemilik</option>
@@ -183,5 +214,50 @@
                 </div>
             </form>
         </template>
+    </x-modal>
+
+    {{-- Dialog pindah rak massal. Formulirnya selalu ada di DOM, tidak dibungkus
+         `x-if`: checkbox baris terikat ke id formulir ini lewat atribut `form`,
+         jadi formulir harus tetap terpasang walaupun dialognya tertutup.
+
+         `id` kontrol di sini diberi awalan `bulk_` supaya label tidak menunjuk
+         ke kontrol dialog per baris yang punya field bernama sama. --}}
+    <x-modal name="pindah-rak-bulk" focusable>
+        <form id="pindah-rak-bulk" method="POST" action="{{ route('inventory.live-stock.rak.bulk') }}">
+            @csrf
+
+            <div class="space-y-5 p-6">
+                <div>
+                    <h2 class="text-headline-sm text-text-strong">Pindah Rak Massal</h2>
+                    <p class="mt-1 text-body-sm text-text-muted">
+                        <span class="font-semibold text-text-strong" x-text="count"></span>
+                        lot terpilih dipindah ke satu rak tujuan. Lot yang sudah ada di rak itu
+                        atau stoknya kosong akan dilewati, sisanya tetap pindah.
+                    </p>
+                </div>
+
+                <x-ui.field label="Rak tujuan" name="bulk_rack_id" required>
+                    <select id="bulk_rack_id" name="rack_id" class="select-base" required>
+                        <option value="">Pilih rak…</option>
+                        @foreach ($racks as $rack)
+                            <option value="{{ $rack->id }}">{{ $rack->code }}</option>
+                        @endforeach
+                    </select>
+                </x-ui.field>
+
+                <x-ui.field label="Alasan (opsional)" name="bulk_reason" hint="Dicatat pada setiap gerakan stok dan audit.">
+                    <input type="text" id="bulk_reason" name="reason" maxlength="200" class="input-base" placeholder="Mis. penataan ulang zona B">
+                </x-ui.field>
+
+                @if ($errors->any())
+                    <x-ui.banner tone="error">{{ $errors->first() }}</x-ui.banner>
+                @endif
+
+                <div class="flex justify-end gap-2">
+                    <button type="button" class="btn-secondary" @click="$dispatch('close')">Batal</button>
+                    <button type="submit" class="btn-primary">Pindahkan Lot</button>
+                </div>
+            </div>
+        </form>
     </x-modal>
 </div>

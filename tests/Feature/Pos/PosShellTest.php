@@ -41,6 +41,19 @@ class PosShellTest extends TestCase
             ->assertDontSee('id="app-sidebar"');
     }
 
+    public function test_pos_shell_has_an_alpine_root_so_bare_directives_run(): void
+    {
+        $owner = User::factory()->create(['role' => Role::Owner]);
+
+        // `x-money` hanya diinisialisasi di dalam root Alpine. Tanpa root di
+        // layout POS, input uang pembuka dirender tanpa pemisah ribuan meski
+        // atributnya ada.
+        $this->actingAs($owner)
+            ->get('/pos/shift-kasir')
+            ->assertOk()
+            ->assertSee('class="flex min-h-full flex-col" x-data', false);
+    }
+
     public function test_riwayat_and_shift_and_nota_use_pos_shell_for_staff(): void
     {
         $staff = User::factory()->create(['role' => Role::Staff]);

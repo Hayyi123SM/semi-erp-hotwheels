@@ -102,6 +102,8 @@ describe("stockInPribadiForm: picking a product from the popup", () => {
                     name: "Nissan Skyline GT-R R34",
                     casting_code: "HWX-42",
                     series: "Hot Wheels",
+                    color: "Blue",
+                    year: 2024,
                 },
             },
         });
@@ -111,6 +113,9 @@ describe("stockInPribadiForm: picking a product from the popup", () => {
             product_id: 7,
             name: "Nissan Skyline GT-R R34",
             casting_code: "HWX-42",
+            series_name: "Hot Wheels",
+            color: "Blue",
+            year: 2024,
             qty: 1,
             cost_price: "",
         });
@@ -162,6 +167,9 @@ describe("stockInPribadiForm: scanning a barcode", () => {
                 product_id: 7,
                 name: "Nissan Skyline GT-R R34",
                 casting_code: "HWX-42",
+                series: "Hot Wheels",
+                color: "Blue",
+                year: 2024,
             },
         ]);
 
@@ -180,6 +188,9 @@ describe("stockInPribadiForm: scanning a barcode", () => {
         expect(form.items[0]).toMatchObject({
             product_id: 7,
             casting_code: "HWX-42",
+            series_name: "Hot Wheels",
+            color: "Blue",
+            year: 2024,
         });
     });
 
@@ -275,6 +286,59 @@ describe("stockInPribadiForm: hydrated rows after a failed save", () => {
             blister_condition: "DENTED",
             rack_id: 5,
         });
+    });
+
+    it("keeps the display metadata and defaults what an old draft lacks", () => {
+        // Draft lama tidak memuat metadata tampilan; hydrate harus mengisinya
+        // dengan string kosong supaya `x-show` menyembunyikan pill-nya, bukan
+        // barisnya, dan supaya payload auto-save berikutnya berbentuk sama
+        // dengan payload baris baru.
+        const { form } = mount({
+            initialItems: [
+                {
+                    product_id: 3,
+                    name: "Toyota Supra",
+                    series_name: "HW Mainline",
+                    color: "Red",
+                    year: 2023,
+                },
+                { product_id: 4, name: "Mazda RX-7" },
+            ],
+        });
+
+        expect(form.items[0]).toMatchObject({
+            series_name: "HW Mainline",
+            color: "Red",
+            year: 2023,
+        });
+        expect(form.items[1]).toMatchObject({
+            series_name: "",
+            color: "",
+            year: "",
+        });
+    });
+});
+
+describe("stockInPribadiForm: series badge colors", () => {
+    it("gives the same series name the same color class every time", () => {
+        const { form } = mount();
+
+        const first = form.seriesBadgeClass("Hot Wheels Mainline");
+
+        expect(first).not.toBe("");
+        expect(form.seriesBadgeClass("Hot Wheels Mainline")).toBe(first);
+
+        // Warna seri lain boleh sama atau beda -- paletnya memang delapan
+        // warna -- tetapi hasilnya harus stabil, bukan berubah tiap panggilan.
+        const other = form.seriesBadgeClass("Car Culture");
+        expect(other).toBe(form.seriesBadgeClass("Car Culture"));
+    });
+
+    it("returns no class when the series name is empty", () => {
+        const { form } = mount();
+
+        expect(form.seriesBadgeClass("")).toBe("");
+        expect(form.seriesBadgeClass(undefined)).toBe("");
     });
 });
 
@@ -409,6 +473,11 @@ describe("stockInPribadiForm: writing the draft", () => {
             expect(JSON.parse(writes[0].body).items[0]).toMatchObject({
                 product_id: 7,
                 cost_price: "",
+                // Metadata tampilan ikut dikirim, supaya badge seri, warna,
+                // dan tahun tetap ada saat draft dipulihkan di perangkat lain.
+                series_name: "",
+                color: "",
+                year: "",
             });
             expect(form.draftExists).toBe(true);
             expect(form.submitting).toBe(false);
@@ -571,5 +640,96 @@ describe("stockInPribadiForm: removing a row", () => {
         expect(removed).toBe(false);
         expect(dangerConfirm).not.toHaveBeenCalled();
         expect(form.items).toHaveLength(1);
+    });
+});
+
+describe("stockInPribadiForm: emptying the whole list", () => {
+    const ROWS = [
+        { product_id: 7, name: "Nissan Skyline GT-R R34", qty: 2 },
+        { product_id: 8, name: "Toyota Supra", qty: 3 },
+    ];
+
+    it("asks before touching the list and keeps it when the answer is no", async () => {
+        const { form } = mount({ initialItems: ROWS });
+        const dangerConfirm = stubDangerConfirm(false);
+
+        const cleared = await form.clearConfirmed();
+
+        expect(cleared).toBe(false);
+        expect(form.items).toHaveLength(2);
+
+        // Pertanyaannya menyebut jumlah barang dan total qty yang hilang --
+        // daftar hasil impor bisa ratusan baris, dan angka itu satu-satunya
+        // alasan untuk menekan "Batal".
+        expect(dangerConfirm).toHaveBeenCalledWith({
+            title: "Kosongkan daftar?",
+            description: "2 barang (total qty 5) akan dihapus dari daftar.",
+            confirmText: "Kosongkan",
+            cancelText: "Batal",
+        });
+    });
+
+    it("empties the list once the operator confirms", async () => {
+        const { form } = mount({ initialItems: ROWS });
+        form.highlightedIndex = 1;
+        stubDangerConfirm(true);
+
+        const cleared = await form.clearConfirmed();
+
+        expect(cleared).toBe(true);
+        expect(form.items).toHaveLength(0);
+        // Highlight yang menunjuk baris yang sudah tidak ada akan menggulir
+        // ke elemen yang tidak pernah ditemukan lagi.
+        expect(form.highlightedIndex).toBe(-1);
+    });
+
+    it("deletes the draft along with the rows", async () => {
+        vi.useFakeTimers();
+        const fetchMock = draftFetch();
+        global.fetch = fetchMock;
+
+        try {
+            const { form, initialized } = mount({ dataset: DRAFT_DATASET });
+            await initialized;
+
+            form.addProduct({ product_id: 7, name: "Nissan Skyline GT-R R34" });
+            form.scheduleSave();
+            await vi.advanceTimersByTimeAsync(400);
+            expect(form.draftExists).toBe(true);
+
+            stubDangerConfirm(true);
+            await form.clearConfirmed();
+
+            expect(
+                fetchMock.calls.filter((call) => call.method === "DELETE"),
+            ).toHaveLength(1);
+            expect(form.draftExists).toBe(false);
+            expect(form.items).toHaveLength(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("does nothing when the list is already empty", async () => {
+        const { form } = mount();
+        const dangerConfirm = stubDangerConfirm(true);
+
+        const cleared = await form.clearConfirmed();
+
+        expect(cleared).toBe(false);
+        expect(dangerConfirm).not.toHaveBeenCalled();
+    });
+
+    it("leaves the list alone when there is no confirmation helper", async () => {
+        // Sama seperti hapus per baris: halaman yang tidak sanggup menawarkan
+        // pertanyaan tidak boleh mengosongkan diam-diam.
+        delete window.notify;
+
+        const { form } = mount({ initialItems: ROWS });
+
+        const cleared = await form.clearConfirmed();
+
+        expect(cleared).toBe(false);
+        expect(form.items).toHaveLength(2);
     });
 });

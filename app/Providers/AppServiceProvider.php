@@ -8,10 +8,8 @@ use App\Services\Label\LabelRenderer;
 use App\Services\Notification\Transport\WaMeTransport;
 use App\Services\Notification\Transport\WhatsappTransport;
 use Illuminate\Auth\Middleware\RedirectIfAuthenticated;
-use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -44,7 +42,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->rateLimiters();
         $this->ownerGate();
         $this->roleAwareLoginRedirect();
     }
@@ -96,21 +93,5 @@ class AppServiceProvider extends ServiceProvider
         ] as $ability) {
             Gate::define($ability, fn (User $user): bool => $user->isOwner());
         }
-    }
-
-    private function rateLimiters(): void
-    {
-        /**
-         * Tebakan PIN Owner dibatasi per akun, bukan per IP.
-         *
-         * Kasir yang sedang mengetik PIN Owner tidak boleh ikut terkunci karena
-         * percobaan orang lain, dan percobaan yang salah dari beberapa kasir di
-         * belakang satu IP bersama tidak boleh memakai jatah orang lain. Yang
-         * dihitung adalah sesi yang sedang mencoba, karena itulah batas yang
-         * ingin dijaga: berapa kali satu kasir boleh menebak.
-         */
-        RateLimiter::for('pin-verify', function (Request $request): Limit {
-            return Limit::perMinute(5)->by('pin-verify:'.($request->user()?->getAuthIdentifier() ?? $request->ip()));
-        });
     }
 }

@@ -1,17 +1,13 @@
 import { calculateTerms } from './terms-calculator';
 
 /**
- * Grid penerimaan Consignment In: baris, syarat skema, PIN Owner saat commit,
- * dan draft yang tidak hilang saat tab tertutup.
+ * Grid penerimaan Consignment In: baris, syarat skema, dan draft yang tidak
+ * hilang saat tab tertutup.
  *
- * Empat hal yang dipegang komponen ini, dan sengaja tidak tersebar ke markup:
+ * Tiga hal yang dipegang komponen ini, dan sengaja tidak tersebar ke markup:
  *
  *  - **Default penitip.** Baris yang tidak diisi harga/skema memakai kontrak
  *    penitip yang dipilih, dan baris seperti itu tidak dianggap penyimpangan.
- *  - **Satu token untuk satu commit.** Deviasi di lima baris tetap satu dialog
- *    PIN, bukan lima. Token-nya diletakkan di `pin_token` dan form yang gagal
- *    validasi bisa dikirim ulang dengan token yang sama, selama masih dalam masa
- *    berlaku.
  *  - **Pratinjau bukan tagihan.** `calculateTerms` dipakai untuk menampilkan
  *    angka; server menghitung ulang saat commit dan tetap yang menentukan.
  *  - **Draft dibuat saat dipakai, bukan saat halaman dibuka.** Menyimpan draft
@@ -59,11 +55,8 @@ function isEmptyRow(row) {
 export function inboundGrid({
     consignors = {},
     productPrices = {},
-    isOwner = false,
-    pinContext = 'consignment.scheme-override',
     rows = null,
     itemErrors = {},
-    pinToken = '',
     draftId = '',
     resumeDraftId = '',
     lookupUrl = '',
@@ -80,8 +73,6 @@ export function inboundGrid({
         consignorId: '',
         consignors,
         productPrices,
-        isOwner,
-        pinContext,
         lookupUrl,
         pickerOpen: false,
         // Isian yang dikembalikan server setelah validasi gagal dikembalikan ke
@@ -92,16 +83,6 @@ export function inboundGrid({
         // pesan dari server tidak punya tempat tampil: barisnya dirender Alpine,
         // jadi Blade tidak bisa menulis pesan itu di dalam selnya.
         itemErrors,
-        // Token yang sudah diperoleh, diteruskan dari form yang ditolak server.
-        // Tanpa ini, satu sel yang salah membuat kasir mengetik ulang PIN
-        // yang masih sah selama lima menit -- dan "satu dialog untuk satu commit"
-        // hanya berlaku selama halamannya tidak pernah dimuat ulang.
-        //
-        // Token yang sudah ditolak server TIDAK diteruskan: memakainya lagi
-        // akan membuat commit berikutnya ditolak dengan alasan yang sama, tanpa
-        // pernah membuka dialog, dan formnya tidak akan pernah bisa dikirim.
-        pinToken,
-        pinError: '',
         submitting: false,
         verified: false,
 
@@ -178,8 +159,57 @@ export function inboundGrid({
             this.closePicker();
         },
 
-        removeRow(index) {
-            this.rows.splice(index, 1);
+        /**
+         * Hapus satu baris setelah pengguna menyetujuinya.
+         *
+         * Ikon hapus berdiri di ujung baris yang penuh isian -- qty, kondisi
+         * kartu dan blister, harga, skema -- jadi salah klik berarti kehilangan
+         * seluruh keputusan yang barusan diambil untuk baris itu. Dialog yang
+         * sama sudah dipakai Stock In Pribadi; membiarkan tombol serupa bekerja
+         * berbeda di dua halaman penerimaan hanya membuat satu di antaranya
+         * terasa seperti jebakan.
+         *
+         * Parameternya objek barisnya, bukan indeksnya: menunggu jawaban dialog
+         * berarti indeks yang dihitung di awal bisa saja sudah menunjuk baris
+         * lain ketika jawaban tiba. Baris yang dicari lewat identitasnya tidak
+         * punya masalah itu, dan baris yang sudah hilang cukup dilewati.
+         *
+         * @param {object} row
+         * @returns {Promise<boolean>} true bila baris benar-benar dihapus
+         */
+        async remove(row) {
+            const index = this.rows.indexOf(row);
+
+            if (index === -1) {
+                return false;
+            }
+
+            const notify = window.notify;
+
+            if (typeof notify?.dangerConfirm !== 'function') {
+                return false;
+            }
+
+            const confirmed = await notify.dangerConfirm({
+                title: 'Hapus dari daftar?',
+                description: `${row.product_name || 'Produk'} — Qty ${row.qty}`,
+                confirmText: 'Hapus',
+                cancelText: 'Batal',
+            });
+
+            if (!confirmed) {
+                return false;
+            }
+
+            const current = this.rows.indexOf(row);
+
+            if (current === -1) {
+                return false;
+            }
+
+            this.rows.splice(current, 1);
+
+            return true;
         },
 
         /**
@@ -200,6 +230,97 @@ export function inboundGrid({
             const copy = { ...DEFAULT_ROW(), ...source, qty: 1 };
 
             this.rows.splice(index + 1, 0, copy);
+        },
+
+        /**
+         * Kosongkan seluruh baris setelah pengguna menyetujuinya.
+         *
+         * Dialognya sengaja menyebut jumlah baris dan total unit: daftar hasil
+         * impor bisa puluhan baris, dan "kosongkan?" tanpa angka tidak memberi
+         * alasan untuk menekan "Batal".
+         *
+         * Berbeda dari Stock In Pribadi, mengosongkan baris di sini tidak cukup
+         * dengan `rows = []`. Dua jejak harus dibereskan sekaligus, dan
+         * keduanya adalah alasan cara pintas ini bisa berujung pada daftar yang
+         * muncul kembali:
+         *
+         *  - **Timer autosave yang masih berjalan** dibatalkan lebih dulu.
+         *    Kalau tidak, `flushSave` 10 detik kemudian akan menulis ulang
+         *    draft yang baru saja dihapus -- dan `setTimeout` yang sudah
+         *    dijadwalkan tidak melihat bahwa barisnya sudah tidak ada.
+         *  - **Cermin localStorage** dibuang. Tanpa itu, memuat ulang halaman
+         *    akan memulihkan baris lama dari peramban, padahal di layar
+         *    barusan sudah dikosongkan.
+         *
+         * Draft di server dihapus lewat `DELETE`, bukan disimpan sebagai draft
+         * kosong: draft tanpa barang tidak bisa di-commit, jadi meninggalkannya
+         * hanya mengotori daftar "Lanjutkan". Sesudahnya timer autosave mulai
+         * lagi dari nol, jadi pengetikan berikutnya membuat draft baru.
+         *
+         * @returns {Promise<boolean>} true bila daftar benar-benar dikosongkan
+         */
+        async clearConfirmed() {
+            if (this.rows.length === 0) {
+                return false;
+            }
+
+            const notify = window.notify;
+
+            if (typeof notify?.dangerConfirm !== 'function') {
+                return false;
+            }
+
+            const confirmed = await notify.dangerConfirm({
+                title: 'Kosongkan daftar?',
+                description: `${this.rows.length} barang (total qty ${this.totalQty()}) akan dihapus dari daftar.`,
+                confirmText: 'Kosongkan',
+                cancelText: 'Batal',
+            });
+
+            if (!confirmed) {
+                return false;
+            }
+
+            if (this.saveTimer !== null) {
+                clearTimeout(this.saveTimer);
+                this.saveTimer = null;
+            }
+
+            const draftId = this.draftId;
+
+            this.rows = [];
+            this.clearLocalDraft();
+            this.draftId = '';
+            this.savedAt = null;
+            this.saveState = 'idle';
+
+            if (draftId !== '') {
+                await this.deleteDraft(draftId);
+            }
+
+            return true;
+        },
+
+        /**
+         * Hapus draft di server.
+         *
+         * Kegagalannya ditoleransi dan sengaja tidak mengembalikan barisnya:
+         * draft yang tertinggal akan kadaluarsa sendiri (TTL 24 jam), dan
+         * menahan daftar yang barusan dikosongkan hanya demi pembersihan di
+         * server adalah pertukaran yang salah.
+         */
+        async deleteDraft(id) {
+            try {
+                await fetch(`/inbound/consignment-in/drafts/${id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': this.csrfToken(),
+                    },
+                });
+            } catch (error) {
+                // Pembersihan draft; gagal pun tidak menghentikan apa pun.
+            }
         },
 
         /**
@@ -607,25 +728,15 @@ export function inboundGrid({
         },
 
         /**
-         * PIN Owner hanya diminta kalau ada baris yang benar-benar menyimpang.
-         * Owner tidak diminta untuk aksinya sendiri.
-         */
-        needsOwnerPin() {
-            return !this.isOwner && this.hasDeviation();
-        },
-
-        /**
-         * Submit tanpa persetujuan komponen ini, dan POST yang sungguhan
-         * dilakukan lewat `submit()` yang melewati event -- supaya dialog tidak
-         * terbuka dua kali untuk satu klik, dan supaya POST kedua tidak memunculkan
-         * dialog lagi.
+         * Submit tanpa perantara apa pun.
+         *
+         * Komponen ini tidak pernah menyalakan dialog: modul Consignment In
+         * hanya bisa dibuka Owner (`routes/web.php`), jadi penyimpangan skema
+         * adalah keputusan Owner sendiri, bukan sesuatu yang perlu diotorisasi
+         * oleh Owner yang lain.
          */
         async onSubmit(event) {
             if (this.submitting) {
-                return;
-            }
-
-            if (!(await this.requestPinAndSubmit())) {
                 return;
             }
 
@@ -636,39 +747,6 @@ export function inboundGrid({
 
             this.submitting = true;
             event.target.submit();
-        },
-
-        /**
-         * Minta PIN sekali, lalu kirim form dengan token-nya.
-         *
-         * Token yang sudah ada dipakai ulang supaya validasi yang gagal tidak
-         * mengulang dialog -- tokennya sah lima menit dan memang tidak sekali
-         * pakai, itu keputusan Phase A.
-         */
-        async requestPinAndSubmit() {
-            if (!this.needsOwnerPin() || this.pinToken !== '') {
-                return true;
-            }
-
-            const grant = await window.pin.request({
-                context: this.pinContext,
-                title: 'PIN Owner diperlukan',
-                description: 'Ada baris yang memakai harga atau skema di luar default penitip.',
-                confirmText: 'Simpan & Lanjutkan',
-            });
-
-            if (grant === null) {
-                // Batal bukan kesalahan: tidak ada yang terkirim, form tetap
-                // utuh, dan kasir masih bisa menyunting barisnya.
-                this.pinError = '';
-
-                return false;
-            }
-
-            this.pinToken = grant.token;
-            this.pinError = '';
-
-            return true;
         },
     };
 }

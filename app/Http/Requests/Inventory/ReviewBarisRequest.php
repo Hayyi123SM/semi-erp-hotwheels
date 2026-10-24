@@ -15,11 +15,9 @@ use Illuminate\Validation\Rule;
  * Keputusan selisih adalah pekerjaan Owner. Seluruh modul Inventory berada di
  * dalam grup `['auth', 'owner']` (`routes/web.php`), jadi request yang sampai
  * ke class ini selalu dibawa Owner; Staff ditolak 403 sebelum aturan validasi
- * sempat dibaca. Tidak ada
- * pintu PIN di sini: PIN Owner tetap dipakai aksi-aksi lain yang mengatasnamakan
- * Owner (mis. menutup shift), tetapi memutuskan selisih bukan salah satunya --
- * memintanya lagi di layar yang hanya muncul untuk Owner hanya menambah satu
- * langkah tanpa menambah satu lapis pengaman pun.
+ * sempat dibaca. Tidak ada lapisan otorisasi tambahan di sini: memintanya lagi
+ * di layar yang hanya muncul untuk Owner hanya menambah satu langkah tanpa
+ * menambah satu lapis pengaman pun.
  *
  * Alasan hanya diwajibkan untuk persetujuan, dan itu bukan kelalaian: alasan
  * menjadi bagian dari gerakan stok (`stock_movements.reason`) untuk

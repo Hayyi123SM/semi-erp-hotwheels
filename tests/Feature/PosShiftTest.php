@@ -13,7 +13,6 @@ use App\Models\SalePayment;
 use App\Models\Setting;
 use App\Models\Shift;
 use App\Models\User;
-use App\Services\Auth\PinService;
 use App\Services\Pos\PosSettings;
 use App\Services\Pos\ShiftAlreadyClosedException;
 use App\Services\Pos\ShiftAlreadyOpenException;
@@ -36,8 +35,9 @@ use Tests\TestCase;
  *
  * Kedua, siapa yang boleh menutup shift dengan selisih. Kasir boleh menutupnya
  * sendiri selama selisihnya di dalam ambang, karena itu pekerjaan kasir. Di luar
- * ambang, yang menutup harus Owner -- dan bukan dengan mengetik PIN-nya sendiri,
- * melainkan dengan token yang sudah ditukar lewat dialog PIN.
+ * ambang, hitungan kasir berhenti di `PENDING_APPROVAL` sampai Owner memutuskan:
+ * disetujui berarti shift tertutup, ditolak berarti shift kembali berjalan dan
+ * harus dihitung ulang. Tidak ada PIN yang diketik siapa pun di alur ini.
  */
 class PosShiftTest extends TestCase
 {
@@ -45,14 +45,9 @@ class PosShiftTest extends TestCase
 
     private const DEVICE = 'POS-TEST-01';
 
-    private const PIN = '123456';
-
-    /**
-     * Punya PIN aktif, supaya ada Owner yang bisa ditanya kasirnya.
-     */
     private function owner(): User
     {
-        return User::factory()->owner()->withPin(self::PIN)->create();
+        return User::factory()->owner()->create();
     }
 
     private function staff(): User
@@ -91,14 +86,6 @@ class PosShiftTest extends TestCase
         ]);
 
         return $sale;
-    }
-
-    /**
-     * Token Owner yang sah untuk menutup shift, diminta oleh kasir yang diberikan.
-     */
-    private function ownerTokenFor(User $actor, string $context = 'pos.close-shift'): string
-    {
-        return app(PinService::class)->issue($actor, self::PIN, $context)->token;
     }
 
     // ================= Membuka shift =================
@@ -193,7 +180,7 @@ class PosShiftTest extends TestCase
     {
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
 
-        app(ShiftService::class)->close($shift, 100_000, $staff);
+        app(ShiftService::class)->requestClose($shift, 100_000, $staff);
 
         $this->actingAs($staff)
             ->withSession([DeviceId::SESSION_KEY => self::DEVICE])
@@ -310,7 +297,7 @@ class PosShiftTest extends TestCase
     // ================= Menutup shift =================
 
     #[Test]
-    public function a_cashier_can_close_a_shift_within_the_threshold_without_a_pin(): void
+    public function a_cashier_can_close_a_shift_within_the_threshold(): void
     {
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
         $this->paidSale($shift, 60_000);
@@ -326,89 +313,85 @@ class PosShiftTest extends TestCase
         $this->assertSame(2_000, $shift->cash_diff);
         $this->assertSame($staff->getKey(), $shift->closed_by);
         $this->assertNull($shift->cash_diff_approved_by);
+        $this->assertNotNull($shift->closing_approved_at);
     }
 
     #[Test]
-    public function closing_a_shift_outside_the_threshold_without_a_pin_is_refused(): void
+    public function a_cashier_closing_outside_the_threshold_waits_for_owner_approval(): void
     {
-        $this->owner();
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
         $this->paidSale($shift, 60_000);
 
         $this->actingAs($staff)
-            ->from(route('pos.shift-kasir'))
             ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000'])
             ->assertRedirect(route('pos.shift-kasir'))
-            ->assertSessionHasErrors('pin_token');
-
-        $this->assertSame(ShiftStatus::Open, $shift->refresh()->status);
-    }
-
-    #[Test]
-    public function the_refusal_names_the_difference_and_the_two_amounts(): void
-    {
-        $this->owner();
-        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
-        $this->paidSale($shift, 60_000);
-
-        $this->actingAs($staff)
-            ->from(route('pos.shift-kasir'))
-            ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000'])
-            ->assertSessionHasErrors([
-                'pin_token' => 'Selisih Rp20.000: ada Rp180.000 di laci, seharusnya Rp160.000. Minta PIN Owner untuk melanjutkan.',
-            ]);
-    }
-
-    #[Test]
-    public function an_over_threshold_difference_is_still_inside_when_it_is_smaller(): void
-    {
-        $this->owner();
-        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
-
-        // Tepat di ambang: tidak diminta PIN.
-        $this->actingAs($staff)
-            ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '105000'])
             ->assertSessionHasNoErrors();
 
-        $this->assertSame(5_000, $shift->refresh()->cash_diff);
+        $shift->refresh();
+
+        // Belum ditutup: lacinya sudah dihitung, tapi keputusan selisihnya
+        // belum ada. `cash_diff` sengaja sudah tersimpan supaya Owner melihat
+        // angka yang diajukan kasir, bukan angka yang dihitung ulang.
+        $this->assertSame(ShiftStatus::PendingApproval, $shift->status);
+        $this->assertSame(180_000, $shift->closing_cash);
+        $this->assertSame(20_000, $shift->cash_diff);
+        $this->assertSame($staff->getKey(), $shift->closed_by);
+        $this->assertNull($shift->closed_at);
+        $this->assertNull($shift->cash_diff_approved_by);
+        $this->assertNull($shift->closing_approved_at);
+        $this->assertNotNull($shift->closing_requested_at);
     }
 
     #[Test]
-    public function a_missing_difference_counts_as_missing_cash_and_needs_a_pin(): void
+    public function the_pending_submission_keeps_the_cashiers_notes(): void
     {
-        $this->owner();
-        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
-
-        $this->actingAs($staff)
-            ->from(route('pos.shift-kasir'))
-            ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '90000'])
-            ->assertSessionHasErrors('pin_token');
-    }
-
-    #[Test]
-    public function a_cashier_can_close_an_over_threshold_shift_with_an_owner_token(): void
-    {
-        $owner = $this->owner();
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
         $this->paidSale($shift, 60_000);
 
         $this->actingAs($staff)
             ->post(route('pos.shift-kasir.close', $shift), [
                 'closing_cash' => '180000',
-                'pin_token' => $this->ownerTokenFor($staff),
-            ])
-            ->assertRedirect(route('pos.shift-kasir'));
+                'notes' => 'Kembalian Rp20.000 belum diambil dari laci.',
+            ]);
+
+        $this->assertSame(
+            'Kembalian Rp20.000 belum diambil dari laci.',
+            $shift->refresh()->closing_notes,
+        );
+    }
+
+    #[Test]
+    public function a_difference_at_the_threshold_needs_no_approval(): void
+    {
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+
+        // Tepat di ambang: masih pekerjaan kasir.
+        $this->actingAs($staff)
+            ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '105000'])
+            ->assertSessionHasNoErrors();
 
         $shift->refresh();
 
         $this->assertSame(ShiftStatus::Closed, $shift->status);
-        $this->assertSame(20_000, $shift->cash_diff);
-        $this->assertSame($staff->getKey(), $shift->closed_by);
-        $this->assertSame($owner->getKey(), $shift->cash_diff_approved_by);
+        $this->assertSame(5_000, $shift->cash_diff);
     }
 
     #[Test]
-    public function an_owner_closes_an_over_threshold_shift_without_a_pin_and_still_records_themselves(): void
+    public function a_missing_difference_also_waits_for_owner_approval(): void
+    {
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+
+        $this->actingAs($staff)
+            ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '90000']);
+
+        $shift->refresh();
+
+        $this->assertSame(ShiftStatus::PendingApproval, $shift->status);
+        $this->assertSame(-10_000, $shift->cash_diff);
+    }
+
+    #[Test]
+    public function an_owner_closes_an_over_threshold_shift_directly_and_records_themselves(): void
     {
         $owner = $this->owner();
         [$shift] = $this->openShift($owner, 100_000);
@@ -420,48 +403,189 @@ class PosShiftTest extends TestCase
 
         $shift->refresh();
 
+        $this->assertSame(ShiftStatus::Closed, $shift->status);
         $this->assertSame(80_000, $shift->cash_diff);
         $this->assertSame($owner->getKey(), $shift->closed_by);
         $this->assertSame($owner->getKey(), $shift->cash_diff_approved_by);
     }
 
     #[Test]
-    public function a_token_issued_for_another_action_cannot_close_a_shift(): void
+    public function only_an_owner_can_approve_a_pending_shift(): void
     {
-        $this->owner();
-        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+        [$shift] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($shift, 60_000);
 
-        $this->actingAs($staff)
-            ->from(route('pos.shift-kasir'))
-            ->post(route('pos.shift-kasir.close', $shift), [
-                'closing_cash' => '180000',
-                'pin_token' => $this->ownerTokenFor($staff, 'inventory.label-overprint'),
-            ])
-            ->assertSessionHasErrors('pin_token');
+        $this->actingAs($shift->user)
+            ->post(route('pos.persetujuan-shift.approve', $shift))
+            ->assertForbidden();
 
         $this->assertSame(ShiftStatus::Open, $shift->refresh()->status);
     }
 
     #[Test]
-    public function a_token_issued_to_another_cashier_cannot_close_a_shift(): void
+    public function an_owner_approval_closes_the_shift_and_names_the_approver(): void
     {
-        $this->owner();
+        $owner = $this->owner();
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
-        $other = $this->staff();
+        $this->paidSale($shift, 60_000);
 
-        $this->actingAs($staff)
-            ->from(route('pos.shift-kasir'))
-            ->post(route('pos.shift-kasir.close', $shift), [
-                'closing_cash' => '180000',
-                'pin_token' => $this->ownerTokenFor($other),
-            ])
-            ->assertSessionHasErrors('pin_token');
+        $this->actingAs($staff)->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000']);
+
+        $this->actingAs($owner)
+            ->post(route('pos.persetujuan-shift.approve', $shift))
+            ->assertRedirect(route('pos.persetujuan-shift'));
+
+        $shift->refresh();
+
+        $this->assertSame(ShiftStatus::Closed, $shift->status);
+        $this->assertSame($staff->getKey(), $shift->closed_by);
+        $this->assertSame($owner->getKey(), $shift->cash_diff_approved_by);
+        $this->assertNotNull($shift->closed_at);
+        $this->assertNotNull($shift->closing_approved_at);
     }
 
     #[Test]
-    public function a_saved_threshold_is_the_one_that_decides_whether_a_pin_is_needed(): void
+    public function an_owner_rejection_returns_the_shift_to_the_cashier_with_the_reason(): void
     {
-        $this->owner();
+        $owner = $this->owner();
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($shift, 60_000);
+
+        $this->actingAs($staff)->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000']);
+
+        $this->actingAs($owner)
+            ->post(route('pos.persetujuan-shift.reject', $shift), [
+                'reason' => 'Uang Rp20.000 masih di dompet, bukan di laci.',
+            ])
+            ->assertRedirect(route('pos.persetujuan-shift'));
+
+        $shift->refresh();
+
+        // Angka yang ditolak dibuang, bukan disimpan sebagai "hitungan gagal":
+        // kasir harus mulai dari laci yang sebenarnya, bukan dari angka yang
+        // sudah terbukti salah.
+        $this->assertSame(ShiftStatus::Open, $shift->status);
+        $this->assertNull($shift->closing_cash);
+        $this->assertNull($shift->cash_diff);
+        $this->assertNull($shift->closed_by);
+        $this->assertNull($shift->closing_requested_at);
+        $this->assertSame(
+            'Uang Rp20.000 masih di dompet, bukan di laci.',
+            $shift->closing_rejection_reason,
+        );
+    }
+
+    #[Test]
+    public function a_rejection_must_carry_a_reason(): void
+    {
+        $owner = $this->owner();
+        [$shift] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($shift, 60_000);
+
+        $this->actingAs($shift->user)->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000']);
+
+        $this->actingAs($owner)
+            ->post(route('pos.persetujuan-shift.reject', $shift), ['reason' => ''])
+            ->assertSessionHasErrors('reason');
+
+        $this->assertSame(ShiftStatus::PendingApproval, $shift->refresh()->status);
+    }
+
+    #[Test]
+    public function a_rejected_shift_can_be_recounted_and_closed_again(): void
+    {
+        $owner = $this->owner();
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($shift, 60_000);
+
+        $this->actingAs($staff)->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000']);
+        $this->actingAs($owner)->post(route('pos.persetujuan-shift.reject', $shift), ['reason' => 'Hitung ulang.']);
+
+        $this->actingAs($staff)
+            ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '160000'])
+            ->assertSessionHasNoErrors();
+
+        $shift->refresh();
+
+        $this->assertSame(ShiftStatus::Closed, $shift->status);
+        $this->assertNull($shift->closing_rejection_reason);
+    }
+
+    #[Test]
+    public function a_pending_shift_refuses_a_second_count_and_tells_the_cashier_why(): void
+    {
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($shift, 60_000);
+
+        $this->actingAs($staff)->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000']);
+
+        $this->actingAs($staff)
+            ->from(route('pos.shift-kasir'))
+            ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '160000'])
+            ->assertRedirect(route('pos.shift-kasir'))
+            ->assertSessionHas('toast');
+
+        $this->assertSame(180_000, $shift->refresh()->closing_cash);
+    }
+
+    #[Test]
+    public function approving_a_shift_that_is_not_pending_is_refused(): void
+    {
+        $owner = $this->owner();
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+
+        $this->actingAs($owner)
+            ->post(route('pos.persetujuan-shift.approve', $shift))
+            ->assertRedirect(route('pos.persetujuan-shift'))
+            ->assertSessionHas('toast');
+
+        $this->assertSame(ShiftStatus::Open, $shift->refresh()->status);
+    }
+
+    #[Test]
+    public function submitting_a_closing_is_written_to_the_audit_log(): void
+    {
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($shift, 60_000);
+
+        $this->actingAs($staff)->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000']);
+
+        $entry = AuditLog::query()->where('action', 'SUBMIT_SHIFT_CLOSING')->sole();
+
+        $this->assertSame(ShiftStatus::Open->value, $entry->before['status']);
+        $this->assertSame(ShiftStatus::PendingApproval->value, $entry->after['status']);
+        $this->assertSame(20_000, $entry->after['cash_diff']);
+        $this->assertSame(160_000, $entry->after['expected_cash']);
+    }
+
+    #[Test]
+    public function approving_and_rejecting_are_written_to_the_audit_log(): void
+    {
+        $owner = $this->owner();
+
+        [$pending] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($pending, 60_000);
+        app(ShiftService::class)->requestClose($pending, 180_000, $pending->user);
+
+        app(ShiftService::class)->approveClose($pending, $owner);
+
+        $approved = AuditLog::query()->where('action', 'APPROVE_SHIFT_CLOSING')->sole();
+        $this->assertSame(ShiftStatus::Closed->value, $approved->after['status']);
+        $this->assertSame($owner->getKey(), $approved->after['cash_diff_approved_by']);
+
+        [$rejected] = $this->openShift($this->staff(), 100_000);
+        app(ShiftService::class)->requestClose($rejected, 180_000, $rejected->user);
+
+        app(ShiftService::class)->rejectClose($rejected, $owner, 'Hitung ulang.');
+
+        $refused = AuditLog::query()->where('action', 'REJECT_SHIFT_CLOSING')->sole();
+        $this->assertSame(ShiftStatus::Open->value, $refused->after['status']);
+        $this->assertSame('Hitung ulang.', $refused->after['closing_rejection_reason']);
+    }
+
+    #[Test]
+    public function a_saved_threshold_is_the_one_that_decides_whether_approval_is_needed(): void
+    {
         Setting::set(PosSettings::CASH_DIFFERENCE_THRESHOLD_KEY, 30_000);
 
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
@@ -470,14 +594,17 @@ class PosShiftTest extends TestCase
             ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '120000'])
             ->assertSessionHasNoErrors();
 
-        $this->assertSame(20_000, $shift->refresh()->cash_diff);
+        $shift->refresh();
+
+        $this->assertSame(ShiftStatus::Closed, $shift->status);
+        $this->assertSame(20_000, $shift->cash_diff);
     }
 
     #[Test]
     public function a_closed_shift_cannot_be_closed_again(): void
     {
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
-        app(ShiftService::class)->close($shift, 100_000, $staff);
+        app(ShiftService::class)->requestClose($shift, 100_000, $staff);
 
         $this->actingAs($staff)
             ->from(route('pos.shift-kasir'))
@@ -492,11 +619,11 @@ class PosShiftTest extends TestCase
     public function the_service_refuses_a_double_close_directly(): void
     {
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
-        app(ShiftService::class)->close($shift, 100_000, $staff);
+        app(ShiftService::class)->requestClose($shift, 100_000, $staff);
 
         $this->expectException(ShiftAlreadyClosedException::class);
 
-        app(ShiftService::class)->close($shift, 200_000, $staff);
+        app(ShiftService::class)->requestClose($shift, 200_000, $staff);
     }
 
     #[Test]
@@ -505,7 +632,7 @@ class PosShiftTest extends TestCase
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
         $this->paidSale($shift, 60_000);
 
-        app(ShiftService::class)->close($shift, 162_000, $staff);
+        app(ShiftService::class)->requestClose($shift, 162_000, $staff);
 
         $entry = AuditLog::query()->where('action', 'CLOSE_SHIFT')->sole();
 
@@ -523,7 +650,7 @@ class PosShiftTest extends TestCase
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
         $this->paidSale($shift, 60_000);
 
-        app(ShiftService::class)->close($shift, 162_000, $staff);
+        app(ShiftService::class)->requestClose($shift, 162_000, $staff);
 
         $entry = AuditLog::query()->where('action', 'CLOSE_SHIFT')->sole();
 
@@ -548,7 +675,7 @@ class PosShiftTest extends TestCase
         [$shift, $staff] = $this->openShift($this->staff(), 100_000);
         $this->paidSale($shift, 60_000);
 
-        app(ShiftService::class)->close($shift, 162_000, $staff);
+        app(ShiftService::class)->requestClose($shift, 162_000, $staff);
 
         $entry = AuditLog::query()->where('action', 'CLOSE_SHIFT')->sole();
 
@@ -570,7 +697,7 @@ class PosShiftTest extends TestCase
 
         $opened = AuditLog::query()->where('action', 'OPEN_SHIFT')->sole()->after;
 
-        $service->close($shift, 100_000, $staff);
+        $service->requestClose($shift, 100_000, $staff);
 
         $closing = AuditLog::query()->where('action', 'CLOSE_SHIFT')->sole()->before;
 
@@ -592,17 +719,11 @@ class PosShiftTest extends TestCase
     #[Test]
     public function a_cashier_cannot_close_another_cashiers_shift(): void
     {
-        $this->owner();
         [$shift] = $this->openShift($this->staff(), 100_000);
         $other = $this->staff();
 
         $this->actingAs($other)
-            ->post(route('pos.shift-kasir.close', $shift), [
-                'closing_cash' => '100000',
-                // Token yang benar, supaya tes ini benar-benar menguji kepemilikan
-                // shift dan bukan PIN-nya.
-                'pin_token' => $this->ownerTokenFor($other),
-            ])
+            ->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '100000'])
             ->assertForbidden();
 
         $this->assertSame(ShiftStatus::Open, $shift->refresh()->status);
@@ -678,5 +799,76 @@ class PosShiftTest extends TestCase
             ->get(route('pos.shift-kasir'))
             ->assertOk()
             ->assertSee('Rp750.000');
+    }
+
+    #[Test]
+    public function a_pending_shift_page_hides_the_close_form_and_explains_the_wait(): void
+    {
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($shift, 60_000);
+
+        $this->actingAs($staff)->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000']);
+
+        $this->actingAs($staff)
+            ->get(route('pos.shift-kasir'))
+            ->assertOk()
+            ->assertSee('Menunggu Persetujuan Owner')
+            ->assertSee('Rp180.000')
+            ->assertDontSee(route('pos.shift-kasir.close', $shift), false);
+    }
+
+    #[Test]
+    public function a_rejected_shift_page_shows_the_owner_reason(): void
+    {
+        $owner = $this->owner();
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($shift, 60_000);
+
+        $this->actingAs($staff)->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000']);
+        $this->actingAs($owner)->post(route('pos.persetujuan-shift.reject', $shift), [
+            'reason' => 'Uang Rp20.000 masih di dompet, bukan di laci.',
+        ]);
+
+        $this->actingAs($staff)
+            ->get(route('pos.shift-kasir'))
+            ->assertOk()
+            ->assertSee('Uang Rp20.000 masih di dompet, bukan di laci.')
+            ->assertSee('Tutup Shift');
+    }
+
+    #[Test]
+    public function the_owner_sees_pending_closings_with_their_figures(): void
+    {
+        $owner = $this->owner();
+        [$shift, $staff] = $this->openShift($this->staff(), 100_000);
+        $this->paidSale($shift, 60_000);
+
+        $this->actingAs($staff)->post(route('pos.shift-kasir.close', $shift), ['closing_cash' => '180000']);
+
+        $this->actingAs($owner)
+            ->get(route('pos.persetujuan-shift'))
+            ->assertOk()
+            ->assertSee($staff->name)
+            ->assertSee('Rp180.000')
+            ->assertSee('Rp20.000')
+            ->assertSee(route('pos.persetujuan-shift.approve', $shift), false)
+            ->assertSee(route('pos.persetujuan-shift.reject', $shift), false);
+    }
+
+    #[Test]
+    public function staff_cannot_open_the_shift_approval_page(): void
+    {
+        $this->actingAs($this->staff())
+            ->get(route('pos.persetujuan-shift'))
+            ->assertForbidden();
+    }
+
+    #[Test]
+    public function the_approval_page_says_so_when_nothing_is_waiting(): void
+    {
+        $this->actingAs($this->owner())
+            ->get(route('pos.persetujuan-shift'))
+            ->assertOk()
+            ->assertSee('Tidak Ada yang Menunggu');
     }
 }

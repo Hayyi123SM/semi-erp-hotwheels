@@ -9,6 +9,7 @@ use App\Enums\QuarantineStatus;
 use App\Models\LabelPrintJob;
 use App\Models\Opname;
 use App\Models\QuarantineCase;
+use App\Models\Shift;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
@@ -64,6 +65,29 @@ class NotificationCenterTest extends TestCase
         $this->assertStringNotContainsString('Persetujuan Opname', $staffHtml);
         $this->assertStringNotContainsString('opname menunggu persetujuan', $staffHtml);
         $this->assertStringContainsString('0 menunggu tindakan', $staffHtml);
+    }
+
+    #[Test]
+    public function the_owner_sees_shift_closings_waiting_approval_but_staff_do_not(): void
+    {
+        Shift::factory()->pendingApproval()->create();
+
+        $ownerHtml = $this->actingAs(User::factory()->owner()->create())
+            ->get(route('owner.dashboard'))
+            ->assertOk()
+            ->content();
+
+        $this->assertStringContainsString('Persetujuan Tutup Shift', $ownerHtml);
+        $this->assertStringContainsString('1 hitungan laci menunggu persetujuan kamu', $ownerHtml);
+        $this->assertStringContainsString('/pos/persetujuan-shift', $ownerHtml);
+
+        $staffHtml = $this->actingAs(User::factory()->create())
+            ->get(route('pos.kasir'))
+            ->assertOk()
+            ->content();
+
+        $this->assertStringNotContainsString('Persetujuan Tutup Shift', $staffHtml);
+        $this->assertStringNotContainsString('hitungan laci menunggu persetujuan', $staffHtml);
     }
 
     #[Test]

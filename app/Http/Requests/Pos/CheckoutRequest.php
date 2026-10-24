@@ -8,6 +8,7 @@ use App\Enums\InputMethod;
 use App\Enums\PaymentMethod;
 use App\Models\StockLot;
 use App\Services\Pos\CheckoutPayment;
+use App\Services\Pos\CheckoutService;
 use App\Services\Pos\PosSettings;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -47,6 +48,9 @@ class CheckoutRequest extends FormRequest
             'items.*.input_method' => ['nullable', Rule::in(self::inputMethods())],
             'items.*.discount_type' => ['nullable', Rule::in(['percent', 'amount'])],
             'items.*.discount_value' => ['nullable', 'numeric', 'min:0', 'max:999999999'],
+
+            'order_discount_type' => ['nullable', Rule::in(['percent', 'amount'])],
+            'order_discount_value' => ['nullable', 'numeric', 'min:0', 'max:999999999'],
 
             'payments' => ['required', 'array', 'min:1', 'max:5'],
             'payments.*.method' => ['required', Rule::in(self::paymentMethods())],
@@ -89,6 +93,7 @@ class CheckoutRequest extends FormRequest
                 }
 
                 $this->guardDiscounts($validator);
+                $this->guardOrderDiscount($validator);
             },
         ];
     }
@@ -157,6 +162,51 @@ class CheckoutRequest extends FormRequest
                     'Diskon tidak boleh melebihi harga per baris.',
                 );
             }
+        }
+    }
+
+    /**
+     * Diskon total mengikuti aturan peran dan bentuk yang sama dengan diskon
+     * per baris. Batas nominalnya terhadap total nota dihitung ulang di
+     * {@see CheckoutService} setelah harga semua baris
+     * diketahui; di sini yang bisa diperiksa tanpa harga hanyalah bentuknya.
+     */
+    private function guardOrderDiscount(Validator $validator): void
+    {
+        $value = (int) $this->input('order_discount_value', 0);
+
+        if ($value <= 0) {
+            return;
+        }
+
+        $user = $this->user();
+        $mayDiscount = $user !== null && ($user->isOwner() || $user->isStaff());
+
+        if (! $mayDiscount) {
+            $validator->errors()->add(
+                'order_discount_value',
+                'Hanya Staff atau Owner yang dapat memberikan diskon.',
+            );
+
+            return;
+        }
+
+        $type = $this->input('order_discount_type');
+
+        if (! in_array($type, ['percent', 'amount'], true)) {
+            $validator->errors()->add(
+                'order_discount_type',
+                'Pilih tipe diskon total terlebih dahulu.',
+            );
+
+            return;
+        }
+
+        if ($type === 'percent' && $value > 100) {
+            $validator->errors()->add(
+                'order_discount_value',
+                'Diskon persentase tidak boleh lebih dari 100%.',
+            );
         }
     }
 

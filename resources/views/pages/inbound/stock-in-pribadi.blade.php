@@ -77,10 +77,20 @@
         <x-ui.section-card pad="false" x-effect="scheduleSave()">
             <div class="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <h3 class="text-title-sm font-semibold">Daftar Produk</h3>
-                <button type="button" class="btn-secondary" @click="openPicker()">
-                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v16m8-8H4"/></svg>
-                    Tambah Produk
-                </button>
+                <div class="flex items-center gap-2">
+                    {{-- Daftar hasil impor bisa ratusan baris; mengulanginya baris
+                         demi baris berarti satu dialog per baris. Tombol ini yang
+                         membuang semuanya sekali jalan, dan nonaktif saat daftar
+                         memang sudah kosong. --}}
+                    <button type="button" class="btn-destructive" @click="clearConfirmed()" :disabled="items.length === 0">
+                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        Kosongkan Daftar
+                    </button>
+                    <button type="button" class="btn-secondary" @click="openPicker()">
+                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v16m8-8H4"/></svg>
+                        Tambah Produk
+                    </button>
+                </div>
             </div>
 
             <div x-show="items.length === 0" class="px-6 pb-6" x-cloak>
@@ -106,11 +116,32 @@
                                     <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-canvas text-label-sm font-semibold tabular-nums text-text-muted" x-text="idx + 1"></span>
                                     <span class="truncate text-body-sm font-medium text-text-strong" x-text="item.name"></span>
                                 </div>
-                                <span
-                                    x-show="item.casting_code"
-                                    class="mt-1 ml-7 inline-flex items-center rounded border border-border-subtle bg-canvas px-1.5 py-0.5 font-mono text-label-sm text-text-subtle"
-                                    x-text="item.casting_code"
-                                ></span>
+                                <div class="ml-7 mt-1 flex flex-wrap items-center gap-1.5">
+                                    <span
+                                        x-show="item.casting_code"
+                                        class="inline-flex items-center rounded border border-border-subtle bg-canvas px-1.5 py-0.5 font-mono text-label-sm text-text-subtle"
+                                        x-text="item.casting_code"
+                                    ></span>
+                                    {{-- Badge seri: warnanya dipilih dari nama serinya lewat
+                                         `seriesBadgeClass()`, jadi seri yang sama selalu berwarna
+                                         sama di seluruh baris tanpa data warna disimpan di mana pun. --}}
+                                    <span
+                                        x-show="item.series_name"
+                                        :class="seriesBadgeClass(item.series_name)"
+                                        class="inline-flex items-center rounded px-1.5 py-0.5 text-label-sm font-medium"
+                                        x-text="item.series_name"
+                                    ></span>
+                                    <span
+                                        x-show="item.color"
+                                        class="inline-flex items-center rounded border border-border-subtle bg-canvas px-1.5 py-0.5 text-label-sm text-text-subtle"
+                                        x-text="item.color"
+                                    ></span>
+                                    <span
+                                        x-show="item.year"
+                                        class="inline-flex items-center rounded border border-border-subtle bg-canvas px-1.5 py-0.5 text-label-sm tabular-nums text-text-subtle"
+                                        x-text="item.year"
+                                    ></span>
+                                </div>
                             </div>
                             <button
                                 type="button"
@@ -189,7 +220,7 @@
                                 <select :name="`items[${idx}][rack_id]`" x-model="item.rack_id" class="input-base mt-1">
                                     <option value="">—</option>
                                     <template x-for="r in racks" :key="r.id">
-                                        <option :value="r.id" x-text="r.code"></option>
+                                        <option :value="r.id" x-text="r.code + (r.capacity ? ' · ' + r.used + '/' + r.capacity : '')"></option>
                                     </template>
                                 </select>
                             </div>

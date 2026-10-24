@@ -6,6 +6,7 @@ namespace App\Http\Requests\Inbound;
 
 use App\Enums\BlisterCondition;
 use App\Enums\CardCondition;
+use App\Services\Spreadsheet\SpreadsheetService;
 use App\Support\Enums;
 use App\Support\Numbers;
 use Illuminate\Foundation\Http\FormRequest;
@@ -66,13 +67,27 @@ class SaveStockInPribadiDraftRequest extends FormRequest
         return [
             // `nullable`, bukan `required`: daftar kosong adalah permintaan yang
             // sah, dan maknanya adalah pembatalan -- persis seperti draft kasir.
-            'items' => ['nullable', 'array', 'max:100'],
+            //
+            // Batas barisnya sengaja diambil dari `SpreadsheetService::MAX_ROWS`
+            // (2000): draft memegang daftar yang sama dengan yang bisa dihasilkan
+            // impor. Kalau batasnya berbeda, impor 2000 baris lulus sementara
+            // auto-save dan commit form menolak -- pekerjaan hilang diam-diam.
+            'items' => ['nullable', 'array', 'max:'.SpreadsheetService::MAX_ROWS],
 
             'items.*.id' => ['nullable', 'string', 'max:64'],
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.casting_code' => ['nullable', 'string', 'max:100'],
             'items.*.name' => ['nullable', 'string', 'max:255'],
             'items.*.series_code' => ['nullable', 'string', 'max:100'],
+
+            // Metadata tampilan dari picker/barcode, ikut tersimpan di draft
+            // supaya badge seri, warna, dan tahun tetap terbawa lintas perangkat.
+            // Semua nullable: payload lama (atau picker kasir lama) tidak
+            // memuatnya dan tidak boleh ditolak karenanya.
+            'items.*.series_name' => ['nullable', 'string', 'max:100'],
+            'items.*.color' => ['nullable', 'string', 'max:100'],
+            'items.*.year' => ['nullable', 'integer'],
+
             'items.*.qty' => ['nullable', 'integer', 'between:1,999'],
             'items.*.cost_price' => ['nullable', 'integer', 'between:0,4294967295'],
             'items.*.rack_id' => ['nullable', 'integer', 'exists:racks,id'],

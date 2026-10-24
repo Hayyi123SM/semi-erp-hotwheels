@@ -93,7 +93,11 @@ final readonly class PosStrukRenderer
             self::row($printer, 'Subtotal', Format::rupiah($sheet->subtotal()), $width);
 
             if ($sheet->discountTotal() > 0) {
-                self::row($printer, 'Diskon', '-'.Format::rupiah($sheet->discountTotal()), $width);
+                self::row($printer, 'Diskon Item', '-'.Format::rupiah($sheet->discountTotal()), $width);
+            }
+
+            if ($sheet->orderDiscountTotal() > 0) {
+                self::row($printer, 'Diskon Total', '-'.Format::rupiah($sheet->orderDiscountTotal()), $width);
             }
 
             $printer->setEmphasis(true);

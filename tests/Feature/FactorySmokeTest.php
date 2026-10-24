@@ -30,7 +30,6 @@ use App\Models\User;
 use App\Models\WaTemplate;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Hash;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -164,14 +163,5 @@ class FactorySmokeTest extends TestCase
                 $model.' seharusnya tidak memakai timestamps.'
             );
         }
-    }
-
-    #[Test]
-    public function user_factory_pin_is_hashed_and_verifiable(): void
-    {
-        $user = User::factory()->withPin('918273')->create();
-
-        $this->assertNotSame('918273', $user->pin, 'PIN harus tersimpan sebagai hash.');
-        $this->assertTrue(Hash::check('918273', $user->pin));
     }
 }

@@ -52,8 +52,8 @@ class MarginReportService
             ->leftJoin('stock_lots', 'stock_lots.id', '=', 'sale_items.lot_id')
             ->selectRaw(
                 'count(distinct sales.id) as nota,
-                 coalesce(sum(sale_items.sell_price * sale_items.qty), 0) as bruto,
-                 coalesce(sum(case when stock_lots.owner_type = ? then sale_items.sell_price * sale_items.qty else 0 end), 0) as bruto_own,
+                 coalesce(sum(sale_items.sell_price * sale_items.qty - sale_items.order_discount), 0) as bruto,
+                 coalesce(sum(case when stock_lots.owner_type = ? then sale_items.sell_price * sale_items.qty - sale_items.order_discount else 0 end), 0) as bruto_own,
                  coalesce(sum(case when stock_lots.owner_type = ? then sale_items.cost_price_snapshot * sale_items.qty else 0 end), 0) as hpp,
                  coalesce(sum(sale_items.fee_toko), 0) as fee,
                  coalesce(sum(sale_items.hak_penitip), 0) as hak',
@@ -92,7 +92,7 @@ class MarginReportService
         $row = $this->base($start, $end)
             ->leftJoin('stock_lots', 'stock_lots.id', '=', 'sale_items.lot_id')
             ->selectRaw(
-                'coalesce(sum(case when stock_lots.owner_type = ? then sale_items.sell_price * sale_items.qty else 0 end), 0) as bruto_titipan,
+                'coalesce(sum(case when stock_lots.owner_type = ? then sale_items.sell_price * sale_items.qty - sale_items.order_discount else 0 end), 0) as bruto_titipan,
                  coalesce(sum(sale_items.hak_penitip), 0) as hak,
                  coalesce(sum(sale_items.fee_toko), 0) as fee',
                 [OwnerType::Consign->value],
@@ -136,9 +136,9 @@ class MarginReportService
         $rows = $query
             ->limit(15)
             ->selectRaw("$key as k,
-                 coalesce(sum(sale_items.sell_price * sale_items.qty), 0) as bruto,
+                 coalesce(sum(sale_items.sell_price * sale_items.qty - sale_items.order_discount), 0) as bruto,
                  coalesce(sum(sale_items.qty), 0) as qty,
-                 coalesce(sum(case when stock_lots.owner_type = ? then sale_items.sell_price * sale_items.qty else 0 end), 0) as bruto_own,
+                 coalesce(sum(case when stock_lots.owner_type = ? then sale_items.sell_price * sale_items.qty - sale_items.order_discount else 0 end), 0) as bruto_own,
                  coalesce(sum(case when stock_lots.owner_type = ? then sale_items.cost_price_snapshot * sale_items.qty else 0 end), 0) as hpp,
                  coalesce(sum(sale_items.fee_toko), 0) as fee,
                  coalesce(sum(sale_items.hak_penitip), 0) as hak", [OwnerType::Own->value, OwnerType::Own->value])
@@ -177,7 +177,7 @@ class MarginReportService
                  sale_items.scheme_rate,
                  sale_items.scheme_amount,
                  count(*) as lines_count,
-                 coalesce(sum(sale_items.sell_price * sale_items.qty), 0) as bruto,
+                 coalesce(sum(sale_items.sell_price * sale_items.qty - sale_items.order_discount), 0) as bruto,
                  coalesce(sum(sale_items.fee_toko), 0) as fee'
             )
             ->groupBy('sale_items.scheme_type', 'sale_items.scheme_rate', 'sale_items.scheme_amount')
@@ -312,7 +312,7 @@ class MarginReportService
     private function topSku(Carbon $start, Carbon $end): array
     {
         return $this->base($start, $end)
-            ->selectRaw('sale_items.sku, sum(sale_items.qty) as qty, sum(sale_items.sell_price * sale_items.qty) as bruto')
+            ->selectRaw('sale_items.sku, sum(sale_items.qty) as qty, sum(sale_items.sell_price * sale_items.qty - sale_items.order_discount) as bruto')
             ->groupBy('sale_items.sku')
             ->orderByDesc('bruto')
             ->limit(5)

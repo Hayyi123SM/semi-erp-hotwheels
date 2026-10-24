@@ -11,7 +11,6 @@ use App\Enums\OpnameLineStatus;
 use App\Enums\OpnameStatus;
 use App\Enums\OwnerType;
 use App\Enums\RtvStatus;
-use App\Http\Middleware\OwnerOnly;
 use App\Models\Consignor;
 use App\Models\Opname;
 use App\Models\OpnameLine;
@@ -21,7 +20,6 @@ use App\Models\RtvNote;
 use App\Models\StockLot;
 use App\Models\StockMovement;
 use App\Models\User;
-use App\Services\Auth\PinService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\Test;
@@ -45,8 +43,8 @@ use Tests\TestCase;
  *    hanya hiasan.
  * 4. **Eksekusi mengurangi stok tepat sekali.** Satu gerakan `RTV` per baris
  *    dengan saldo akhir yang benar, dan lot yang habis berstatus Dikembalikan.
- * 5. **PIN adalah milik aksinya.** Token untuk opname, atau tanpa token sama
- *    sekali, tidak membuka pintu eksekusi RTV.
+ * 5. **Eksekusi tetap milik Owner.** Staff ditolak di pintu rute, bukan
+ *    dibiarkan masuk lalu dihadang tombol yang selalu 403.
  */
 class RtvTest extends TestCase
 {
@@ -117,13 +115,11 @@ class RtvTest extends TestCase
             ->post(route('inventory.retur-rtv.scan', $note), ['sku' => $sku]);
     }
 
-    private function approve(User $actor, RtvNote $note, ?string $token = null): TestResponse
+    private function approve(User $actor, RtvNote $note): TestResponse
     {
-        $payload = $token === null ? [] : ['pin_token' => $token];
-
         return $this->actingAs($actor)
             ->from(route('inventory.retur-rtv'))
-            ->post(route('inventory.retur-rtv.approve', $note), $payload);
+            ->post(route('inventory.retur-rtv.approve', $note));
     }
 
     private function cancel(User $actor, RtvNote $note): TestResponse
@@ -131,19 +127,6 @@ class RtvTest extends TestCase
         return $this->actingAs($actor)
             ->from(route('inventory.retur-rtv'))
             ->post(route('inventory.retur-rtv.batal', $note));
-    }
-
-    /**
-     * Token PIN untuk konteks tertentu, diterbitkan atas nama aktor tertentu.
-     *
-     * Owner PIN-nya '123456' di pabrik user, dan penerbitan butuh Owner yang
-     * PIN-nya cocok -- itu sebabnya satu baris dibuat lebih dulu.
-     */
-    private function tokenFor(User $actor, string $context): string
-    {
-        $this->owner();
-
-        return app(PinService::class)->issue($actor, '123456', $context)->token;
     }
 
     /**
@@ -464,61 +447,26 @@ class RtvTest extends TestCase
     }
 
     #[Test]
-    public function approval_is_refused_without_owner_authorization(): void
+    public function approval_is_refused_for_staff(): void
     {
-        // Uji PIN ini butuh aktor non-owner; rute RTV sendiri kini khusus Owner.
-        $this->withoutMiddleware(OwnerOnly::class);
-
+        $owner = $this->owner();
         $staff = $this->staff();
         $consignor = $this->consignor();
         $this->stagingRack();
 
         $lot = $this->lot($consignor, 5, 'CN01-HW-001');
 
-        $this->create($staff, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
+        $this->create($owner, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
         $note = RtvNote::sole();
 
-        $this->staging($staff, $note)->assertSessionHasNoErrors();
-        $this->scan($staff, $note, 'CN01-HW-001')->assertSessionHasNoErrors();
-        $this->scan($staff, $note, 'CN01-HW-001')->assertSessionHasNoErrors();
+        $this->staging($owner, $note)->assertSessionHasNoErrors();
+        $this->scan($owner, $note, 'CN01-HW-001')->assertSessionHasNoErrors();
+        $this->scan($owner, $note, 'CN01-HW-001')->assertSessionHasNoErrors();
 
-        // Tanpa token sama sekali.
-        $this->approve($staff, $note)->assertSessionHasErrors('pin_token');
-
-        // Token yang diterbitkan untuk aksi lain: PIN adalah milik aksinya.
-        $this->approve($staff, $note, $this->tokenFor($staff, 'inventory.opname-approve'))
-            ->assertSessionHasErrors('pin_token');
+        $this->approve($staff, $note)->assertForbidden();
 
         $this->assertSame(RtvStatus::Verifying, $note->fresh()->status);
         $this->assertSame(5, $lot->fresh()->qty_on_hand);
-    }
-
-    #[Test]
-    public function staff_may_execute_with_a_token_issued_for_this_action(): void
-    {
-        // Uji PIN ini butuh aktor non-owner; rute RTV sendiri kini khusus Owner.
-        $this->withoutMiddleware(OwnerOnly::class);
-
-        $staff = $this->staff();
-        $consignor = $this->consignor();
-        $this->stagingRack();
-
-        $lot = $this->lot($consignor, 5, 'CN01-HW-001');
-
-        $this->create($staff, $consignor, [$lot->id => 2])->assertSessionHasNoErrors();
-        $note = RtvNote::sole();
-
-        $this->staging($staff, $note)->assertSessionHasNoErrors();
-        $this->scan($staff, $note, 'CN01-HW-001')->assertSessionHasNoErrors();
-        $this->scan($staff, $note, 'CN01-HW-001')->assertSessionHasNoErrors();
-
-        $owner = $this->owner();
-        $token = app(PinService::class)->issue($staff, '123456', 'inventory.rtv-approve')->token;
-
-        $this->approve($staff, $note, $token)->assertSessionHasNoErrors();
-
-        $this->assertSame(RtvStatus::Executed, $note->fresh()->status);
-        $this->assertSame($owner->id, $note->fresh()->approved_by);
     }
 
     #[Test]

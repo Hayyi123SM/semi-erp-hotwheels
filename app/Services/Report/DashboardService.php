@@ -5,6 +5,7 @@ namespace App\Services\Report;
 use App\Enums\LabelStatus;
 use App\Enums\QuarantineStatus;
 use App\Enums\SaleStatus;
+use App\Models\Expense;
 use App\Models\LabelPrintJob;
 use App\Models\QuarantineCase;
 use App\Models\Rack;
@@ -36,6 +37,10 @@ class DashboardService
      *     penitipBerhutang: int|null,
      *     unitStok: int,
      *     stokMenipis: int,
+     *     pengeluaranHariIni: int|null,
+     *     pengeluaranBulanIni: int|null,
+     *     labaBersihEstimasiHariIni: int|null,
+     *     labaBersihEstimasiBulanIni: int|null,
      * }
      */
     public function cards(?User $viewer): array
@@ -51,6 +56,10 @@ class DashboardService
             'penitipBerhutang' => null,
             'unitStok' => $valuation['units'],
             'stokMenipis' => $valuation['lowStock'],
+            'pengeluaranHariIni' => null,
+            'pengeluaranBulanIni' => null,
+            'labaBersihEstimasiHariIni' => null,
+            'labaBersihEstimasiBulanIni' => null,
         ];
 
         $today = $this->paidStats(now()->toDateString(), now()->toDateString());
@@ -73,6 +82,21 @@ class DashboardService
             $cards['marginHariIni'] = $margin['pendapatanToko'];
             $cards['saldoTitipan'] = array_sum(array_column($owed, 'balance'));
             $cards['penitipBerhutang'] = count($owed);
+
+            $pengeluaranHariIni = (int) Expense::query()
+                ->whereDate('expense_date', now()->toDateString())
+                ->sum('amount');
+            $pengeluaranBulanIni = (int) Expense::query()
+                ->whereYear('expense_date', now()->year)
+                ->whereMonth('expense_date', now()->month)
+                ->sum('amount');
+
+            $cards['pengeluaranHariIni'] = $pengeluaranHariIni;
+            $cards['pengeluaranBulanIni'] = $pengeluaranBulanIni;
+
+            $marginBulanIni = (new MarginReportService)->summary(now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString());
+            $cards['labaBersihEstimasiHariIni'] = (int) ($margin['pendapatanToko'] - $pengeluaranHariIni);
+            $cards['labaBersihEstimasiBulanIni'] = (int) ($marginBulanIni['pendapatanToko'] - $pengeluaranBulanIni);
         }
 
         return $cards;
@@ -138,14 +162,14 @@ class DashboardService
     {
         return Rack::query()
             ->where('is_active', true)
-            ->withCount(['stockLots as items' => fn ($q) => $q->where('qty_on_hand', '>', 0)])
+            ->withSum(['stockLots as used_units' => fn ($q) => $q->where('qty_on_hand', '>', 0)], 'qty_on_hand')
             ->orderBy('code')
             ->get()
             ->map(fn (Rack $rack): array => [
                 'code' => $rack->code,
-                'items' => $rack->items,
+                'items' => (int) ($rack->used_units ?? 0),
                 'capacity' => $rack->capacity,
-                'usage' => $rack->capacity > 0 ? min(100, (int) round($rack->items / $rack->capacity * 100)) : 0,
+                'usage' => $rack->capacity > 0 ? min(100, (int) round((int) ($rack->used_units ?? 0) / $rack->capacity * 100)) : 0,
             ])
             ->all();
     }

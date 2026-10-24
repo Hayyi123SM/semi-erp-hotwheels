@@ -135,6 +135,16 @@ export function registerCart(Alpine) {
         tender: "",
 
         /**
+         * Diskon level nota: satu nilai untuk seluruh keranjang.
+         *
+         * Diskon ini dihitung dari total setelah diskon item, bukan dari harga
+         * kotor. Server mengulang perhitungan yang sama dan menolak nilai yang
+         * membuat total di bawah Rp1, jadi angka di sini hanya untuk layar.
+         */
+        orderDiscountType: null,
+        orderDiscountValue: 0,
+
+        /**
          * Benar selama pembayaran sedang dikirim ke server.
          *
          * Tombol Bayar dan pintasan F8 berdua lewat `pay()`, dan F8 menekan
@@ -309,6 +319,17 @@ export function registerCart(Alpine) {
             return Math.max(0, item.price * item.qty - this.discountFor(item));
         },
 
+        /**
+         * Harga kotor seluruh keranjang, sebelum diskon item maupun diskon nota.
+         */
+        get grossSubtotal() {
+            return this.items.reduce((sum, item) => sum + item.price * item.qty, 0);
+        },
+
+        /**
+         * Total setelah diskon item. Nama `subtotal` dipertahankan karena
+         * dipakai sebagai dasar diskon nota dan oleh test lama.
+         */
         get subtotal() {
             return this.items.reduce((sum, item) => sum + this.lineTotalFor(item), 0);
         },
@@ -317,8 +338,40 @@ export function registerCart(Alpine) {
             return this.items.reduce((sum, item) => sum + this.discountFor(item), 0);
         },
 
+        /**
+         * Diskon nota dalam rupiah, dibatasi menyisakan minimal Rp1.
+         *
+         * Batas yang sama dipakai server. Kalau layar membiarkan nilai yang
+         * lebih besar, kasir baru tahu setelah menekan Bayar -- dan uang yang
+         * sudah dihitung di depan pelanggan menjadi angka yang tidak tersimpan.
+         */
+        get orderDiscountTotal() {
+            const value = Number(this.orderDiscountValue) || 0;
+
+            if (!this.orderDiscountType || value <= 0) {
+                return 0;
+            }
+
+            const base = this.subtotal;
+
+            if (base <= 0) {
+                return 0;
+            }
+
+            const discount =
+                this.orderDiscountType === "percent"
+                    ? Math.round(base * (value / 100))
+                    : value;
+
+            if (!Number.isFinite(discount) || discount < 0) {
+                return 0;
+            }
+
+            return Math.min(discount, Math.max(0, base - 1));
+        },
+
         get total() {
-            return this.subtotal;
+            return Math.max(0, this.subtotal - this.orderDiscountTotal);
         },
 
         /**
@@ -360,6 +413,256 @@ export function registerCart(Alpine) {
         },
 
         /**
+         * Kosongkan nilai diskon total saat tipenya diganti.
+         *
+         * Alasan yang sama dengan diskon per baris: `10` sebagai persen dan
+         * `10` sebagai rupiah adalah dua angka yang sangat berbeda.
+         */
+        onOrderDiscountTypeChange() {
+            this.orderDiscountValue = 0;
+            this.saveDraft();
+        },
+
+        /**
+         * Rapikan diskon total setelah fieldnya ditinggalkan.
+         *
+         * Nominal dibatasi sampai total tersisa Rp1; server tetap menjadi
+         * penentu akhir karena harga baris bisa berubah di database.
+         */
+        clampOrderDiscount() {
+            if (!this.orderDiscountType) {
+                this.orderDiscountValue = 0;
+
+                return;
+            }
+
+            const value = Math.max(0, Math.round(Number(this.orderDiscountValue) || 0));
+
+            this.orderDiscountValue =
+                this.orderDiscountType === "percent"
+                    ? Math.min(100, value)
+                    : Math.min(Math.max(0, this.subtotal - 1), value);
+
+            this.saveDraftDebounced();
+        },
+
+        /**
+         * Diskon untuk tampilan: persen tanpa pemisah ribuan, nominal tanpa prefix Rp
+         * tapi dengan pemisah ribuan. Nilai yang disimpan ke state tetap berupa angka
+         * polos (atau string digit) agar perhitungan yang ada saat ini tetap aman.
+         */
+        _discountDisplayValue(itemOrValue, type) {
+            if (!type) {
+                return "";
+            }
+
+            let value;
+
+            if (itemOrValue && typeof itemOrValue === "object") {
+                if (itemOrValue.discountType === type || itemOrValue.orderDiscountType === type) {
+                    value = itemOrValue.discountValue ?? itemOrValue.orderDiscountValue;
+                } else {
+                    value = itemOrValue.discountValue ?? itemOrValue.orderDiscountValue;
+                }
+            } else {
+                value = itemOrValue;
+            }
+
+            if (value === "" || value === null || value === undefined || value === 0) {
+                return "";
+            }
+
+            const raw = String(value);
+            const digits = raw.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+
+            if (digits === "" || digits === "0") {
+                return "";
+            }
+
+            if (type === "percent") {
+                return digits.slice(0, 3);
+            }
+
+            try {
+                return Number(digits).toLocaleString("id-ID");
+            } catch {
+                return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+            }
+        },
+
+        _discountMaxForItem(item) {
+            if (!item) {
+                return 0;
+            }
+
+            if (item.discountType === "percent") {
+                return 100;
+            }
+
+            if (item.discountType === "amount") {
+                const lineAmount = Number(item.price || 0) * Number(item.qty || 0);
+
+                return lineAmount > 0 ? lineAmount : 0;
+            }
+
+            return 0;
+        },
+
+        _discountMaxForOrder() {
+            if (this.orderDiscountType === "percent") {
+                return 100;
+            }
+
+            if (this.orderDiscountType === "amount") {
+                const base = Number(this.subtotal || 0);
+
+                return base > 1 ? base - 1 : 0;
+            }
+
+            return 0;
+        },
+
+        _discountEnforceInput(event, target, kind) {
+            const input = event.target;
+            const type = target.discountType ?? target.orderDiscountType;
+
+            if (!type) {
+                if (kind === "item") {
+                    target.discountValue = 0;
+                } else {
+                    target.orderDiscountValue = 0;
+                }
+                if (input) {
+                    input.value = "";
+                }
+
+                if (typeof this.saveDraft === "function") {
+                    this.saveDraft();
+                }
+
+                return;
+            }
+
+            const before = input.value ?? "";
+            const caret = input.selectionStart ?? before.length;
+            const digitsBefore = (before.slice(0, caret).match(/\d/g) || []).length;
+
+            let digits = before.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+            const max = kind === "item" ? this._discountMaxForItem(target) : this._discountMaxForOrder();
+
+            if (digits === "") {
+                if (kind === "item") {
+                    target.discountValue = 0;
+                } else {
+                    target.orderDiscountValue = 0;
+                }
+                input.value = "";
+
+                if (typeof this.saveDraftDebounced === "function") {
+                    this.saveDraftDebounced();
+                } else if (typeof this.saveDraft === "function") {
+                    this.saveDraft();
+                }
+
+                return;
+            }
+
+            if (type === "percent") {
+                digits = digits.slice(0, 3);
+                const num = Number(digits || 0);
+
+                if (num > 100) {
+                    digits = "100";
+                }
+            } else if (type === "amount" && max >= 0) {
+                if (max === 0) {
+                    digits = "";
+                } else {
+                    const num = Number(digits || 0);
+
+                    if (num > max) {
+                        digits = String(Math.floor(max));
+                    }
+                }
+            }
+
+            if (digits === "" || digits === "0") {
+                if (kind === "item") {
+                    target.discountValue = 0;
+                } else {
+                    target.orderDiscountValue = 0;
+                }
+                input.value = "";
+
+                if (typeof this.saveDraftDebounced === "function") {
+                    this.saveDraftDebounced();
+                } else if (typeof this.saveDraft === "function") {
+                    this.saveDraft();
+                }
+
+                return;
+            }
+
+            const display = type === "percent"
+                ? digits
+                : Number(digits).toLocaleString("id-ID");
+
+            if (display === before) {
+                if (kind === "item") {
+                    target.discountValue = Number(digits);
+                } else {
+                    target.orderDiscountValue = Number(digits);
+                }
+
+                return;
+            }
+
+            input.value = display;
+
+            if (typeof input.setSelectionRange === "function") {
+                let seen = 0;
+                let pos = display.length;
+
+                for (let i = 0; i < display.length; i += 1) {
+                    if (display[i] >= "0" && display[i] <= "9") {
+                        seen += 1;
+
+                        if (seen === digitsBefore) {
+                            pos = i + 1;
+                            break;
+                        }
+                    }
+                }
+
+                if (digitsBefore === 0) {
+                    pos = display.length;
+                }
+
+                input.setSelectionRange(pos, pos);
+            }
+
+            if (kind === "item") {
+                target.discountValue = Number(digits);
+            } else {
+                target.orderDiscountValue = Number(digits);
+            }
+
+            if (typeof this.saveDraftDebounced === "function") {
+                this.saveDraftDebounced();
+            } else if (typeof this.saveDraft === "function") {
+                this.saveDraft();
+            }
+        },
+
+        onDiscountInput(item, event) {
+            this._discountEnforceInput(event, item, "item");
+        },
+
+        onOrderDiscountInput(event) {
+            this._discountEnforceInput(event, this, "order");
+        },
+
+        /**
          * Uang diterima sebagai angka.
          *
          * `Number('')` is 0, so an untouched field costs nothing to read: the change
@@ -371,7 +674,7 @@ export function registerCart(Alpine) {
         },
 
         get change() {
-            return Math.max(0, this.tenderAmount - this.subtotal);
+            return Math.max(0, this.tenderAmount - this.total);
         },
 
         get cartCount() {
@@ -555,6 +858,8 @@ export function registerCart(Alpine) {
         clear() {
             this.items = [];
             this.tender = "";
+            this.orderDiscountType = null;
+            this.orderDiscountValue = 0;
             // Keranjang kosong adalah keranjang yang belum pernah ada, jadi kunci
             // idempotensinya ikut hilang. Memakainya lagi untuk penjualan berikutnya
             // akan membuat dua nota berbeda berbagi satu kunci, dan yang kedua
@@ -836,9 +1141,13 @@ export function registerCart(Alpine) {
          * @returns {string}
          */
         saleId() {
-            const signature = this.items
-                .map((item) => `${item.lotId}x${item.qty}`)
+            const lines = this.items
+                .map(
+                    (item) =>
+                        `${item.lotId}x${item.qty}x${item.discountType ?? ""}x${Number(item.discountValue) || 0}`,
+                )
                 .join(",");
+            const signature = `${lines}|${this.orderDiscountType ?? ""}x${Number(this.orderDiscountValue) || 0}`;
 
             if (this.clientSaleId === "" || this.cartSignature !== signature) {
                 this.clientSaleId = newClientSaleId();
@@ -873,10 +1182,12 @@ export function registerCart(Alpine) {
                     discount_type: item.discountType || null,
                     discount_value: item.discountValue || 0,
                 })),
+                order_discount_type: this.orderDiscountType || null,
+                order_discount_value: this.orderDiscountValue || 0,
                 payments: [
                     {
                         method: this.paymentMethod,
-                        amount: this.subtotal,
+                        amount: this.total,
                     },
                 ],
                 // Uang tunai hanya untuk kasir yang memegang uang itu. QRIS dan
@@ -944,16 +1255,16 @@ export function registerCart(Alpine) {
                 return;
             }
 
-            if (this.subtotal < 1) {
+            if (this.total < 1) {
                 this.$store.toast.push("Total belanja masih Rp0.", "warning");
                 return;
             }
 
             // Pintasan F8 tetap hidup walau tombol Bayar disabled, jadi
             // pemeriksaan uang ada di sini juga, bukan hanya di markup.
-            if (this.paymentMethod === "TUNAI" && this.tenderAmount < this.subtotal) {
+            if (this.paymentMethod === "TUNAI" && this.tenderAmount < this.total) {
                 this.$store.toast.push(
-                    `Uang diterima ${rupiah(this.tenderAmount)} kurang dari total ${rupiah(this.subtotal)}.`,
+                    `Uang diterima ${rupiah(this.tenderAmount)} kurang dari total ${rupiah(this.total)}.`,
                     "warning",
                 );
                 return;
@@ -1110,6 +1421,8 @@ export function registerCart(Alpine) {
             }
 
             this.items = draft.items.map((item) => this.hydrateDraftItem(item));
+            this.orderDiscountType = draft.order_discount_type || null;
+            this.orderDiscountValue = Number(draft.order_discount_value) || 0;
         },
 
         /**
@@ -1172,7 +1485,11 @@ export function registerCart(Alpine) {
                         "Content-Type": "application/json",
                         "X-CSRF-TOKEN": this.csrf(),
                     },
-                    body: JSON.stringify({ items: this.draftItems() }),
+                    body: JSON.stringify({
+                        items: this.draftItems(),
+                        order_discount_type: this.orderDiscountType || null,
+                        order_discount_value: this.orderDiscountValue || 0,
+                    }),
                 });
             } catch {
                 // Draft adalah kenyamanan, bukan transaksi. Kegagalan
