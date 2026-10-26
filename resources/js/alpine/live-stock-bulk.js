@@ -1,5 +1,6 @@
 /**
- * Pilihan baris untuk "Pindah Rak" massal di halaman Live Stock.
+ * State aksi halaman Live Stock: pilihan baris untuk "Pindah Rak" massal dan
+ * lot yang sedang dikoreksi lewat "Kurangi Stok".
  *
  * Pilihan baris tidak disimpan di state Alpine: checkbox memakai atribut
  * `form`, sehingga baris yang terpilih adalah baris yang sedang tampil, dan
@@ -15,6 +16,9 @@ export function liveStockBulk() {
     return {
         /** Lot yang dipilih untuk dialog pindah rak per baris (dipasang modal). */
         transfer: null,
+
+        /** Lot yang dipilih untuk dialog koreksi stok (dipasang modal). */
+        reduce: null,
 
         /** Jumlah baris tercentang, untuk label dan status tombol toolbar. */
         count: 0,

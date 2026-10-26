@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { stokOpname } from './stok-opname';
 
 /**
@@ -18,6 +18,10 @@ function respondWith(body, status = 200) {
 
 function mockFetch(body, status = 200) {
     return vi.fn().mockResolvedValue(respondWith(body, status));
+}
+
+function flush() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function config(overrides = {}) {
@@ -236,6 +240,187 @@ describe('stokOpname', () => {
                 expect.objectContaining({ detail: 'review-baris' }),
             );
             dispatch.mockRestore();
+        });
+    });
+
+    describe('picker SKU', () => {
+        const items = [
+            {
+                sku: 'CN-01-HW-001',
+                name: 'Nissan Skyline GT-R R34',
+                series: 'Hot Wheels',
+                rack: 'A-01',
+                color: 'Blue',
+                year: 1999,
+            },
+        ];
+
+        function picker(overrides = {}) {
+            return stokOpname(config({
+                skuUrl: '/inventory/stok-opname/cari-sku',
+                ...overrides,
+            }));
+        }
+
+        afterEach(() => {
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        });
+
+        it('mengirim istilah dan CSRF ke server lalu menyimpan hasilnya', async () => {
+            const fetchMock = mockFetch({ items });
+            vi.stubGlobal('fetch', fetchMock);
+            const comp = picker();
+
+            comp.skuTerm = 'skyline';
+            comp.searchSku();
+            await flush();
+
+            const [url, init] = fetchMock.mock.calls[0];
+
+            expect(url).toBe('/inventory/stok-opname/cari-sku');
+            expect(init.method).toBe('POST');
+            expect(init.headers.Accept).toBe('application/json');
+            expect(init.headers['X-CSRF-TOKEN']).toBe('token-csrf');
+            expect(init.body.get('q')).toBe('skyline');
+            expect(comp.skuItems).toEqual(items);
+            expect(comp.skuHasResults).toBe(true);
+            expect(comp.skuLoading).toBe(false);
+        });
+
+        it('menunda pencarian sampai ketikan berhenti', async () => {
+            vi.useFakeTimers();
+            const fetchMock = mockFetch({ items });
+            vi.stubGlobal('fetch', fetchMock);
+            const comp = picker();
+
+            comp.skuTerm = 'sky';
+            comp.onSkuInput();
+
+            await vi.advanceTimersByTimeAsync(249);
+            expect(fetchMock).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('tidak mengirim permintaan kedua saat Enter mendahului debounce', async () => {
+            vi.useFakeTimers();
+            const fetchMock = mockFetch({ items });
+            vi.stubGlobal('fetch', fetchMock);
+            const comp = picker();
+
+            comp.skuTerm = 'sky';
+            comp.onSkuInput();
+            comp.submitSkuSearch();
+
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(250);
+
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('tidak menyentuh server untuk istilah di bawah dua huruf', async () => {
+            vi.useFakeTimers();
+            const fetchMock = mockFetch({ items });
+            vi.stubGlobal('fetch', fetchMock);
+            const comp = picker();
+
+            comp.skuTerm = 's';
+            comp.onSkuInput();
+            await vi.advanceTimersByTimeAsync(250);
+
+            expect(fetchMock).not.toHaveBeenCalled();
+            expect(comp.skuItems).toEqual([]);
+            expect(comp.skuSearched).toBe(false);
+        });
+
+        it('mengabaikan jawaban lama yang tiba setelah istilah berubah', async () => {
+            let resolveFirst;
+            const first = new Promise((resolve) => {
+                resolveFirst = resolve;
+            });
+            const second = [{ ...items[0], sku: 'CD-01-DB-002', name: 'Mazda RX-7' }];
+            const fetchMock = vi.fn()
+                .mockReturnValueOnce(first)
+                .mockResolvedValueOnce(respondWith({ items: second }));
+            vi.stubGlobal('fetch', fetchMock);
+            const comp = picker();
+
+            comp.skuTerm = 'skyline';
+            comp.searchSku();
+            comp.skuTerm = 'mazda';
+            comp.searchSku();
+            await flush();
+
+            expect(comp.skuItems).toEqual(second);
+
+            resolveFirst(respondWith({ items }));
+            await flush();
+
+            expect(comp.skuItems).toEqual(second);
+            expect(comp.skuLoading).toBe(false);
+        });
+
+        it('memilih hasil dengan keyboard, menyimpan SKU, dan membersihkan daftar', () => {
+            const comp = picker();
+
+            comp.scope = 'SKU';
+            comp.skuTerm = 'sky';
+            comp.skuItems = items;
+            comp.moveSku(1);
+
+            expect(comp.skuActiveIndex).toBe(0);
+            expect(comp.canStartOpname).toBe(false);
+
+            comp.submitSkuSearch();
+
+            expect(comp.selectedSku).toEqual(items[0]);
+            expect(comp.skuTerm).toBe(items[0].sku);
+            expect(comp.skuItems).toEqual([]);
+            expect(comp.canStartOpname).toBe(true);
+        });
+
+        it('mengembalikan tombol Mulai Sesi ke keadaan mati saat pilihan diganti', () => {
+            const comp = picker();
+
+            comp.scope = 'SKU';
+            comp.chooseSku(items[0]);
+
+            expect(comp.canStartOpname).toBe(true);
+
+            comp.clearSku();
+
+            expect(comp.selectedSku).toBe(null);
+            expect(comp.skuTerm).toBe('');
+            expect(comp.canStartOpname).toBe(false);
+        });
+
+        it('memakai alasan validasi server apa adanya', async () => {
+            vi.stubGlobal('fetch', mockFetch(
+                { errors: { q: ['Istilah pencarian terlalu panjang.'] } },
+                422,
+            ));
+            const comp = picker();
+
+            comp.skuTerm = 'skyline';
+            comp.searchSku();
+            await flush();
+
+            expect(comp.skuError).toBe('Istilah pencarian terlalu panjang.');
+        });
+
+        it('menyebut masalah koneksi, bukan menyalahkan istilah', async () => {
+            vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+            const comp = picker();
+
+            comp.skuTerm = 'skyline';
+            comp.searchSku();
+            await flush();
+
+            expect(comp.skuError).toContain('server');
+            expect(comp.skuError).not.toContain('offline');
         });
     });
 });

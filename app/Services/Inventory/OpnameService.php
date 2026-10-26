@@ -667,9 +667,7 @@ final class OpnameService
      */
     private function lotsInScope(OpnameScope $scope, ?Rack $rack, ?string $sku): Builder
     {
-        $query = StockLot::query()
-            ->whereIn('status', [LotStatus::Available->value, LotStatus::SoldOut->value])
-            ->where('qty_on_hand', '>', 0);
+        $query = StockLot::query()->opnameCountable();
 
         return match ($scope) {
             OpnameScope::Rack => $query->where('rack_id', $rack?->getKey()),

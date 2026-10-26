@@ -2,7 +2,7 @@
  * Halaman Stok Opname (FR-IC-20..23).
  *
  * Sebagian besar halaman ini hidup di server: sesi, baris, blind count, dan
- * keputusan. Yang hidup di sini adalah dua hal yang harus bergerak tanpa
+ * keputusan. Yang hidup di sini adalah tiga hal yang harus bergerak tanpa
  * reload:
  *
  * 1. **Penghitungan beralur pindai.** Kotak cari menjadi bar pindai saat sesi
@@ -17,7 +17,16 @@
  *    tampil (`counts[id]`), badge status (`statuses[id]`), progress ring,
  *    jumlah baris terhitung, dan tombol "Ajukan ke Owner" yang hidup begitu
  *    baris terakhir selesai.
+ * 3. **Picker SKU di modal Mulai Sesi.** Cakupan Per SKU tidak lagi menuntut
+ *    kode yang diketik persis: hasil pencarian datang dari server, dan yang
+ *    dipilih masuk ke form sebagai satu-satunya nilai yang sah.
  */
+
+/** Berapa lama menunggu setelah ketikan terakhir sebelum query picker. */
+const SKU_SEARCH_LATENCY_MS = 250;
+
+/** Harus sama dengan batas server; di bawah ini belum ada yang bisa dijawab. */
+const SKU_MIN_TERM_LENGTH = 2;
 
 /**
  * Warna dan ikon sel status, dikunci per tipe (`status_type`) yang dikirim
@@ -47,6 +56,7 @@ const STATUS_TYPE_ICONS = {
  * @param {string} [config.csrf] token CSRF untuk panggilan fetch
  * @param {object} [config.reviewTargets] id baris → payload dialog Review
  * @param {number|string|null} [config.failedReviewId] baris yang gagal divalidasi
+ * @param {string} [config.skuUrl] URL pencarian SKU untuk modal Mulai Sesi
  */
 export function stokOpname(config = {}) {
     const rows = config.rows ?? [];
@@ -70,6 +80,17 @@ export function stokOpname(config = {}) {
         idBySku: Object.fromEntries(rows.map((row) => [row.sku, row.id])),
         // Counter per id untuk serialisasi /tambah; lihat addBySku.
         scanQueue: {},
+
+        skuUrl: config.skuUrl ?? '',
+        selectedSku: null,
+        skuTerm: '',
+        skuItems: [],
+        skuLoading: false,
+        skuError: '',
+        skuSearched: false,
+        skuActiveIndex: -1,
+        skuTimer: null,
+        skuSeq: 0,
 
         init() {
             if (this.failedReviewId !== null && this.reviewTargets[this.failedReviewId]) {
@@ -123,6 +144,18 @@ export function stokOpname(config = {}) {
             return this.progressTotal > 0 && this.progressCounted >= this.progressTotal;
         },
 
+        get skuMinLengthReached() {
+            return this.skuTerm.trim().length >= SKU_MIN_TERM_LENGTH;
+        },
+
+        get skuHasResults() {
+            return this.skuItems.length > 0;
+        },
+
+        get canStartOpname() {
+            return this.scope !== 'SKU' || this.selectedSku !== null;
+        },
+
         rowStatusLabel(id) {
             return this.statuses[id]?.label ?? '';
         },
@@ -133,6 +166,153 @@ export function stokOpname(config = {}) {
 
         rowStatusIcon(id) {
             return STATUS_TYPE_ICONS[this.statuses[id]?.type] ?? STATUS_TYPE_ICONS.neutral;
+        },
+
+        /**
+         * Ketikan baru membatalkan pilihan lama dan hasil yang masih terbang.
+         *
+         * Tanpa `skuSeq += 1`, jawaban untuk kata sebelumnya bisa tiba setelah
+         * pengguna sudah mengetik lebih jauh dan mengisi daftar dengan hasil
+         * yang tidak lagi cocok dengan kotak pencarian.
+         */
+        onSkuInput() {
+            this.selectedSku = null;
+            this.skuSeq += 1;
+            this.skuItems = [];
+            this.skuLoading = false;
+            this.skuError = '';
+            this.skuSearched = false;
+            this.skuActiveIndex = -1;
+            this.searchSkuSoon();
+        },
+
+        searchSku() {
+            clearTimeout(this.skuTimer);
+
+            const term = this.skuTerm.trim();
+
+            this.skuActiveIndex = -1;
+
+            if (term.length < SKU_MIN_TERM_LENGTH) {
+                this.skuItems = [];
+                this.skuSearched = false;
+                this.skuError = '';
+                this.skuLoading = false;
+
+                return;
+            }
+
+            this.skuLoading = true;
+            this.skuError = '';
+            this.skuSearched = true;
+
+            const ticket = (this.skuSeq += 1);
+
+            window.fetch(this.skuUrl, {
+                method: 'POST',
+                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': this.csrf },
+                body: new URLSearchParams({ q: term }),
+            })
+                .then(async (response) => {
+                    if (!response.ok) {
+                        throw Object.assign(new Error(await this.skuReason(response)), { server: true });
+                    }
+
+                    return response.json();
+                })
+                .then((data) => {
+                    if (ticket !== this.skuSeq) {
+                        return;
+                    }
+
+                    this.skuItems = data.items ?? [];
+                    this.skuLoading = false;
+                })
+                .catch((error) => {
+                    if (ticket !== this.skuSeq) {
+                        return;
+                    }
+
+                    this.skuItems = [];
+                    this.skuLoading = false;
+                    this.skuError = error.server
+                        ? error.message
+                        : 'Tidak bisa menghubungi server. Periksa koneksi lalu coba lagi.';
+                });
+        },
+
+        searchSkuSoon() {
+            clearTimeout(this.skuTimer);
+            this.skuTimer = setTimeout(() => this.searchSku(), SKU_SEARCH_LATENCY_MS);
+        },
+
+        moveSku(delta) {
+            if (!this.skuHasResults) {
+                return;
+            }
+
+            const next = this.skuActiveIndex + delta;
+
+            if (next < 0 || next >= this.skuItems.length) {
+                return;
+            }
+
+            this.skuActiveIndex = next;
+        },
+
+        chooseSkuActive() {
+            const item = this.skuItems[this.skuActiveIndex];
+
+            if (!item) {
+                return false;
+            }
+
+            this.chooseSku(item);
+
+            return true;
+        },
+
+        submitSkuSearch() {
+            if (this.chooseSkuActive()) {
+                return;
+            }
+
+            this.searchSku();
+        },
+
+        chooseSku(item) {
+            clearTimeout(this.skuTimer);
+            this.skuSeq += 1;
+            this.selectedSku = item;
+            this.skuTerm = item.sku;
+            this.skuItems = [];
+            this.skuLoading = false;
+            this.skuError = '';
+            this.skuSearched = false;
+            this.skuActiveIndex = -1;
+        },
+
+        clearSku() {
+            clearTimeout(this.skuTimer);
+            this.selectedSku = null;
+            this.skuTerm = '';
+            this.skuItems = [];
+            this.skuLoading = false;
+            this.skuError = '';
+            this.skuSearched = false;
+            this.skuActiveIndex = -1;
+            this.skuSeq = 0;
+            this.$nextTick?.(() => this.$refs.skuSearch?.focus());
+        },
+
+        async skuReason(response) {
+            const data = await response.json().catch(() => ({}));
+
+            if (data.errors) {
+                return Object.values(data.errors).flat().filter(Boolean).join(' ');
+            }
+
+            return 'Pencarian SKU gagal. Coba lagi.';
         },
 
         /**

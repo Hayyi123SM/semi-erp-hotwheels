@@ -8,6 +8,7 @@ use App\Enums\DiscountPolicy;
 use App\Enums\LotStatus;
 use App\Enums\OwnerType;
 use App\Enums\SchemeType;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -107,6 +108,19 @@ class StockLot extends Model
     public function labelPrintJobs(): HasMany
     {
         return $this->hasMany(LabelPrintJob::class, 'lot_id');
+    }
+
+    /**
+     * Lot yang punya unit fisik untuk dihitung opname.
+     *
+     * Lot nol dan lot yang sudah keluar dari gudang tidak punya barang untuk
+     * dihitung; keduanya juga tidak boleh muncul di picker Mulai Sesi.
+     */
+    public function scopeOpnameCountable(Builder $query): Builder
+    {
+        return $query
+            ->whereIn('status', [LotStatus::Available->value, LotStatus::SoldOut->value])
+            ->where('qty_on_hand', '>', 0);
     }
 
     public function isOwned(): bool

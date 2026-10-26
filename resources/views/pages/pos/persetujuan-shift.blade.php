@@ -89,7 +89,7 @@
                                 @error('reason')<p class="mt-1 text-label-sm text-error-text">{{ $message }}</p>@enderror
                             </x-ui.field>
 
-                            <button type="submit" class="btn-danger">Tolak &amp; Kembalikan ke Kasir</button>
+                            <button type="submit" class="btn-destructive">Tolak &amp; Kembalikan ke Kasir</button>
                         </form>
                     </details>
                 </div>

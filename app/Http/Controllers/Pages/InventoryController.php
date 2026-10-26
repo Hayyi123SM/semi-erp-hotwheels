@@ -9,6 +9,7 @@ use App\Enums\QuarantineReason;
 use App\Enums\QuarantineStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\AssignQuarantineCaseRequest;
+use App\Http\Requests\Inventory\KurangiStokRequest;
 use App\Http\Requests\Inventory\LookupQuarantineRequest;
 use App\Http\Requests\Inventory\PindahRakBulkRequest;
 use App\Http\Requests\Inventory\PindahRakRequest;
@@ -24,6 +25,7 @@ use App\Services\Inventory\QuarantineCaseService;
 use App\Services\Inventory\QuarantineLookupService;
 use App\Services\Inventory\QuarantineResolutionService;
 use App\Services\Inventory\QuarantineSla;
+use App\Services\Inventory\StockAdjustmentService;
 use App\Services\Inventory\StockTransferService;
 use App\Support\DataTable\Column;
 use App\Support\DataTable\DataTable;
@@ -268,6 +270,33 @@ class InventoryController extends Controller
             'lot' => $lot->load(['product.series', 'consignor', 'rack']),
             'table' => $table,
         ], 'Kartu Stok '.$lot->sku);
+    }
+
+    /**
+     * Kurangi stok karena salah input/salah hitung (FR-IC-25).
+     *
+     * Hanya pengurangan yang tersedia di sini. Menambah stok kembali tetap
+     * lewat penerimaan barang, dan barang yang hilang/rusak lewat opname atau
+     * write-off, karena keduanya punya jejak dan konsekuensi yang berbeda.
+     */
+    public function kurangiStok(StockLot $lot, KurangiStokRequest $request, StockAdjustmentService $adjustment): RedirectResponse
+    {
+        $updated = $adjustment->reduce(
+            $lot,
+            $request->qty(),
+            $request->expectedQty(),
+            $request->user(),
+        );
+
+        return back()->with('toast', [
+            'type' => 'success',
+            'message' => sprintf(
+                '%s dikurangi %d unit. Sisa %d unit.',
+                $updated->sku,
+                $request->qty(),
+                $updated->qty_on_hand,
+            ),
+        ]);
     }
 
     public function pindahRak(StockLot $lot, PindahRakRequest $request, StockTransferService $transfer)

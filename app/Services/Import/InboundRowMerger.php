@@ -203,20 +203,62 @@ final class InboundRowMerger
      * String dinormalkan supaya beda spasi atau kapital tidak memecah
      * kelompok yang isinya sama. `ksort` supaya dua baris dengan isi sama
      * tetap dianggap sama walau urutan kolomnya beda.
+     *
+     * Nilai kosong (`null`, `''`, atau kunci yang tidak ada) diseragamkan
+     * jadi `null` agar baris dengan nama+harga sama bisa digabung meski
+     * seri/warna dikosongkan.
      */
     private function contentKey(array $data): string
     {
-        $data = array_intersect_key($data, array_flip(self::MERGE_KEYS));
+        $keyed = [];
 
-        foreach ($data as $key => $value) {
-            if (is_string($value)) {
-                $data[$key] = mb_strtolower(trim($value));
+        foreach (self::MERGE_KEYS as $key) {
+            if (! array_key_exists($key, $data)) {
+                $keyed[$key] = null;
+
+                continue;
             }
+
+            $value = $data[$key];
+
+            if ($value === null || $value === '') {
+                $keyed[$key] = null;
+
+                continue;
+            }
+
+            if (is_string($value)) {
+                $normalized = mb_strtolower(trim($value));
+
+                if ($normalized === '') {
+                    $keyed[$key] = null;
+
+                    continue;
+                }
+
+                $keyed[$key] = $normalized;
+
+                continue;
+            }
+
+            if (is_bool($value)) {
+                $keyed[$key] = $value;
+
+                continue;
+            }
+
+            if (is_int($value) || is_float($value)) {
+                $keyed[$key] = $value;
+
+                continue;
+            }
+
+            $keyed[$key] = $value;
         }
 
-        ksort($data);
+        ksort($keyed);
 
-        return serialize($data);
+        return serialize($keyed);
     }
 
     /**

@@ -57,8 +57,9 @@ enum AuditAction: string
     case ApproveShiftClosing = 'APPROVE_SHIFT_CLOSING';
     case RejectShiftClosing = 'REJECT_SHIFT_CLOSING';
 
-    // Penataan rak dan siklus opname.
+    // Penataan rak, koreksi manual, dan siklus opname.
     case TransferRack = 'TRANSFER_RACK';
+    case StockAdjustment = 'STOCK_ADJUSTMENT';
     case OpnameStart = 'OPNAME_START';
     case OpnameSubmit = 'OPNAME_SUBMIT';
     case OpnameApprove = 'OPNAME_APPROVE';
@@ -107,6 +108,7 @@ enum AuditAction: string
             self::ApproveShiftClosing => 'Selisih Kas Disetujui',
             self::RejectShiftClosing => 'Selisih Kas Ditolak',
             self::TransferRack => 'Barang Pindah Rak',
+            self::StockAdjustment => 'Penyesuaian Stok Manual',
             self::OpnameStart => 'Sesi Opname Dimulai',
             self::OpnameSubmit => 'Sesi Opname Diajukan',
             self::OpnameApprove => 'Selisih Opname Disetujui',
@@ -140,7 +142,7 @@ enum AuditAction: string
             self::HandOverReceipt, self::ApproveShiftClosing => 'success',
             self::ReprintOverQty, self::ReprintDailyLimit, self::OpnameApprove,
             self::OpnameCancel, self::RtvExecute, self::SubmitShiftClosing,
-            self::RejectShiftClosing => 'warning',
+            self::RejectShiftClosing, self::StockAdjustment => 'warning',
             self::PrintLabels, self::RetryLabels, self::ReprintLabels,
             self::HandOverReceiptReprint, self::TransferRack, self::OpnameStart,
             self::OpnameSubmit, self::OpnameReject, self::OpnameReopen,

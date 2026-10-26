@@ -8,6 +8,7 @@ use App\Http\Controllers\Finance\ExpenseController;
 use App\Http\Controllers\Finance\ExpenseImportController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\Inbound\ProductSearchController;
+use App\Http\Controllers\Inventory\OpnameSkuLookupController;
 use App\Http\Controllers\Master\ConsignorController;
 use App\Http\Controllers\Master\ImportController;
 use App\Http\Controllers\Master\ProductController;
@@ -210,6 +211,9 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
     Route::get('/inventory/live-stock', [InventoryController::class, 'liveStock'])->name('inventory.live-stock');
     Route::get('/inventory/live-stock/ekspor', [InventoryController::class, 'ekspor'])->name('inventory.live-stock.ekspor');
     Route::patch('/inventory/live-stock/{lot}/rak', [InventoryController::class, 'pindahRak'])->name('inventory.live-stock.rak');
+    // Koreksi salah input/salah hitung. Seluruh modul Inventory sudah `owner`,
+    // jadi hanya Owner yang bisa menekan tombol ini.
+    Route::post('/inventory/live-stock/{lot}/kurangi', [InventoryController::class, 'kurangiStok'])->name('inventory.live-stock.kurangi');
     // POST, bukan PATCH: satu kirim memindahkan banyak lot sekaligus, jadi
     // tidak ada satu resource yang bisa dituju di URL.
     Route::post('/inventory/live-stock/pindah-rak', [InventoryController::class, 'pindahRakBulk'])->name('inventory.live-stock.rak.bulk');
@@ -232,6 +236,13 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
     // Sesi yang masih terbuka tetap tunduk pada aturan blind count di halaman ini.
     Route::get('/inventory/stok-opname/{opname}', [OpnameController::class, 'detail'])->name('inventory.stok-opname.detail');
     Route::post('/inventory/stok-opname', [OpnameController::class, 'store'])->name('inventory.stok-opname.store');
+    // Picker cakupan SKU. `POST` seperti pencarian picker lain: teks yang
+    // diketik tidak perlu masuk access log atau history browser. Throttle-nya
+    // sama dengan picker kasir karena panel memanggil endpoint ini setiap
+    // ketikan berhenti.
+    Route::post('/inventory/stok-opname/cari-sku', OpnameSkuLookupController::class)
+        ->middleware('throttle:120,1')
+        ->name('inventory.stok-opname.cari-sku');
     // `scopeBindings()` pada tiga route bersarang: tanpanya `{line}` diambil
     // dari `opname_lines` mana pun yang id-nya cocok, sehingga baris sesi lama
     // bisa dihitung, ditambah, atau diputuskan lewat URL sesi yang sedang

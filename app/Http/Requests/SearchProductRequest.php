@@ -7,7 +7,8 @@ namespace App\Http\Requests;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Pencarian produk -- dipakai panel picker kasir dan picker Stock In Pribadi.
+ * Pencarian produk -- dipakai panel picker kasir, picker Stock In Pribadi, dan
+ * picker SKU opname.
  *
  * Satu request untuk dua bentuk pencarian karena keduanya berakhir di tempat yang
  * sama di layar -- panel picker -- dan bentuk kuerinya memang berbeda: `q` untuk

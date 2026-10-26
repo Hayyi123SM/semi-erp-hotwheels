@@ -45,6 +45,7 @@
          csrf: @js(csrf_token()),
          reviewTargets: @js($reviewTargets),
          failedReviewId: @js(old('review_line')),
+         skuUrl: @js(route('inventory.stok-opname.cari-sku')),
      })"
      {{-- Klik Review hanya membawa id baris; payload-nya diambil dari peta yang
           dibangun server. Detail yang kosong tidak lagi bisa menimpa state, dan
@@ -406,14 +407,106 @@
                 </div>
 
                 <div x-show="scope === 'SKU'" x-cloak>
-                    <x-ui.field label="SKU" name="sku" hint="Ditulis persis seperti pada label, mis. CN01-HW-001.">
-                        <input type="text" id="sku" name="sku" maxlength="30" class="input-base font-mono uppercase" placeholder="CN01-HW-001" autocomplete="off">
+                    <x-ui.field label="SKU" name="sku-search" required>
+                        <p class="mb-2 text-label-sm text-text-subtle">Cari berdasarkan SKU atau nama produk, lalu pilih satu hasil.</p>
+                        <input type="hidden" name="sku" id="sku" :value="selectedSku?.sku ?? ''" :disabled="scope !== 'SKU'">
+
+                        <template x-if="selectedSku">
+                            <div class="flex items-start justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 p-3">
+                                <div class="min-w-0">
+                                    <p class="font-mono text-label-md font-semibold text-text-strong" x-text="selectedSku.sku"></p>
+                                    <p class="mt-0.5 text-body-sm font-medium text-text-strong" x-text="selectedSku.name"></p>
+                                    <p class="mt-1 text-label-sm text-text-muted">
+                                        <span x-show="selectedSku.series" x-text="selectedSku.series"></span>
+                                        <span x-show="selectedSku.series && (selectedSku.color || selectedSku.year)"> · </span>
+                                        <span x-show="selectedSku.color" x-text="selectedSku.color"></span>
+                                        <span x-show="selectedSku.year" x-text="(selectedSku.color ? ' · ' : '') + selectedSku.year"></span>
+                                        <span x-show="selectedSku.rack" x-text="(selectedSku.series || selectedSku.color || selectedSku.year ? ' · ' : '') + 'Rak ' + selectedSku.rack"></span>
+                                        <span x-show="!selectedSku.rack" class="text-warning-text" x-text="(selectedSku.series || selectedSku.color || selectedSku.year ? ' · ' : '') + 'Belum ditata'"></span>
+                                    </p>
+                                </div>
+                                <button type="button" class="btn-secondary h-9 shrink-0 px-3" @click="clearSku()">Ganti</button>
+                            </div>
+                        </template>
+
+                        <div x-show="!selectedSku">
+                            <div class="relative">
+                                <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-subtle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <circle cx="11" cy="11" r="7"/>
+                                    <path d="M21 21l-4.35-4.35"/>
+                                </svg>
+                                <input
+                                    id="sku-search"
+                                    type="text"
+                                    x-ref="skuSearch"
+                                    x-model="skuTerm"
+                                    @input="onSkuInput()"
+                                    @keydown.enter.prevent="submitSkuSearch()"
+                                    @keydown.arrow-down.prevent="moveSku(1)"
+                                    @keydown.arrow-up.prevent="moveSku(-1)"
+                                    class="input-base w-full pl-9"
+                                    placeholder="mis. Skyline atau CN01-HW-001"
+                                    autocomplete="off"
+                                    maxlength="255"
+                                    role="combobox"
+                                    aria-autocomplete="list"
+                                    aria-controls="opname-sku-results"
+                                    :aria-expanded="skuHasResults"
+                                >
+                            </div>
+
+                            <p class="mt-2 text-label-sm text-text-subtle" x-show="skuTerm.trim().length > 0 && !skuMinLengthReached" x-cloak>
+                                Ketik minimal 2 huruf.
+                            </p>
+
+                            <p class="mt-2 text-label-sm text-text-muted" x-show="skuLoading" x-cloak aria-live="polite">
+                                Mencari…
+                            </p>
+
+                            <p class="mt-2 rounded-lg border border-error-border bg-error-bg px-3 py-2 text-body-sm text-error-text"
+                               x-show="skuError" x-text="skuError" x-cloak></p>
+
+                            <p class="mt-2 rounded-lg border border-border-subtle bg-canvas px-3 py-2 text-body-sm text-text-muted"
+                               x-show="!skuLoading && !skuError && skuSearched && !skuHasResults" x-cloak>
+                                Tidak ada SKU opname yang cocok dengan
+                                <span class="font-mono font-semibold text-text-strong" x-text="skuTerm.trim()"></span>.
+                            </p>
+
+                            <div id="opname-sku-results"
+                                 class="mt-2 max-h-64 overflow-y-auto rounded-lg border border-border-subtle"
+                                 x-show="skuHasResults" x-cloak
+                                 role="listbox">
+                                <template x-for="(item, index) in skuItems" :key="item.sku">
+                                    <button type="button"
+                                            role="option"
+                                            :aria-selected="index === skuActiveIndex"
+                                            class="flex w-full items-start justify-between gap-3 border-b border-border-subtle p-3 text-left transition last:border-b-0"
+                                            :class="index === skuActiveIndex ? 'bg-primary/5' : 'hover:bg-canvas'"
+                                            @click="chooseSku(item)">
+                                        <span class="min-w-0">
+                                            <span class="block font-mono text-label-md font-semibold text-text-strong" x-text="item.sku"></span>
+                                            <span class="mt-0.5 block text-body-sm font-medium text-text-strong" x-text="item.name"></span>
+                                            <span class="mt-1 block text-label-sm text-text-muted">
+                                                <span x-show="item.series" x-text="item.series"></span>
+                                                <span x-show="item.series && (item.color || item.year)"> · </span>
+                                                <span x-show="item.color" x-text="item.color"></span>
+                                                <span x-show="item.year" x-text="(item.color ? ' · ' : '') + item.year"></span>
+                                            </span>
+                                        </span>
+                                        <span class="shrink-0 text-right text-label-sm text-text-muted">
+                                            <span class="block" x-show="item.rack" x-text="'Rak ' + item.rack"></span>
+                                            <span class="block text-warning-text" x-show="!item.rack">Belum ditata</span>
+                                        </span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
                     </x-ui.field>
                 </div>
 
                 <div class="flex justify-end gap-2">
                     <button type="button" class="btn-secondary" @click="$dispatch('close')">Batal</button>
-                    <button type="submit" class="btn-primary">Mulai Sesi</button>
+                    <button type="submit" class="btn-primary" :disabled="!canStartOpname">Mulai Sesi</button>
                 </div>
             </div>
         </form>

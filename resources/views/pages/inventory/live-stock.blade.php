@@ -19,14 +19,15 @@
 </x-ui.page-header>
 
 {{--
-    Scope halaman untuk pekerjaan pindah rak: dialog per baris dan dialog
-    massal. Kontrol di toolbar dan modal hidup di dalam `x-data` tabel yang
-    bersarang, jadi mereka tidak boleh menulis state halaman -- menulis dari
-    sana hanya membuat properti bayangan yang tidak pernah dibaca. Mereka
-    `$dispatch`, dan handler di sini yang mengubah.
+    Scope halaman untuk pekerjaan stok: koreksi per baris, pindah rak per
+    baris, dan pindah rak massal. Kontrol di toolbar dan modal hidup di dalam
+    `x-data` tabel yang bersarang, jadi mereka tidak boleh menulis state
+    halaman -- menulis dari sana hanya membuat properti bayangan yang tidak
+    pernah dibaca. Mereka `$dispatch`, dan handler di sini yang mengubah.
 --}}
 <div class="space-y-6"
      x-data="liveStockBulk"
+     @live-stock:reduce.window="reduce = $event.detail; $dispatch('open-modal', 'kurangi-stok')"
      @live-stock:transfer.window="transfer = $event.detail; $dispatch('open-modal', 'pindah-rak')"
      @live-stock:select-visible.window="selectVisible()"
      @live-stock:clear.window="clearAll()"
@@ -34,9 +35,9 @@
      @table:refreshed.window="sync()"
      @change="sync()">
 
-    {{-- Galat validasi dari form pindah rak di bawah: modalnya sudah tertutup
-         saat kembali ke halaman ini, jadi pesannya harus terlihat di sini --
-         bukan hilang bersama dialog yang gagal. --}}
+    {{-- Galat validasi dari form aksi di bawah: modalnya sudah tertutup saat
+         kembali ke halaman ini, jadi pesannya harus terlihat di sini -- bukan
+         hilang bersama dialog yang gagal. --}}
     @if ($errors->any())
         <x-ui.banner tone="error">{{ $errors->first() }}</x-ui.banner>
     @endif
@@ -170,6 +171,49 @@
             </x-slot:filters>
         </x-ui.data-table>
     </x-ui.section-card>
+
+    {{-- Dialog koreksi stok. Hanya untuk salah input/salah hitung: alasan
+         ditetapkan server, dan `expected_qty` adalah stok yang dilihat saat
+         dialog dibuka. Angka itu yang membuat kiriman kedua dari halaman yang
+         sudah kedaluwarsa ditolak, bukan mengurangi stok dua kali. --}}
+    <x-modal name="kurangi-stok" focusable>
+        <template x-if="reduce">
+            <form method="POST" :action="reduce.url">
+                @csrf
+                <input type="hidden" name="expected_qty" :value="reduce.expectedQty">
+
+                <div class="space-y-5 p-6">
+                    <div>
+                        <h2 class="text-headline-sm text-text-strong">Kurangi Stok</h2>
+                        <p class="mt-1 text-body-sm text-text-muted">
+                            <span class="font-mono text-text-strong" x-text="reduce.sku"></span>
+                            · stok saat ini
+                            <span class="font-semibold text-text-strong" x-text="reduce.expectedQty"></span> unit.
+                        </p>
+                    </div>
+
+                    <x-ui.field label="Jumlah dikurangi" name="qty" required hint="Minimal 1 unit dan tidak boleh melebihi stok saat ini.">
+                        <input type="number" id="qty" name="qty" min="1" :max="reduce.expectedQty"
+                               inputmode="numeric" class="input-base" required>
+                    </x-ui.field>
+
+                    <x-ui.banner tone="warning">
+                        Alasan yang dicatat: <span class="font-semibold">salah hitung / salah input</span>.
+                        Untuk barang hilang atau rusak, gunakan alur opname atau karantina — bukan tombol ini.
+                    </x-ui.banner>
+
+                    @if ($errors->any())
+                        <x-ui.banner tone="error">{{ $errors->first() }}</x-ui.banner>
+                    @endif
+
+                    <div class="flex justify-end gap-2">
+                        <button type="button" class="btn-secondary" @click="$dispatch('close')">Batal</button>
+                        <button type="submit" class="btn-destructive">Kurangi Stok</button>
+                    </div>
+                </div>
+            </form>
+        </template>
+    </x-modal>
 
     {{-- Dialog pindah rak. URL aksinya sudah dihitung server untuk baris yang
          diklik, jadi template tidak pernah tahu bentuk route-nya. --}}
