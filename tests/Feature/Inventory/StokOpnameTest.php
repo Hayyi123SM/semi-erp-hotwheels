@@ -223,6 +223,77 @@ class StokOpnameTest extends TestCase
     }
 
     #[Test]
+    public function warehouse_and_rack_sessions_skip_empty_lots(): void
+    {
+        $actor = $this->owner();
+        $rackA = $this->rack();
+        $rackB = $this->rack();
+        $empty = $this->lot($rackA, 0, 'CN01-HW-001');
+        $stockedA = $this->lot($rackA, 3, 'CN01-HW-002');
+        $stockedB = $this->lot($rackB, 2, 'CN01-HW-003');
+
+        $this->start($actor)->assertSessionMissing('errors');
+
+        $opname = Opname::sole();
+        $this->assertSame(
+            collect([$stockedA->id, $stockedB->id])->sort()->values()->all(),
+            $opname->lines()->pluck('lot_id')->sort()->values()->all(),
+        );
+        $this->assertNotContains($empty->id, $opname->lines()->pluck('lot_id')->all());
+
+        $this->actingAs($actor)
+            ->post(route('inventory.stok-opname.batal', $opname))
+            ->assertSessionHas('toast');
+
+        $this->start($actor, ['scope' => OpnameScope::Rack->value, 'rack_id' => $rackA->id])
+            ->assertSessionMissing('errors');
+
+        $this->assertSame(
+            [$stockedA->id],
+            Opname::query()->latest('id')->first()->lines()->pluck('lot_id')->all(),
+        );
+    }
+
+    #[Test]
+    public function a_sku_session_can_restore_an_empty_lot_with_the_found_reason(): void
+    {
+        $owner = $this->owner();
+        $lot = $this->lot($this->rack(), 0, 'CN01-HW-001');
+        $lot->update(['status' => LotStatus::SoldOut]);
+
+        $this->start($owner, ['scope' => OpnameScope::Sku->value, 'sku' => 'cn01-hw-001'])
+            ->assertSessionMissing('errors');
+
+        $opname = Opname::sole();
+        $line = $opname->lines()->sole();
+        $this->assertSame(0, $line->system_qty);
+
+        $this->countLine($owner, $opname, $line, 2)->assertSessionHas('toast');
+        $this->assertSame(2, $line->refresh()->diff_qty);
+
+        $this->submit($owner, $opname)->assertSessionHas('toast');
+        $this->review($owner, $opname, $line, 'APPROVE', AdjustmentReason::Found)
+            ->assertSessionMissing('errors');
+
+        $lot->refresh();
+        $this->assertSame(2, $lot->qty_on_hand);
+        $this->assertSame(0, $lot->qty_received);
+        $this->assertSame(LotStatus::Available, $lot->status);
+
+        $movement = StockMovement::query()
+            ->where('lot_id', $lot->id)
+            ->where('type', MovementType::AdjPlus)
+            ->sole();
+
+        $this->assertSame(2, $movement->qty_delta);
+        $this->assertSame(2, $movement->balance_after);
+        $this->assertSame(AdjustmentReason::Found->value, $movement->reason);
+        $this->assertSame(Opname::class, $movement->ref_type);
+        $this->assertSame($opname->id, $movement->ref_id);
+        $this->assertSame(OpnameLineStatus::Approved, $line->refresh()->status);
+    }
+
+    #[Test]
     public function a_count_is_recorded_and_can_be_replaced_by_a_recount(): void
     {
         $actor = $this->owner();

@@ -8,6 +8,7 @@ use App\Enums\AdjustmentReason;
 use App\Enums\AuditAction;
 use App\Enums\LotStatus;
 use App\Enums\MovementType;
+use App\Models\Rack;
 use App\Models\StockLot;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -20,15 +21,16 @@ use Illuminate\Validation\ValidationException;
 /**
  * Koreksi manual stok karena salah input/salah hitung (FR-IC-25).
  *
- * Jalur ini sengaja hanya bisa mengurangi. Penambahan manual tetap lewat
- * penerimaan barang supaya asal-usul unitnya tercatat, sedangkan pengurangan
- * karena barang hilang/rusak adalah kasus berbeda: yang itu menyentuh hak
- * penitip dan harus lewat opname atau write-off.
+ * Dua arah memakai alasan yang sama, `MISCOUNT`, karena keduanya hanya
+ * membetulkan angka yang sudah tercatat -- bukan menerima barang baru dan bukan
+ * mencatat barang hilang/rusak. Penambahan unit yang benar-benar baru tetap
+ * lewat penerimaan barang, sedangkan unit temuan dan selisih fisik diputuskan
+ * lewat opname.
  *
  * Pemeriksaan dilakukan di dalam transaksi terhadap baris yang dibaca ulang
  * dengan kunci. `lockForUpdate()` tidak berfungsi di SQLite yang dipakai suite
  * pengujian, jadi hasil baca ulang divalidasi ulang -- bukan dipercaya --
- * supaya dua kiriman bersamaan tidak sama-sama mengurangi stok yang sama.
+ * supaya dua kiriman bersamaan tidak sama-sama mengubah stok yang sama.
  */
 class StockAdjustmentService
 {
@@ -39,6 +41,7 @@ class StockAdjustmentService
 
     public function __construct(
         private readonly AuditLogger $audit,
+        private readonly RackCapacityService $rackCapacity,
     ) {}
 
     /**
@@ -54,54 +57,52 @@ class StockAdjustmentService
         return DB::transaction(function () use ($lot, $qty, $expectedQty, $actor): StockLot {
             $fresh = StockLot::query()->lockForUpdate()->findOrFail($lot->getKey());
 
-            $this->guard($fresh, $qty, $expectedQty);
+            $this->guardExpectedQty($fresh, $expectedQty);
+            $this->guardQty($qty);
+            $this->guardReduction($fresh, $qty);
 
-            $reason = AdjustmentReason::Miscount;
-            $before = [
-                'qty_on_hand' => $fresh->qty_on_hand,
-                'status' => $fresh->status->value,
-            ];
-
+            $before = $this->snapshot($fresh);
             $newQty = $fresh->qty_on_hand - $qty;
             $newStatus = $newQty === 0 ? LotStatus::SoldOut : $fresh->status;
 
-            $fresh->update([
-                'qty_on_hand' => $newQty,
-                'status' => $newStatus,
-            ]);
+            return $this->persist($fresh, $newQty, $newStatus, -$qty, $actor, $before);
+        }, self::TX_ATTEMPTS);
+    }
 
-            StockMovement::create([
-                'lot_id' => $fresh->id,
-                'type' => MovementType::AdjMinus,
-                'qty_delta' => -$qty,
-                'ref_type' => StockLot::class,
-                'ref_id' => $fresh->id,
-                'actor_id' => $actor?->id,
-                'device_id' => DeviceId::current(),
-                'reason' => $reason->value,
-                'balance_after' => $newQty,
-            ]);
+    /**
+     * Tambah stok satu lot dengan alasan salah input/salah hitung.
+     *
+     * Lot `SOLD_OUT` yang kembali berisi dipulihkan ke `AVAILABLE`. Kapasitas
+     * rak diperiksa sebelum stok berubah karena unit tambahan menempati ruang
+     * fisik yang sama seperti penerimaan barang.
+     *
+     * @param  int  $qty  jumlah unit yang ditambahkan, minimal 1
+     * @param  int  $expectedQty  stok yang dilihat pengguna saat dialog dibuka
+     *
+     * @throws ValidationException
+     */
+    public function increase(StockLot $lot, int $qty, int $expectedQty, ?User $actor = null): StockLot
+    {
+        return DB::transaction(function () use ($lot, $qty, $expectedQty, $actor): StockLot {
+            $fresh = StockLot::query()->lockForUpdate()->findOrFail($lot->getKey());
 
-            $this->audit->log(
-                AuditAction::StockAdjustment->value,
-                StockLot::class,
-                (int) $fresh->id,
-                $before,
-                [
-                    'qty_on_hand' => $newQty,
-                    'status' => $newStatus->value,
-                ],
-                $reason->value,
-            );
+            $this->guardExpectedQty($fresh, $expectedQty);
+            $this->guardQty($qty);
+            $this->guardAddition($fresh, $qty);
+            $this->guardRackCapacity($fresh, $qty);
 
-            return $fresh->refresh();
+            $before = $this->snapshot($fresh);
+            $newQty = $fresh->qty_on_hand + $qty;
+            $newStatus = $fresh->status === LotStatus::SoldOut ? LotStatus::Available : $fresh->status;
+
+            return $this->persist($fresh, $newQty, $newStatus, $qty, $actor, $before);
         }, self::TX_ATTEMPTS);
     }
 
     /**
      * @throws ValidationException
      */
-    private function guard(StockLot $lot, int $qty, int $expectedQty): void
+    private function guardExpectedQty(StockLot $lot, int $expectedQty): void
     {
         if ($expectedQty !== $lot->qty_on_hand) {
             throw ValidationException::withMessages([
@@ -112,7 +113,31 @@ class StockAdjustmentService
                 ),
             ]);
         }
+    }
 
+    /**
+     * @throws ValidationException
+     */
+    private function guardQty(int $qty): void
+    {
+        if ($qty < 1) {
+            throw ValidationException::withMessages([
+                'qty' => 'Jumlah koreksi minimal 1 unit.',
+            ]);
+        }
+
+        if ($qty > OpnameService::MAX_COUNTED_QTY) {
+            throw ValidationException::withMessages([
+                'qty' => 'Jumlah koreksi terlalu besar; periksa lagi.',
+            ]);
+        }
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    private function guardReduction(StockLot $lot, int $qty): void
+    {
         if ($lot->status !== LotStatus::Available) {
             throw ValidationException::withMessages([
                 'qty' => sprintf(
@@ -129,12 +154,6 @@ class StockAdjustmentService
             ]);
         }
 
-        if ($qty < 1) {
-            throw ValidationException::withMessages([
-                'qty' => 'Jumlah yang dikurangi minimal 1 unit.',
-            ]);
-        }
-
         if ($qty > $lot->qty_on_hand) {
             throw ValidationException::withMessages([
                 'qty' => sprintf(
@@ -143,5 +162,99 @@ class StockAdjustmentService
                 ),
             ]);
         }
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    private function guardAddition(StockLot $lot, int $qty): void
+    {
+        if (! in_array($lot->status, [LotStatus::Available, LotStatus::SoldOut], true)) {
+            throw ValidationException::withMessages([
+                'qty' => sprintf(
+                    'Lot %s berstatus %s; hanya lot tersedia atau habis yang bisa ditambah.',
+                    $lot->sku,
+                    Format::statusLabel($lot->status),
+                ),
+            ]);
+        }
+
+        if ($lot->qty_on_hand + $qty > OpnameService::MAX_COUNTED_QTY) {
+            throw ValidationException::withMessages([
+                'qty' => 'Stok setelah ditambah melebihi batas '.OpnameService::MAX_COUNTED_QTY.' unit.',
+            ]);
+        }
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    private function guardRackCapacity(StockLot $lot, int $qty): void
+    {
+        if ($lot->rack_id === null) {
+            return;
+        }
+
+        $rack = Rack::query()->lockForUpdate()->find($lot->rack_id);
+
+        if ($rack !== null) {
+            $this->rackCapacity->assertFits($rack, $qty, 'qty');
+        }
+    }
+
+    /**
+     * @param  array{qty_on_hand: int, status: string}  $before
+     */
+    private function persist(
+        StockLot $lot,
+        int $newQty,
+        LotStatus $newStatus,
+        int $delta,
+        ?User $actor,
+        array $before,
+    ): StockLot {
+        $reason = AdjustmentReason::Miscount;
+
+        $lot->update([
+            'qty_on_hand' => $newQty,
+            'status' => $newStatus,
+        ]);
+
+        StockMovement::create([
+            'lot_id' => $lot->id,
+            'type' => $delta > 0 ? MovementType::AdjPlus : MovementType::AdjMinus,
+            'qty_delta' => $delta,
+            'ref_type' => StockLot::class,
+            'ref_id' => $lot->id,
+            'actor_id' => $actor?->id,
+            'device_id' => DeviceId::current(),
+            'reason' => $reason->value,
+            'balance_after' => $newQty,
+        ]);
+
+        $this->audit->log(
+            AuditAction::StockAdjustment->value,
+            StockLot::class,
+            (int) $lot->id,
+            $before,
+            [
+                'qty_on_hand' => $newQty,
+                'status' => $newStatus->value,
+            ],
+            $reason->value,
+        );
+
+        return $lot->refresh();
+    }
+
+    /**
+     * @return array{qty_on_hand: int, status: string}
+     */
+    private function snapshot(StockLot $lot): array
+    {
+        return [
+            'qty_on_hand' => $lot->qty_on_hand,
+            'status' => $lot->status->value,
+        ];
     }
 }

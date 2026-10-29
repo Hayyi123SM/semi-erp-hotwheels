@@ -111,16 +111,27 @@ class StockLot extends Model
     }
 
     /**
-     * Lot yang punya unit fisik untuk dihitung opname.
+     * Lot yang masih boleh disesuaikan lewat opname.
      *
-     * Lot nol dan lot yang sudah keluar dari gudang tidak punya barang untuk
-     * dihitung; keduanya juga tidak boleh muncul di picker Mulai Sesi.
+     * Lot kosong ikut di sini karena opname per SKU juga dipakai untuk
+     * memulihkan unit yang ditemukan kembali. Scope ini sengaja tidak dipakai
+     * untuk opname seluruh gudang/per rak: sesi seperti itu hanya menghitung
+     * barang yang benar-benar ada, bukan seluruh riwayat lot kosong.
+     */
+    public function scopeOpnameAdjustable(Builder $query): Builder
+    {
+        return $query->whereIn('status', [LotStatus::Available->value, LotStatus::SoldOut->value]);
+    }
+
+    /**
+     * Lot yang punya unit fisik untuk dihitung pada opname seluruh gudang/rak.
+     *
+     * Lot nol tidak punya barang untuk dihitung dan tidak boleh muncul di
+     * picker Mulai Sesi untuk cakupan tersebut.
      */
     public function scopeOpnameCountable(Builder $query): Builder
     {
-        return $query
-            ->whereIn('status', [LotStatus::Available->value, LotStatus::SoldOut->value])
-            ->where('qty_on_hand', '>', 0);
+        return $query->opnameAdjustable()->where('qty_on_hand', '>', 0);
     }
 
     public function isOwned(): bool
@@ -131,5 +142,15 @@ class StockLot extends Model
     public function isSellable(): bool
     {
         return $this->status === LotStatus::Available && $this->qty_on_hand > 0;
+    }
+
+    public function canBeReduced(): bool
+    {
+        return $this->isSellable();
+    }
+
+    public function canBeIncreased(): bool
+    {
+        return in_array($this->status, [LotStatus::Available, LotStatus::SoldOut], true);
     }
 }

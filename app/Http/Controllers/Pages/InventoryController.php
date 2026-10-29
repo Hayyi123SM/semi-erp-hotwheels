@@ -9,7 +9,7 @@ use App\Enums\QuarantineReason;
 use App\Enums\QuarantineStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Inventory\AssignQuarantineCaseRequest;
-use App\Http\Requests\Inventory\KurangiStokRequest;
+use App\Http\Requests\Inventory\KoreksiStokRequest;
 use App\Http\Requests\Inventory\LookupQuarantineRequest;
 use App\Http\Requests\Inventory\PindahRakBulkRequest;
 use App\Http\Requests\Inventory\PindahRakRequest;
@@ -273,27 +273,25 @@ class InventoryController extends Controller
     }
 
     /**
-     * Kurangi stok karena salah input/salah hitung (FR-IC-25).
+     * Koreksi stok karena salah input/salah hitung (FR-IC-25).
      *
-     * Hanya pengurangan yang tersedia di sini. Menambah stok kembali tetap
-     * lewat penerimaan barang, dan barang yang hilang/rusak lewat opname atau
-     * write-off, karena keduanya punya jejak dan konsekuensi yang berbeda.
+     * Dua arah, satu alasan. Unit baru tetap masuk lewat penerimaan barang,
+     * sedangkan barang hilang/rusak dan unit temuan diputuskan lewat opname.
      */
-    public function kurangiStok(StockLot $lot, KurangiStokRequest $request, StockAdjustmentService $adjustment): RedirectResponse
+    public function koreksiStok(StockLot $lot, KoreksiStokRequest $request, StockAdjustmentService $adjustment): RedirectResponse
     {
-        $updated = $adjustment->reduce(
-            $lot,
-            $request->qty(),
-            $request->expectedQty(),
-            $request->user(),
-        );
+        $updated = $request->isAddition()
+            ? $adjustment->increase($lot, $request->qty(), $request->expectedQty(), $request->user())
+            : $adjustment->reduce($lot, $request->qty(), $request->expectedQty(), $request->user());
 
         return back()->with('toast', [
             'type' => 'success',
             'message' => sprintf(
-                '%s dikurangi %d unit. Sisa %d unit.',
+                '%s %s %d unit. %s %d unit.',
                 $updated->sku,
+                $request->isAddition() ? 'ditambah' : 'dikurangi',
                 $request->qty(),
+                $request->isAddition() ? 'Stok sekarang' : 'Sisa',
                 $updated->qty_on_hand,
             ),
         ]);

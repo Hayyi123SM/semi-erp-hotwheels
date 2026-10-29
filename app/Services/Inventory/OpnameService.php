@@ -657,17 +657,20 @@ final class OpnameService
     }
 
     /**
-     * Lot yang masuk cakupan: yang fisiknya memang ada di rak.
+     * Lot yang masuk cakupan.
      *
-     * Lot dengan qty nol dikeluarkan -- tidak ada unit yang bisa dihitung, dan
-     * kasus "unit ditemukan milik lot lama" memang jalurnya lewat Karantina,
-     * bukan lewat opname. Lot yang sudah keluar dari gudang (dikembalikan,
-     * dihapus, dibatalkan) juga dikeluarkan karena barangnya sudah tidak ada
-     * untuk dihitung.
+     * Opname seluruh gudang dan per rak hanya menghitung unit yang memang ada,
+     * jadi lot nol tidak ikut. Opname per SKU berbeda: cakupannya sengaja
+     * dipilih satu lot, termasuk lot yang sudah kosong, supaya unit yang
+     * ditemukan kembali bisa dicatat sebagai selisih positif dan diputuskan
+     * Owner. Lot yang sudah keluar dari gudang selalu dikeluarkan karena
+     * barangnya tidak lagi menjadi bagian stok aktif.
      */
     private function lotsInScope(OpnameScope $scope, ?Rack $rack, ?string $sku): Builder
     {
-        $query = StockLot::query()->opnameCountable();
+        $query = $scope === OpnameScope::Sku
+            ? StockLot::query()->opnameAdjustable()
+            : StockLot::query()->opnameCountable();
 
         return match ($scope) {
             OpnameScope::Rack => $query->where('rack_id', $rack?->getKey()),

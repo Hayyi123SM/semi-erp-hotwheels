@@ -211,9 +211,9 @@ Route::middleware(['auth', 'owner', 'feature'])->group(function () {
     Route::get('/inventory/live-stock', [InventoryController::class, 'liveStock'])->name('inventory.live-stock');
     Route::get('/inventory/live-stock/ekspor', [InventoryController::class, 'ekspor'])->name('inventory.live-stock.ekspor');
     Route::patch('/inventory/live-stock/{lot}/rak', [InventoryController::class, 'pindahRak'])->name('inventory.live-stock.rak');
-    // Koreksi salah input/salah hitung. Seluruh modul Inventory sudah `owner`,
-    // jadi hanya Owner yang bisa menekan tombol ini.
-    Route::post('/inventory/live-stock/{lot}/kurangi', [InventoryController::class, 'kurangiStok'])->name('inventory.live-stock.kurangi');
+    // Koreksi salah input/salah hitung dua arah. Seluruh modul Inventory sudah
+    // `owner`, jadi hanya Owner yang bisa menekan tombol ini.
+    Route::post('/inventory/live-stock/{lot}/koreksi', [InventoryController::class, 'koreksiStok'])->name('inventory.live-stock.koreksi');
     // POST, bukan PATCH: satu kirim memindahkan banyak lot sekaligus, jadi
     // tidak ada satu resource yang bisa dituju di URL.
     Route::post('/inventory/live-stock/pindah-rak', [InventoryController::class, 'pindahRakBulk'])->name('inventory.live-stock.rak.bulk');

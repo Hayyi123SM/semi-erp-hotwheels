@@ -12,9 +12,11 @@ use Illuminate\Support\Collection;
 /**
  * Pencarian SKU untuk modal Mulai Sesi opname.
  *
- * Hasilnya dibatasi ke lot yang juga diterima {@see OpnameService::start()}.
- * Picker yang menawarkan lot nol atau lot yang sudah keluar dari gudang akan
- * mengarahkan pengguna memilih SKU yang pasti ditolak sesaat kemudian.
+ * Hasilnya dibatasi ke lot yang juga diterima {@see OpnameService::start()}
+ * untuk cakupan SKU. Lot kosong ikut ditawarkan karena unit yang ditemukan
+ * kembali tetap harus bisa dihitung; lot yang sudah keluar dari gudang tetap
+ * tidak ditawarkan. Payload tidak membawa qty agar blind count tidak bocor
+ * sebelum sesi dimulai.
  */
 final class OpnameSkuLookup
 {
@@ -34,7 +36,7 @@ final class OpnameSkuLookup
         }
 
         return StockLot::query()
-            ->opnameCountable()
+            ->opnameAdjustable()
             ->where(function (Builder $group) use ($term): void {
                 $like = LikePattern::contains($term);
 

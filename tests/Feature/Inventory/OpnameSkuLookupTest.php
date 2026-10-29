@@ -19,9 +19,10 @@ use Tests\TestCase;
  * Picker SKU untuk modal Mulai Sesi opname.
  *
  * Kontrak yang dijaga: yang ditawarkan hanya lot yang juga akan diterima
- * `OpnameService::start()`, dan payload tidak membawa angka sistem. Picker yang
- * menawarkan lot nol membuat pengguna memilih SKU yang pasti ditolak; picker
- * yang mengirim qty membocorkan hal yang justru disembunyikan sesi opname.
+ * `OpnameService::start()` untuk cakupan SKU, dan payload tidak membawa angka
+ * sistem. Lot kosong tetap ditawarkan supaya unit yang ditemukan kembali bisa
+ * dihitung; picker yang mengirim qty membocorkan hal yang justru disembunyikan
+ * sesi opname.
  */
 class OpnameSkuLookupTest extends TestCase
 {
@@ -95,7 +96,7 @@ class OpnameSkuLookupTest extends TestCase
     }
 
     #[Test]
-    public function lots_that_opname_cannot_count_are_not_offered(): void
+    public function empty_lots_are_offered_but_lots_outside_active_stock_are_not(): void
     {
         $this->lot('CN01-HW-001', qty: 3, status: LotStatus::Available);
         $this->lot('CN02-HW-002', qty: 2, status: LotStatus::SoldOut);
@@ -103,12 +104,13 @@ class OpnameSkuLookupTest extends TestCase
         $this->lot('CN04-HW-004', qty: 3, status: LotStatus::Returned);
         $this->lot('CN05-HW-005', qty: 3, status: LotStatus::WrittenOff);
         $this->lot('CN06-HW-006', qty: 3, status: LotStatus::Void);
+        $this->lot('CN07-HW-007', qty: 0, status: LotStatus::SoldOut);
 
         $response = $this->search(User::factory()->owner()->create(), 'HW')
             ->assertOk();
 
         $this->assertSame(
-            ['CN01-HW-001', 'CN02-HW-002'],
+            ['CN01-HW-001', 'CN02-HW-002', 'CN03-HW-003', 'CN07-HW-007'],
             collect($response->json('items'))->pluck('sku')->all(),
         );
     }

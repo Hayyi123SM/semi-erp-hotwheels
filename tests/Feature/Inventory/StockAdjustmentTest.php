@@ -9,6 +9,7 @@ use App\Enums\AuditAction;
 use App\Enums\LotStatus;
 use App\Enums\MovementType;
 use App\Models\AuditLog;
+use App\Models\Rack;
 use App\Models\StockLot;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -38,16 +39,33 @@ class StockAdjustmentTest extends TestCase
     /**
      * @param  array<string, mixed>  $extra
      */
-    private function reduce(User $actor, StockLot $lot, int $qty, int $expectedQty, array $extra = []): TestResponse
+    private function adjust(User $actor, StockLot $lot, string $direction, int $qty, int $expectedQty, array $extra = []): TestResponse
     {
         return $this->actingAs($actor)
             ->withHeader('X-Device-Id', 'TEST-DEVICE')
             ->from(route('inventory.live-stock'))
-            ->post(route('inventory.live-stock.kurangi', $lot), [
+            ->post(route('inventory.live-stock.koreksi', $lot), [
+                'direction' => $direction,
                 'qty' => $qty,
                 'expected_qty' => $expectedQty,
                 ...$extra,
             ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     */
+    private function reduce(User $actor, StockLot $lot, int $qty, int $expectedQty, array $extra = []): TestResponse
+    {
+        return $this->adjust($actor, $lot, 'kurangi', $qty, $expectedQty, $extra);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     */
+    private function increase(User $actor, StockLot $lot, int $qty, int $expectedQty, array $extra = []): TestResponse
+    {
+        return $this->adjust($actor, $lot, 'tambah', $qty, $expectedQty, $extra);
     }
 
     #[Test]
@@ -113,6 +131,58 @@ class StockAdjustmentTest extends TestCase
     }
 
     #[Test]
+    public function adding_stock_restores_a_sold_out_lot_without_touching_received_or_the_ledger(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $lot = StockLot::factory()->soldOut()->create(['sku' => 'CN01-HW-001']);
+
+        $this->assertSame(0, $lot->qty_on_hand);
+        $this->assertSame(5, $lot->qty_received);
+
+        $this->increase($owner, $lot, 2, 0)
+            ->assertRedirect(route('inventory.live-stock'))
+            ->assertSessionHas('toast');
+
+        $lot->refresh();
+
+        $this->assertSame(2, $lot->qty_on_hand);
+        $this->assertSame(5, $lot->qty_received);
+        $this->assertSame(LotStatus::Available, $lot->status);
+        $this->assertDatabaseCount('consignor_ledger', 0);
+
+        $movement = StockMovement::query()
+            ->where('lot_id', $lot->id)
+            ->sole();
+
+        $this->assertSame(MovementType::AdjPlus, $movement->type);
+        $this->assertSame(2, $movement->qty_delta);
+        $this->assertSame(2, $movement->balance_after);
+        $this->assertSame(AdjustmentReason::Miscount->value, $movement->reason);
+
+        $audit = AuditLog::query()
+            ->where('action', AuditAction::StockAdjustment->value)
+            ->sole();
+
+        $this->assertSame(['qty_on_hand' => 0, 'status' => LotStatus::SoldOut->value], $audit->before);
+        $this->assertSame(['qty_on_hand' => 2, 'status' => LotStatus::Available->value], $audit->after);
+    }
+
+    #[Test]
+    public function adding_stock_is_refused_when_the_rack_is_full(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $rack = Rack::factory()->create(['capacity' => 1]);
+        $lot = $this->lot(1);
+        $lot->update(['rack_id' => $rack->id]);
+
+        $this->increase($owner, $lot, 1, 1)->assertSessionHasErrors('qty');
+
+        $this->assertSame(1, $lot->refresh()->qty_on_hand);
+        $this->assertDatabaseCount('stock_movements', 0);
+        $this->assertDatabaseCount('audit_logs', 0);
+    }
+
+    #[Test]
     public function a_consignment_miscount_does_not_touch_the_consignor_ledger(): void
     {
         $owner = User::factory()->owner()->create();
@@ -158,7 +228,7 @@ class StockAdjustmentTest extends TestCase
     }
 
     #[Test]
-    public function zero_is_not_a_reduction(): void
+    public function zero_is_not_a_correction(): void
     {
         $owner = User::factory()->owner()->create();
         $lot = $this->lot(5);
@@ -183,13 +253,27 @@ class StockAdjustmentTest extends TestCase
     }
 
     #[Test]
-    public function staff_cannot_reduce_stock(): void
+    public function a_lot_outside_available_or_sold_out_cannot_be_increased(): void
+    {
+        $owner = User::factory()->owner()->create();
+        $lot = $this->lot(0, LotStatus::Returned);
+
+        $this->increase($owner, $lot, 1, 0)->assertSessionHasErrors('qty');
+
+        $this->assertSame(0, $lot->refresh()->qty_on_hand);
+        $this->assertSame(LotStatus::Returned, $lot->status);
+        $this->assertDatabaseCount('stock_movements', 0);
+    }
+
+    #[Test]
+    public function staff_cannot_correct_stock(): void
     {
         $staff = User::factory()->staff()->create();
         $lot = $this->lot(5);
 
         $this->actingAs($staff)
-            ->post(route('inventory.live-stock.kurangi', $lot), [
+            ->post(route('inventory.live-stock.koreksi', $lot), [
+                'direction' => 'kurangi',
                 'qty' => 1,
                 'expected_qty' => 5,
             ])
@@ -204,7 +288,8 @@ class StockAdjustmentTest extends TestCase
     {
         $lot = $this->lot(5);
 
-        $this->post(route('inventory.live-stock.kurangi', $lot), [
+        $this->post(route('inventory.live-stock.koreksi', $lot), [
+            'direction' => 'tambah',
             'qty' => 1,
             'expected_qty' => 5,
         ])->assertRedirect(route('login'));
@@ -218,7 +303,8 @@ class StockAdjustmentTest extends TestCase
         $owner = User::factory()->owner()->create();
 
         $this->actingAs($owner)
-            ->post(route('inventory.live-stock.kurangi', ['lot' => 999_999]), [
+            ->post(route('inventory.live-stock.koreksi', ['lot' => 999_999]), [
+                'direction' => 'tambah',
                 'qty' => 1,
                 'expected_qty' => 5,
             ])
@@ -226,7 +312,7 @@ class StockAdjustmentTest extends TestCase
     }
 
     #[Test]
-    public function the_live_stock_page_exposes_the_reduction_dialog(): void
+    public function the_live_stock_page_exposes_the_correction_dialog(): void
     {
         $owner = User::factory()->owner()->create();
         $this->lot(3);
@@ -234,12 +320,13 @@ class StockAdjustmentTest extends TestCase
         $this->actingAs($owner)
             ->get(route('inventory.live-stock'))
             ->assertOk()
-            ->assertSee('kurangi-stok')
+            ->assertSee('koreksi-stok')
+            ->assertSee('Tambah Stok')
             ->assertSee('Kurangi Stok');
     }
 
     #[Test]
-    public function the_reduction_action_only_appears_for_lots_with_available_stock(): void
+    public function the_correction_actions_follow_the_lot_status(): void
     {
         $sellable = Blade::render(
             '<x-inventory.lot-actions :row="$row" :data="[\'canTransfer\' => false]" />',
@@ -247,14 +334,24 @@ class StockAdjustmentTest extends TestCase
         );
 
         $this->assertStringContainsString('Kurangi', $sellable);
-        $this->assertStringContainsString('live-stock:reduce', $sellable);
+        $this->assertStringContainsString('Tambah', $sellable);
+        $this->assertStringContainsString('live-stock:adjust', $sellable);
+
+        $soldOut = Blade::render(
+            '<x-inventory.lot-actions :row="$row" :data="[\'canTransfer\' => false]" />',
+            ['row' => $this->lot(0, LotStatus::SoldOut, 'OW00-HW-002')],
+        );
+
+        $this->assertStringNotContainsString('Kurangi', $soldOut);
+        $this->assertStringContainsString('Tambah', $soldOut);
 
         $returned = Blade::render(
             '<x-inventory.lot-actions :row="$row" :data="[\'canTransfer\' => false]" />',
-            ['row' => $this->lot(3, LotStatus::Returned, 'OW00-HW-002')],
+            ['row' => $this->lot(3, LotStatus::Returned, 'OW00-HW-003')],
         );
 
         $this->assertStringNotContainsString('Kurangi', $returned);
-        $this->assertStringNotContainsString('live-stock:reduce', $returned);
+        $this->assertStringNotContainsString('Tambah', $returned);
+        $this->assertStringNotContainsString('live-stock:adjust', $returned);
     }
 }

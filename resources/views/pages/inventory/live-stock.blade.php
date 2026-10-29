@@ -27,7 +27,7 @@
 --}}
 <div class="space-y-6"
      x-data="liveStockBulk"
-     @live-stock:reduce.window="reduce = $event.detail; $dispatch('open-modal', 'kurangi-stok')"
+     @live-stock:adjust.window="adjust = $event.detail; $dispatch('open-modal', 'koreksi-stok')"
      @live-stock:transfer.window="transfer = $event.detail; $dispatch('open-modal', 'pindah-rak')"
      @live-stock:select-visible.window="selectVisible()"
      @live-stock:clear.window="clearAll()"
@@ -172,34 +172,42 @@
         </x-ui.data-table>
     </x-ui.section-card>
 
-    {{-- Dialog koreksi stok. Hanya untuk salah input/salah hitung: alasan
-         ditetapkan server, dan `expected_qty` adalah stok yang dilihat saat
-         dialog dibuka. Angka itu yang membuat kiriman kedua dari halaman yang
-         sudah kedaluwarsa ditolak, bukan mengurangi stok dua kali. --}}
-    <x-modal name="kurangi-stok" focusable>
-        <template x-if="reduce">
-            <form method="POST" :action="reduce.url">
+    {{-- Dialog koreksi stok dua arah. Hanya untuk salah input/salah hitung:
+         alasan ditetapkan server, dan `expected_qty` adalah stok yang dilihat
+         saat dialog dibuka. Angka itu yang membuat kiriman kedua dari halaman
+         yang sudah kedaluwarsa ditolak, bukan mengubah stok dua kali. --}}
+    <x-modal name="koreksi-stok" focusable>
+        <template x-if="adjust">
+            <form method="POST" :action="adjust.url">
                 @csrf
-                <input type="hidden" name="expected_qty" :value="reduce.expectedQty">
+                <input type="hidden" name="direction" :value="adjust.direction">
+                <input type="hidden" name="expected_qty" :value="adjust.expectedQty">
 
                 <div class="space-y-5 p-6">
                     <div>
-                        <h2 class="text-headline-sm text-text-strong">Kurangi Stok</h2>
+                        <h2 class="text-headline-sm text-text-strong"
+                            x-text="adjust.direction === 'tambah' ? 'Tambah Stok' : 'Kurangi Stok'"></h2>
                         <p class="mt-1 text-body-sm text-text-muted">
-                            <span class="font-mono text-text-strong" x-text="reduce.sku"></span>
+                            <span class="font-mono text-text-strong" x-text="adjust.sku"></span>
                             · stok saat ini
-                            <span class="font-semibold text-text-strong" x-text="reduce.expectedQty"></span> unit.
+                            <span class="font-semibold text-text-strong" x-text="adjust.expectedQty"></span> unit.
                         </p>
                     </div>
 
-                    <x-ui.field label="Jumlah dikurangi" name="qty" required hint="Minimal 1 unit dan tidak boleh melebihi stok saat ini.">
-                        <input type="number" id="qty" name="qty" min="1" :max="reduce.expectedQty"
+                    <x-ui.field label="Jumlah koreksi" name="qty" required>
+                        <input type="number" id="qty" name="qty" min="1"
+                               :max="adjust.direction === 'kurangi' ? adjust.expectedQty : null"
                                inputmode="numeric" class="input-base" required>
+                        <p class="mt-1 text-label-sm text-text-subtle"
+                           x-text="adjust.direction === 'kurangi'
+                               ? 'Minimal 1 unit dan tidak boleh melebihi stok saat ini.'
+                               : 'Unit tambahan harus muat di rak dan tidak boleh membuat stok melewati batas sistem.'"></p>
                     </x-ui.field>
 
                     <x-ui.banner tone="warning">
                         Alasan yang dicatat: <span class="font-semibold">salah hitung / salah input</span>.
-                        Untuk barang hilang atau rusak, gunakan alur opname atau karantina — bukan tombol ini.
+                        Untuk barang hilang atau rusak, gunakan alur opname atau karantina.
+                        Untuk unit temuan, gunakan opname per SKU — bukan tombol ini.
                     </x-ui.banner>
 
                     @if ($errors->any())
@@ -208,7 +216,9 @@
 
                     <div class="flex justify-end gap-2">
                         <button type="button" class="btn-secondary" @click="$dispatch('close')">Batal</button>
-                        <button type="submit" class="btn-destructive">Kurangi Stok</button>
+                        <button type="submit"
+                                :class="adjust.direction === 'tambah' ? 'btn-primary' : 'btn-destructive'"
+                                x-text="adjust.direction === 'tambah' ? 'Tambah Stok' : 'Kurangi Stok'"></button>
                     </div>
                 </div>
             </form>
